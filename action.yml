@@ -1,0 +1,37 @@
+name: 'Sonar Fork Analysis'
+description: 'Analyse project with Sonar including external fork'
+runs:
+  using: "composite"
+  steps:
+    - name: 'Prepare target artifact'
+      shell: bash
+      run: |
+        find -iname "*target" -type d -exec tar -rf target.tar {} \+
+        zstd -q -T0 target.tar
+
+    - name: 'Upload target artifact'
+      uses: actions/upload-artifact@v4
+      with:
+        name: target-artifact
+        path: target.tar.zst
+        if-no-files-found: error
+        retention-days: 1
+
+    - name: 'Set groupId'
+      shell: bash
+      run: echo "group_id=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.groupId | tr . /)" >> "$GITHUB_ENV"
+
+    - name: 'Prepare repository artifact'
+      shell: bash
+      run: |
+        cd ~/.m2/repository
+        find -path "./${group_id}/*" -exec tar -rf repository.tar {} \+
+        zstd -q -T0 repository.tar
+
+    - name: 'Upload repository artifact'
+      uses: actions/upload-artifact@v4
+      with:
+        name: repository-artifact
+        path: ~/.m2/repository/repository.tar.zst
+        if-no-files-found: error
+        retention-days: 1
