@@ -19,10 +19,10 @@ runs:
         popd
         mv ~/.m2/repository/repository.tar .
 
-    - name: 'Upload artifact'
+    - name: 'Upload sonar artifact'
       uses: actions/upload-artifact@v4
       with:
-        name: repository-artifact
+        name: sonar-artifact
         path: |
           target.tar
           repository.tar
