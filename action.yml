@@ -14,8 +14,10 @@ runs:
     - name: 'Prepare repository artifact'
       shell: bash
       run: |
-        cd ~/.m2/repository
+        pushd ~/.m2/repository
         find -path "./${group_id}/*" -exec tar -rf repository.tar {} \+
+        popd
+        mv ~/.m2/repository/repository.tar .
 
     - name: 'Upload artifact'
       uses: actions/upload-artifact@v4
@@ -23,6 +25,6 @@ runs:
         name: repository-artifact
         path: |
           target.tar
-          ~/.m2/repository/repository.tar
+          repository.tar
         if-no-files-found: error
         retention-days: 1
