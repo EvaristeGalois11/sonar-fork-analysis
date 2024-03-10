@@ -5,15 +5,13 @@ runs:
   steps:
     - name: 'Prepare target artifact'
       shell: bash
-      run: |
-        find -iname "*target" -type d -exec tar -rf target.tar {} \+
-        zstd -q -T0 target.tar
+      run: find -iname "*target" -type d -exec tar -rf target.tar {} \+
 
     - name: 'Upload target artifact'
       uses: actions/upload-artifact@v4
       with:
         name: target-artifact
-        path: target.tar.zst
+        path: target.tar
         if-no-files-found: error
         retention-days: 1
 
@@ -26,12 +24,11 @@ runs:
       run: |
         cd ~/.m2/repository
         find -path "./${group_id}/*" -exec tar -rf repository.tar {} \+
-        zstd -q -T0 repository.tar
 
     - name: 'Upload repository artifact'
       uses: actions/upload-artifact@v4
       with:
         name: repository-artifact
-        path: ~/.m2/repository/repository.tar.zst
+        path: ~/.m2/repository/repository.tar
         if-no-files-found: error
         retention-days: 1
