@@ -39,6 +39,7 @@ runs:
       with:
         run-id: ${{ github.event.workflow_run.id }}
         github-token: ${{ env.GITHUB_TOKEN }}
+        merge-multiple: true
 
     - name: 'Display structure of downloaded files'
       if: github.event_name == 'workflow_run'
