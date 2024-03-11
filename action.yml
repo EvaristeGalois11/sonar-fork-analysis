@@ -1,24 +1,20 @@
 name: 'Sonar Fork Analysis'
 description: 'Analyse project with Sonar including external fork'
-inputs:
-  phase:
-    description: 'Phase of the sonar analysis'
-    required: true
 runs:
   using: "composite"
   steps:
     - name: 'Prepare target artifact'
-      if: ${{ inputs.phase == 'prepare' }}
+      if: github.event_name != 'workflow_run'
       shell: bash
       run: find -iname "*target" -type d -exec tar -rf target.tar {} \+
 
     - name: 'Set groupId'
-      if: inputs.phase == 'prepare'
+      if: github.event_name != 'workflow_run'
       shell: bash
       run: echo "group_id=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.groupId | tr . /)" >> "$GITHUB_ENV"
 
     - name: 'Prepare repository artifact'
-      if: inputs.phase == 'prepare'
+      if: github.event_name != 'workflow_run'
       shell: bash
       run: |
         pushd ~/.m2/repository
@@ -27,7 +23,7 @@ runs:
         mv ~/.m2/repository/repository.tar .
 
     - name: 'Upload sonar artifact'
-      if: inputs.phase == 'prepare'
+      if: github.event_name != 'workflow_run'
       uses: actions/upload-artifact@v4
       with:
         name: sonar-artifact
