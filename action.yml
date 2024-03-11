@@ -37,6 +37,7 @@ runs:
       if: github.event_name == 'workflow_run'
       uses: actions/download-artifact@v4
       with:
+        name: sonar-artifact
         run-id: ${{ github.event.workflow_run.id }}
         github-token: ${{ env.GITHUB_TOKEN }}
         merge-multiple: true
