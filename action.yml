@@ -33,13 +33,18 @@ runs:
         if-no-files-found: error
         retention-days: 1
 
+    - name: 'Log event'
+      if: github.event_name == 'workflow_run'
+      shell: bash
+      run: echo ${{ toJson(github.event.workflow_run) }}
+
     - name: 'Download sonar artifact'
       if: github.event_name == 'workflow_run'
       uses: actions/download-artifact@v4
       with:
         name: sonar-artifact
 
-    - name: Display structure of downloaded files
+    - name: 'Display structure of downloaded files'
       if: github.event_name == 'workflow_run'
       shell: bash
       run: ls -ahl
