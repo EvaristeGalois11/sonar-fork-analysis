@@ -36,13 +36,16 @@ runs:
     - name: 'Log event'
       if: github.event_name == 'workflow_run'
       shell: bash
-      run: echo ${{ toJson(github.event.workflow_run) }}
+      run: |
+        workflow=${{ toJson(github.event.workflow_run) }}
+        echo "${workflow}"
 
     - name: 'Download sonar artifact'
       if: github.event_name == 'workflow_run'
       uses: actions/download-artifact@v4
       with:
         name: sonar-artifact
+        run_id: ${{ github.event.workflow_run.id }}
 
     - name: 'Display structure of downloaded files'
       if: github.event_name == 'workflow_run'
