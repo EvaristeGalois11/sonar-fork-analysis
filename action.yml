@@ -2,9 +2,13 @@ name: 'Sonar Fork Analysis'
 description: 'Analyse project with Sonar including external fork'
 inputs:
   java-version:
-    description: 'The Java version to set up. Takes a whole or semver Java version. See examples of supported syntax in actions/set-up-java README file'
+    description: 'The Java version to set up. Takes a whole or semver Java version. See examples of supported syntax in actions/setup-java README file'
+    required: true
   distribution:
-    description: 'Java distribution. See the list of supported distributions in actions/set-up-java README file'
+    description: 'Java distribution. See the list of supported distributions in actions/setup-java README file'
+    required: true
+  github-token:
+    description: 'The GitHub token used to authenticate with the GitHub API.'
     required: true
 runs:
   using: "composite"
@@ -70,7 +74,7 @@ runs:
       with:
         name: sonar-artifact
         run-id: ${{ github.event.workflow_run.id }}
-        github-token: ${{ env.GITHUB_TOKEN }}
+        github-token: ${{ inputs.github-token }}
         merge-multiple: true
 
     - name: 'Display structure of downloaded files'
