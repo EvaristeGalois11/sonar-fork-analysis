@@ -1,5 +1,11 @@
 name: 'Sonar Fork Analysis'
 description: 'Analyse project with Sonar including external fork'
+inputs:
+  java-version:
+    description: 'The Java version to set up. Takes a whole or semver Java version. See examples of supported syntax in actions/set-up-java README file'
+  distribution:
+    description: 'Java distribution. See the list of supported distributions in actions/set-up-java README file'
+    required: true
 runs:
   using: "composite"
   steps:
@@ -42,6 +48,13 @@ runs:
         repository: ${{ github.event.workflow_run.head_repository.full_name }}
         ref: ${{ github.event.workflow_run.head_branch }}
         fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of Sonar analysis
+
+    - name: 'Set up Java'
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ inputs.java-version }}
+        distribution: ${{ inputs.distribution }}
+        cache: maven
 
     - name: 'Cache SonarCloud packages'
       if: github.event_name == 'workflow_run'
