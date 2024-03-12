@@ -63,4 +63,4 @@ runs:
     - name: 'Display structure of downloaded files'
       if: github.event_name == 'workflow_run'
       shell: bash
-      run: ls -ahl
+      run: ls -hlR
