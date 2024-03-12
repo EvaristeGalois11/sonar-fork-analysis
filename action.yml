@@ -10,6 +10,12 @@ inputs:
   github-token:
     description: 'The GitHub token used to authenticate with the GitHub API.'
     required: true
+  sonar-token:
+    description: 'The Sonar token used to authenticate with the Sonar API.'
+    required: true
+  project-key:
+    description: 'The project key assigned by Sonar.'
+    required: true
 runs:
   using: "composite"
   steps:
@@ -85,7 +91,14 @@ runs:
         tar -xf target.tar
         tar -xf repository.tar -C ~/.m2/repository
 
-    - name: 'Display structure of downloaded files'
+    - name: 'Sonar analysis'
       if: github.event_name == 'workflow_run'
       shell: bash
-      run: ls -hlR
+      run: >
+        mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=${{ inputs.project-key }} 
+        -Dsonar.scm.revision=${{ github.event.workflow_run.head_sha }} 
+        -Dsonar.pullrequest.key=${{ github.event.workflow_run.pull_requests[0].number }} 
+        -Dsonar.pullrequest.branch=${{ github.event.workflow_run.pull_requests[0].head.ref }} 
+        -Dsonar.pullrequest.base=${{ github.event.workflow_run.pull_requests[0].base.ref }}
+      env:
+        SONAR_TOKEN: ${{ inputs.sonar-token }}
