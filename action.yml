@@ -78,6 +78,12 @@ runs:
         github-token: ${{ inputs.github-token }}
         merge-multiple: true
 
+    - name: 'Extract artifacts'
+      if: github.event_name == 'workflow_run'
+      shell: bash
+      run: |
+        tar -xf target.tar
+
     - name: 'Display structure of downloaded files'
       if: github.event_name == 'workflow_run'
       shell: bash
