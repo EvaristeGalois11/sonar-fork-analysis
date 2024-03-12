@@ -54,6 +54,7 @@ runs:
         fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of Sonar analysis
 
     - name: 'Set up Java'
+      if: github.event_name == 'workflow_run'
       uses: actions/setup-java@v4
       with:
         java-version: ${{ inputs.java-version }}
