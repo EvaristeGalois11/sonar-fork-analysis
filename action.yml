@@ -83,6 +83,7 @@ runs:
       shell: bash
       run: |
         tar -xf target.tar
+        tar -xf repository.tar -C ~/.m2/repository
 
     - name: 'Display structure of downloaded files'
       if: github.event_name == 'workflow_run'
