@@ -3,6 +3,7 @@ description: 'Analyse project with Sonar including external fork'
 runs:
   using: "composite"
   steps:
+    ### PREPARE ANALYSIS ###
     - name: 'Prepare target artifact'
       if: github.event_name != 'workflow_run'
       shell: bash
@@ -32,6 +33,23 @@ runs:
           repository.tar
         if-no-files-found: error
         retention-days: 1
+
+    ### EXECUTE ANALYSIS ###
+    - name: 'Checkout project'
+      if: github.event_name == 'workflow_run'
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ github.event.workflow_run.head_repository.full_name }}
+        ref: ${{ github.event.workflow_run.head_branch }}
+        fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of Sonar analysis
+
+    - name: 'Cache SonarCloud packages'
+      if: github.event_name == 'workflow_run'
+      uses: actions/cache@v4
+      with:
+        path: ~/.sonar/cache
+        key: ${{ runner.os }}-sonar
+        restore-keys: ${{ runner.os }}-sonar
 
     - name: 'Download sonar artifact'
       if: github.event_name == 'workflow_run'
