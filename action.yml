@@ -25,6 +25,14 @@ runs:
       shell: bash
       run: find -iname "*target" -type d -exec tar -rf target.tar {} \+
 
+    - name: 'Print pull request event'
+      if: github.event_name != 'workflow_run'
+      shell: bash
+      run: |
+        echo ${{ github.event.pull_request.number }}
+        echo ${{ github.event.pull_request.head.ref }}
+        echo ${{ github.event.pull_request.base.ref }}
+
     - name: 'Set groupId'
       if: github.event_name != 'workflow_run'
       shell: bash
