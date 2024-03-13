@@ -112,18 +112,18 @@ runs:
       if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
       shell: bash
       run: >
-        mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=${{ inputs.project-key }}
-      env:
-        SONAR_TOKEN: ${{ inputs.sonar-token }}
+        mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+        -Dsonar.projectKey=${{ inputs.project-key }}
+        -Dsonar.token=${{ inputs.sonar-token }}
 
     - name: 'Sonar analysis of pull request'
       if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
       shell: bash
       run: >
-        mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=${{ inputs.project-key }}
+        mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+        -Dsonar.projectKey=${{ inputs.project-key }}
         -Dsonar.scm.revision=${{ github.event.workflow_run.head_sha }}
-        -Dsonar.pullrequest.key="${pr_number}"
-        -Dsonar.pullrequest.branch="${pr_head_ref}"
-        -Dsonar.pullrequest.base="${pr_base_ref}"
-      env:
-        SONAR_TOKEN: ${{ inputs.sonar-token }}
+        -Dsonar.pullrequest.key=${{ env.pr_number }}
+        -Dsonar.pullrequest.branch=${{ env.pr_head_ref }}
+        -Dsonar.pullrequest.base=${{ env.pr_base_ref }}
+        -Dsonar.token=${{ inputs.sonar-token }}
