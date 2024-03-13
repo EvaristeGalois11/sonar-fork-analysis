@@ -91,10 +91,6 @@ runs:
         tar -xf target.tar
         tar -xf repository.tar -C ~/.m2/repository
 
-    - name: 'Print event type'
-      shell: bash
-      run: echo ${{ github.event.workflow_run.event }}
-
     - name: 'Sonar analysis of default branch'
       if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
       shell: bash
