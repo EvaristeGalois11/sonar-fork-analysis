@@ -96,7 +96,7 @@ runs:
       run: echo ${{ github.event.workflow_run.event }}
 
     - name: 'Sonar analysis of default branch'
-      if: github.event_name == 'workflow_run' $$ github.event.workflow_run.event == 'push'
+      if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
       shell: bash
       run: >
         mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=${{ inputs.project-key }}
@@ -104,7 +104,7 @@ runs:
         SONAR_TOKEN: ${{ inputs.sonar-token }}
 
     - name: 'Sonar analysis of pull request'
-      if: github.event_name == 'workflow_run' $$ github.event.workflow_run.event == 'pull_request'
+      if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
       shell: bash
       run: >
         mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=${{ inputs.project-key }}
