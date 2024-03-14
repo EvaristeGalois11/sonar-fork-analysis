@@ -3,19 +3,14 @@ description: 'Analyse projects with Sonar including external forks'
 inputs:
   java-version:
     description: 'The Java version to set up. Takes a whole or semver Java version. See examples of supported syntax in actions/setup-java README file'
-    required: true
   distribution:
     description: 'Java distribution. See the list of supported distributions in actions/setup-java README file'
-    required: true
   github-token:
     description: 'The GitHub token used to authenticate with the GitHub API.'
-    required: true
   sonar-token:
     description: 'The Sonar token used to authenticate with the Sonar API.'
-    required: true
   project-key:
-    description: 'The project key assigned by Sonar.'
-    required: true
+    description: 'The project''s unique key assigned by Sonar.'
 runs:
   using: "composite"
   steps:
