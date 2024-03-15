@@ -24,7 +24,7 @@ jobs:
         run: ./mvnw -B install # Be sure to invoke the install goal!
 
       - name: 'Prepare Sonar analysis'
-        uses: evaristegalois11/sonar-fork-analysis@1
+        uses: evaristegalois11/sonar-fork-analysis@v1
 ```
 
 Create a new workflow triggered by the conclusion of the previous one and add this action to it. 
@@ -44,7 +44,7 @@ jobs:
       actions: read # Required to download artifacts
     steps:
       - name: 'Sonar analysis'
-        uses: evaristegalois11/sonar-fork-analysis@1
+        uses: evaristegalois11/sonar-fork-analysis@v1
         with:
           distribution: your-java-distribution
           java-version: your-java-version
