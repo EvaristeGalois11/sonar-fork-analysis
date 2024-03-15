@@ -68,6 +68,6 @@ The first workflow will gather all the necessary files and upload them as an art
 - `project-key`:The project's unique key assigned by Sonar.
 
 ## Useful resources
-https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
-https://community.sonarsource.com/t/sonar-cannot-be-run-on-pr-from-a-fork/69229
-https://community.sonarsource.com/t/how-to-use-sonarcloud-with-a-forked-repository-on-github/7363
+- https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
+- https://community.sonarsource.com/t/sonar-cannot-be-run-on-pr-from-a-fork/69229
+- https://community.sonarsource.com/t/how-to-use-sonarcloud-with-a-forked-repository-on-github/7363
