@@ -1,5 +1,5 @@
 name: 'Sonar Fork Analysis'
-description: 'Analyse projects with Sonar including external forks'
+description: 'Sonar scan external forks of your project'
 inputs:
   java-version:
     description: 'The Java version to set up. Takes a whole or semver Java version. See examples of supported syntax in actions/setup-java README file'
