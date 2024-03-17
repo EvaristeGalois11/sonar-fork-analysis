@@ -119,11 +119,23 @@ runs:
         echo "pr_head_ref=$(sed '2q;d' pr-event.txt)" >> "$GITHUB_ENV"
         echo "pr_base_ref=$(sed '3q;d' pr-event.txt)" >> "$GITHUB_ENV"
 
-    - name: 'Sonar analysis'
+    - name: 'Sonar analysis maven'
       if: github.event_name == 'workflow_run' && env.build_type == 'maven'
       shell: bash
       run: >
         mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+        -Dsonar.projectKey=${{ inputs.project-key }}
+        -Dsonar.token=${{ inputs.sonar-token }}
+        ${{ github.event.workflow_run.event == 'pull_request' && format('{0}{1}', '-Dsonar.scm.revision=', github.event.workflow_run.head_sha) || '' }}
+        ${{ github.event.workflow_run.event == 'pull_request' && format('{0}{1}', '-Dsonar.pullrequest.key=', env.pr_number) || '' }}
+        ${{ github.event.workflow_run.event == 'pull_request' && format('{0}{1}', '-Dsonar.pullrequest.branch=', env.pr_head_ref) || '' }}
+        ${{ github.event.workflow_run.event == 'pull_request' && format('{0}{1}', '-Dsonar.pullrequest.base=', env.pr_base_ref) || '' }}
+
+    - name: 'Sonar analysis gradle'
+      if: github.event_name == 'workflow_run' && env.build_type == 'gradle'
+      shell: bash
+      run: >
+        gradle sonar
         -Dsonar.projectKey=${{ inputs.project-key }}
         -Dsonar.token=${{ inputs.sonar-token }}
         ${{ github.event.workflow_run.event == 'pull_request' && format('{0}{1}', '-Dsonar.scm.revision=', github.event.workflow_run.head_sha) || '' }}
