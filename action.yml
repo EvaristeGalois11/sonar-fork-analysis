@@ -17,6 +17,11 @@ branding:
 runs:
   using: "composite"
   steps:
+    - name: 'Infer build type'
+      shell: bash
+      run: |
+        run: echo "build_type=$(test -f pom.xml && echo maven || echo gradle)" >> "$GITHUB_ENV"
+
     ### PREPARE ANALYSIS ###
     - name: 'Prepare pull request artifact'
       if: github.event_name != 'workflow_run'
@@ -26,18 +31,18 @@ runs:
         echo ${{ github.event.pull_request.head.ref }} >> pr-event.txt
         echo ${{ github.event.pull_request.base.ref }} >> pr-event.txt
 
-    - name: 'Prepare target artifact'
+    - name: 'Prepare output artifact'
       if: github.event_name != 'workflow_run'
       shell: bash
-      run: find -iname "*target" -type d -exec tar -rf target.tar {} \+
+      run: find -iname "*$(test ${build_type} = maven && echo target || echo build)" -type d -exec tar -rf output.tar {} \+
 
     - name: 'Set groupId'
-      if: github.event_name != 'workflow_run'
+      if: github.event_name != 'workflow_run' && env.build_type = maven
       shell: bash
       run: echo "group_id=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.groupId | tr . /)" >> "$GITHUB_ENV"
 
     - name: 'Prepare repository artifact'
-      if: github.event_name != 'workflow_run'
+      if: github.event_name != 'workflow_run' && env.build_type = maven
       shell: bash
       run: |
         pushd ~/.m2/repository
@@ -52,7 +57,7 @@ runs:
         name: sonar-artifact
         path: |
           pr-event.txt
-          target.tar
+          output.tar
           repository.tar
         if-no-files-found: error
         retention-days: 1
@@ -72,7 +77,7 @@ runs:
       with:
         java-version: ${{ inputs.java-version }}
         distribution: ${{ inputs.distribution }}
-        cache: maven
+        cache: ${{ env.build_type }}
 
     - name: 'Cache SonarCloud packages'
       if: github.event_name == 'workflow_run'
@@ -91,12 +96,15 @@ runs:
         github-token: ${{ inputs.github-token }}
         merge-multiple: true
 
-    - name: 'Extract artifacts'
+    - name: 'Extract output artifact'
       if: github.event_name == 'workflow_run'
       shell: bash
-      run: |
-        tar -xf target.tar
-        tar -xf repository.tar -C ~/.m2/repository
+      run: tar -xf output.tar
+
+    - name: 'Extract repository artifact'
+      if: github.event_name == 'workflow_run' && env.build_type = maven
+      shell: bash
+      run: tar -xf repository.tar -C ~/.m2/repository
 
     - name: 'Read pull request event'
       if: github.event_name == 'workflow_run'
@@ -107,7 +115,7 @@ runs:
         echo "pr_base_ref=$(sed '3q;d' pr-event.txt)" >> "$GITHUB_ENV"
 
     - name: 'Sonar analysis'
-      if: github.event_name == 'workflow_run'
+      if: github.event_name == 'workflow_run' && env.build_type = maven
       shell: bash
       run: >
         mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
