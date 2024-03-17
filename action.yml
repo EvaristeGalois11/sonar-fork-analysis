@@ -37,12 +37,12 @@ runs:
       run: find -iname "*$(test ${build_type} = maven && echo target || echo build)" -type d -exec tar -rf output.tar {} \+
 
     - name: 'Set groupId'
-      if: github.event_name != 'workflow_run' && env.build_type = maven
+      if: github.event_name != 'workflow_run' && env.build_type == 'maven'
       shell: bash
       run: echo "group_id=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.groupId | tr . /)" >> "$GITHUB_ENV"
 
     - name: 'Prepare repository artifact'
-      if: github.event_name != 'workflow_run' && env.build_type = maven
+      if: github.event_name != 'workflow_run' && env.build_type == 'maven'
       shell: bash
       run: |
         pushd ~/.m2/repository
@@ -102,7 +102,7 @@ runs:
       run: tar -xf output.tar
 
     - name: 'Extract repository artifact'
-      if: github.event_name == 'workflow_run' && env.build_type = maven
+      if: github.event_name == 'workflow_run' && env.build_type == 'maven'
       shell: bash
       run: tar -xf repository.tar -C ~/.m2/repository
 
@@ -115,7 +115,7 @@ runs:
         echo "pr_base_ref=$(sed '3q;d' pr-event.txt)" >> "$GITHUB_ENV"
 
     - name: 'Sonar analysis'
-      if: github.event_name == 'workflow_run' && env.build_type = maven
+      if: github.event_name == 'workflow_run' && env.build_type == 'maven'
       shell: bash
       run: >
         mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
