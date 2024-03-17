@@ -19,8 +19,7 @@ runs:
   steps:
     - name: 'Infer build type'
       shell: bash
-      run: |
-        run: echo "build_type=$(test -f pom.xml && echo maven || echo gradle)" >> "$GITHUB_ENV"
+      run: echo "build_type=$(test -f pom.xml && echo maven || echo gradle)" >> "$GITHUB_ENV"
 
     ### PREPARE ANALYSIS ###
     - name: 'Prepare pull request artifact'
