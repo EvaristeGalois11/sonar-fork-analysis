@@ -119,7 +119,9 @@ runs:
     - name: 'Extract repository artifact'
       if: github.event_name == 'workflow_run' && env.build_type == 'maven'
       shell: bash
-      run: tar -xf repository.tar -C ~/.m2/repository
+      run: |
+        mkdir -p ~/.m2/repository
+        tar -xf repository.tar -C ~/.m2/repository
 
     - name: 'Read pull request event'
       if: github.event_name == 'workflow_run'
