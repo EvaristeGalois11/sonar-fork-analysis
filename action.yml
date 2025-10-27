@@ -52,7 +52,7 @@ runs:
 
     - name: 'Upload sonar artifact'
       if: github.event_name != 'workflow_run'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: sonar-artifact
         path: |
