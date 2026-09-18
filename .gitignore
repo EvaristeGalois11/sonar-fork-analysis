@@ -1,2 +1,6 @@
 .idea
 *.iml
+# fixture build output
+target/
+build/
+.gradle/

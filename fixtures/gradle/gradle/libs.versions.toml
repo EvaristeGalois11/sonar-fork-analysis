@@ -1,0 +1,5 @@
+[versions]
+junit = "6.1.3"
+
+[plugins]
+sonar = "org.sonarqube:7.5.0.8588"
