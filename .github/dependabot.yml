@@ -4,3 +4,13 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+
+  - package-ecosystem: "maven"
+    directory: "/fixtures/maven"
+    schedule:
+      interval: "daily"
+
+  - package-ecosystem: "gradle"
+    directory: "/fixtures/gradle"
+    schedule:
+      interval: "daily"
