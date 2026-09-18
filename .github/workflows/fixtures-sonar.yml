@@ -1,0 +1,41 @@
+# Analyses the fixtures prepared by the 'Fixtures' workflow. This job holds the Sonar token, so it
+# must never execute code coming from the analysed commit.
+#
+# Two rules keep that true, and they are the whole point of this project:
+#   - the action is referenced from the default branch, never with 'uses: ./' on the checkout;
+#   - the checkout is only read, by the scanner.
+#
+# Consequence for development: a change to the analysis side is only exercised here once it is on
+# main. Before that, use scripts/e2e.sh.
+name: 'Fixtures Sonar'
+on:
+  workflow_run:
+    workflows: [ Fixtures ]
+    types:
+      - completed
+permissions:
+  actions: read          # download the artifact of the triggering run
+  contents: read
+  pull-requests: read    # resolve the pull request a fork commit belongs to
+jobs:
+  analyse:
+    name: 'Analyse ${{ matrix.fixture }}'
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - fixture: maven
+            project-key: EvaristeGalois11_sonar-fork-analysis_maven
+          - fixture: gradle
+            project-key: EvaristeGalois11_sonar-fork-analysis_gradle
+    steps:
+      - name: 'Analyse with Sonar'
+        uses: evaristegalois11/sonar-fork-analysis@main
+        with:
+          id: ${{ matrix.fixture }}
+          project-key: ${{ matrix.project-key }}
+          sonar-organization: evaristegalois
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
