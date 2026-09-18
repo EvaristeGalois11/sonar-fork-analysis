@@ -1,7 +1,8 @@
-# Builds the test fixtures and prepares their Sonar analysis, with no access to secrets.
+# Builds the test fixtures and analyses them when the Sonar token is available.
 #
-# For a pull request from a fork this runs the contributor's code, so the job must stay
-# unprivileged: it only uploads an artifact, which the 'Fixtures Sonar' workflow picks up.
+# For a pull request from a fork GitHub withholds the secrets, so the action falls back to
+# preparing an artifact that the 'Fixtures Sonar' workflow analyses afterwards. This job therefore
+# stays unprivileged: it must use 'pull_request', never 'pull_request_target'.
 name: 'Fixtures'
 on:
   push:
@@ -12,15 +13,21 @@ permissions:
   contents: read
 jobs:
   prepare:
-    name: 'Prepare ${{ matrix.fixture }} analysis'
+    name: 'Build ${{ matrix.fixture }}'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        fixture: [maven, gradle]
+        include:
+          - fixture: maven
+            project-key: EvaristeGalois11_sonar-fork-analysis_maven
+          - fixture: gradle
+            project-key: EvaristeGalois11_sonar-fork-analysis_gradle
     steps:
       - name: 'Checkout project'
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # Sonar wants the history for blame information
 
       - name: 'Set up Java'
         uses: actions/setup-java@v6
@@ -30,8 +37,11 @@ jobs:
           cache: ${{ matrix.fixture }}
 
       # The version under test: the action as it is in this pull request.
-      - name: 'Prepare Sonar analysis'
+      - name: 'Analyse with Sonar'
         uses: ./
         with:
           id: ${{ matrix.fixture }}
           working-directory: fixtures/${{ matrix.fixture }}
+          project-key: ${{ matrix.project-key }}
+          sonar-organization: evaristegalois
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
