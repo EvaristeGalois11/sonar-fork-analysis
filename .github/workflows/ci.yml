@@ -1,0 +1,20 @@
+name: 'CI'
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  gradle-wrapper:
+    name: 'Validate Gradle wrapper'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@v7
+
+      # gradle-wrapper.jar is a binary that nobody can review, and Gradle has no script-only
+      # wrapper, so check it against the checksums Gradle publishes for each release.
+      - name: 'Validate wrapper jar'
+        uses: gradle/actions/wrapper-validation@v6
