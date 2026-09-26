@@ -14,3 +14,8 @@ updates:
     directory: "/fixtures/gradle"
     schedule:
       interval: "daily"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
