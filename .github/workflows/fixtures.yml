@@ -1,8 +1,7 @@
-# Builds the test fixtures and analyses them when the Sonar token is available.
+# Analyses the test fixtures with the action as it is in this pull request.
 #
-# For a pull request from a fork GitHub withholds the secrets, so the action falls back to
-# preparing an artifact that the 'Fixtures Sonar' workflow analyses afterwards. This job therefore
-# stays unprivileged: it must use 'pull_request', never 'pull_request_target'.
+# Must stay on 'pull_request', never 'pull_request_target': on fork pull requests GitHub withholds the
+# Sonar token here, which is what keeps fork code away from it.
 name: 'Fixtures'
 on:
   push:
@@ -12,22 +11,18 @@ on:
 permissions:
   contents: read
 jobs:
-  prepare:
-    name: 'Build ${{ matrix.fixture }}'
+  direct:
+    name: 'Analyse ${{ matrix.fixture }} directly'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - fixture: maven
-            project-key: EvaristeGalois11_sonar-fork-analysis_maven
-          - fixture: gradle
-            project-key: EvaristeGalois11_sonar-fork-analysis_gradle
+        fixture: [maven, gradle]
     steps:
       - name: 'Checkout project'
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0  # Sonar wants the history for blame information
+          fetch-depth: 0
 
       - name: 'Set up Java'
         uses: actions/setup-java@v6
@@ -36,12 +31,11 @@ jobs:
           java-version: 21
           cache: ${{ matrix.fixture }}
 
-      # The version under test: the action as it is in this pull request.
       - name: 'Analyse with Sonar'
         uses: ./
         with:
-          id: ${{ matrix.fixture }}
+          mode: direct
           working-directory: fixtures/${{ matrix.fixture }}
-          project-key: ${{ matrix.project-key }}
+          project-key: EvaristeGalois11_sonar-fork-analysis_${{ matrix.fixture }}_direct
           sonar-organization: evaristegalois
           sonar-token: ${{ secrets.SONAR_TOKEN }}
