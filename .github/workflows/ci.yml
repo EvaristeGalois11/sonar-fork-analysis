@@ -7,6 +7,34 @@ on:
 permissions:
   contents: read
 jobs:
+  action:
+    name: 'Test action'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@v7
+
+      - name: 'Set up Node'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 'Install dependencies'
+        run: npm ci
+
+      - name: 'Typecheck'
+        run: npm run typecheck
+
+      - name: 'Test'
+        run: npm test
+
+      # The action runs from the committed dist/, so it must match the sources.
+      - name: 'Check dist is up to date'
+        run: |
+          npm run build
+          git diff --exit-code dist/
+
   gradle-wrapper:
     name: 'Validate Gradle wrapper'
     runs-on: ubuntu-latest
@@ -14,7 +42,6 @@ jobs:
       - name: 'Checkout project'
         uses: actions/checkout@v7
 
-      # gradle-wrapper.jar is a binary that nobody can review, and Gradle has no script-only
-      # wrapper, so check it against the checksums Gradle publishes for each release.
+      # gradle-wrapper.jar is a binary nobody can review, and Gradle has no script-only wrapper.
       - name: 'Validate wrapper jar'
         uses: gradle/actions/wrapper-validation@v6
