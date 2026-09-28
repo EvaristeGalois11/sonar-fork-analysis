@@ -36,14 +36,6 @@ inputs:
       'The Sonar token. Empty on pull requests from forks, which is what selects
       the fork path.'
     default: ''
-  maven-plugin-version:
-    description: 'Version of the Sonar Maven plugin.'
-    default: 5.8.0.7211
-  gradle-plugin-version:
-    description:
-      'Version of the Sonar Gradle plugin, used when the build does not apply it
-      itself.'
-    default: 7.5.0.8588
 branding:
   icon: search
   color: blue

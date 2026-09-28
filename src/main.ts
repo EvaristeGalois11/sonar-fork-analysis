@@ -1,46 +1,33 @@
 import * as core from '@actions/core'
 import { exec } from '@actions/exec'
-import { mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { detectBuildTool } from './build-tool.js'
-import { directArguments, gradleInitScript, sonarProperties } from './direct.js'
+import { buildFailure, directArguments, sonarProperties } from './direct.js'
 import { readInputs, type Inputs } from './inputs.js'
 import { resolveMode } from './mode.js'
-
-function writeGradleInitScript(pluginVersion: string): string {
-  const directory = mkdtempSync(
-    join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-fork-analysis-')
-  )
-  const script = join(directory, 'sonar.init.gradle.kts')
-  writeFileSync(script, gradleInitScript(pluginVersion))
-  return script
-}
 
 async function direct(inputs: Inputs): Promise<void> {
   if (!inputs.projectKey) throw new Error('Input required: project-key')
   const workingDirectory = resolve(inputs.workingDirectory)
   const tool = detectBuildTool(workingDirectory, inputs.buildTool)
-  const initScript =
-    tool.name === 'gradle'
-      ? writeGradleInitScript(inputs.gradlePluginVersion)
-      : ''
-
   const args = directArguments(
     tool,
     inputs.buildGoals,
     sonarProperties(inputs),
-    inputs.buildArguments,
-    inputs.mavenPluginVersion,
-    initScript
+    inputs.buildArguments
   )
 
   core.info(`Analysing the ${tool.name} build in ${workingDirectory}`)
   // The token goes through the environment, which the scanner reads, so it never shows up in a command line.
-  await exec(tool.executable, args, {
+  const env = { ...process.env, SONAR_TOKEN: inputs.token }
+  let errorOutput = ''
+  const exitCode = await exec(tool.executable, args, {
     cwd: workingDirectory,
-    env: { ...process.env, SONAR_TOKEN: inputs.token } as Record<string, string>
+    env: env as Record<string, string>,
+    ignoreReturnCode: true,
+    listeners: { stderr: (data) => (errorOutput += data.toString()) }
   })
+  if (exitCode !== 0) throw new Error(buildFailure(tool, exitCode, errorOutput))
 }
 
 async function dispatch(inputs: Inputs): Promise<void> {

@@ -27,8 +27,6 @@ describe('readInputs', () => {
     expect(inputs.mode).toBe('auto')
     expect(inputs.workingDirectory).toBe('.')
     expect(inputs.buildTool).toBe('auto')
-    expect(inputs.mavenPluginVersion).toBe(DEFAULTS['maven-plugin-version'])
-    expect(inputs.gradlePluginVersion).toBe(DEFAULTS['gradle-plugin-version'])
   })
 
   it('reads goals and arguments one per line', () => {

@@ -1,6 +1,6 @@
 import {
+  buildFailure,
   directArguments,
-  gradleInitScript,
   sonarProperties
 } from '../src/direct.js'
 
@@ -29,12 +29,10 @@ describe('sonarProperties', () => {
 
 describe('directArguments', () => {
   it('builds and analyses Maven in one invocation, analysis last', () => {
-    expect(
-      directArguments(maven, [], properties, ['-Pci'], '5.8.0.7211', '')
-    ).toEqual([
+    expect(directArguments(maven, [], properties, ['-Pci'])).toEqual([
       '-B',
       'verify',
-      'org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar',
+      'org.sonarsource.scanner.maven:sonar-maven-plugin:sonar',
       '-Dsonar.projectKey=key',
       '-Pci'
     ])
@@ -45,37 +43,21 @@ describe('directArguments', () => {
       maven,
       ['clean', 'verify', 'org.jacoco:jacoco-maven-plugin:report'],
       properties,
-      [],
-      '5.8.0.7211',
-      ''
+      []
     )
     expect(args.slice(0, 5)).toEqual([
       '-B',
       'clean',
       'verify',
       'org.jacoco:jacoco-maven-plugin:report',
-      'org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar'
+      'org.sonarsource.scanner.maven:sonar-maven-plugin:sonar'
     ])
   })
 
-  it('passes the init script to Gradle after its tasks', () => {
+  it('runs custom Gradle tasks before the analysis', () => {
     expect(
-      directArguments(
-        gradle,
-        ['test', 'jacocoTestReport'],
-        properties,
-        [],
-        '',
-        'init.gradle.kts'
-      )
-    ).toEqual([
-      'test',
-      'jacocoTestReport',
-      'sonar',
-      '--init-script',
-      'init.gradle.kts',
-      '-Dsonar.projectKey=key'
-    ])
+      directArguments(gradle, ['test', 'jacocoTestReport'], properties, [])
+    ).toEqual(['test', 'jacocoTestReport', 'sonar', '-Dsonar.projectKey=key'])
   })
 
   it('runs a non-executable wrapper through sh', () => {
@@ -83,30 +65,27 @@ describe('directArguments', () => {
       { name: 'gradle', executable: 'sh', prefix: ['gradlew'] },
       [],
       properties,
-      [],
-      '',
-      'init.gradle.kts'
+      []
     )
     expect(args.slice(0, 3)).toEqual(['gradlew', 'check', 'sonar'])
   })
 })
 
-describe('gradleInitScript', () => {
-  const script = gradleInitScript('7.5.0.8588')
-
-  it('pins the plugin version', () => {
-    expect(script).toContain(
-      'classpath("org.sonarsource.scanner.gradle:sonarqube-gradle-plugin:7.5.0.8588")'
+describe('buildFailure', () => {
+  it('explains a Gradle build without the Sonar plugin', () => {
+    const output =
+      "* What went wrong:\nSelection failed\n  Task 'sonar' not found in root project 'app' and its subprojects."
+    expect(buildFailure(gradle, 1, output)).toMatch(
+      /apply the org\.sonarqube plugin, see https:\/\/docs\.sonarsource\.com\//
     )
   })
 
-  it('applies the plugin only when no project applies it', () => {
-    expect(script).toContain(
-      'rootProject.allprojects.none { it.pluginManager.hasPlugin("org.sonarqube") }'
+  it('reports the exit code otherwise', () => {
+    expect(buildFailure(gradle, 1, 'compilation failed')).toBe(
+      'The gradle build failed with exit code 1'
     )
-  })
-
-  it('leaves buildSrc and included builds alone', () => {
-    expect(script).toContain('if (parent != null) return@projectsEvaluated')
+    expect(buildFailure(maven, 2, "Task 'sonar' not found")).toBe(
+      'The maven build failed with exit code 2'
+    )
   })
 })

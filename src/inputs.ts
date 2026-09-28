@@ -5,9 +5,7 @@ import * as core from '@actions/core'
 export const DEFAULTS: Record<string, string> = {
   mode: 'auto',
   'working-directory': '.',
-  'build-tool': 'auto',
-  'maven-plugin-version': '5.8.0.7211',
-  'gradle-plugin-version': '7.5.0.8588'
+  'build-tool': 'auto'
 }
 
 export type Inputs = {
@@ -20,8 +18,6 @@ export type Inputs = {
   organization: string
   hostUrl: string
   token: string
-  mavenPluginVersion: string
-  gradlePluginVersion: string
 }
 
 function input(name: string): string {
@@ -38,8 +34,6 @@ export function readInputs(): Inputs {
     projectKey: input('project-key'),
     organization: input('sonar-organization'),
     hostUrl: input('sonar-host-url'),
-    token: input('sonar-token'),
-    mavenPluginVersion: input('maven-plugin-version'),
-    gradlePluginVersion: input('gradle-plugin-version')
+    token: input('sonar-token')
   }
 }
