@@ -19,3 +19,7 @@ updates:
     directory: '/'
     schedule:
       interval: 'daily'
+    ignore:
+      # Types must match the runtime in action.yml (node24), not the newest Node.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
