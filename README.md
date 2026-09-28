@@ -1,5 +1,10 @@
 # Sonar Fork Analysis
 
+![CI](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/ci.yml/badge.svg)
+![Fixtures](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)
+![CodeQL](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml/badge.svg)
+![Coverage](./badges/coverage.svg)
+
 The goal of this action is to open up the possibility of Sonar scanning external
 forks of your project.
 
