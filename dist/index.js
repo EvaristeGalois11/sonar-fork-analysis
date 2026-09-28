@@ -34,7 +34,7 @@ import require$$5$3 from 'string_decoder';
 import * as child from 'child_process';
 import { setTimeout as setTimeout$1 } from 'timers';
 import { join, resolve } from 'node:path';
-import { existsSync, accessSync, constants as constants$5, readdirSync, statSync } from 'node:fs';
+import { existsSync, accessSync, constants as constants$5, readdirSync, readFileSync } from 'node:fs';
 
 // We use any as a valid input type
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -29666,19 +29666,25 @@ const SKIPPED = new Set(['.git', 'node_modules', '.gradle']);
 // The scanner writes report-task.txt after every analysis it uploads (target/sonar for Maven,
 // build/sonar for Gradle). Searching instead of checking those paths copes with custom build
 // directories.
-function findReport(directory, writtenSince) {
+function snapshotReports(directory, reports = new Map()) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
         const path = join(directory, entry.name);
         if (entry.isDirectory() && !SKIPPED.has(entry.name)) {
-            const found = findReport(path, writtenSince);
-            if (found)
-                return found;
+            snapshotReports(path, reports);
         }
-        else if (entry.isFile() &&
-            entry.name === 'report-task.txt' &&
-            statSync(path).mtimeMs >= writtenSince) {
+        else if (entry.isFile() && entry.name === 'report-task.txt') {
+            reports.set(path, readFileSync(path, 'utf8'));
+        }
+    }
+    return reports;
+}
+// Each report carries the ceTaskId the server assigned to that analysis, so a real analysis always
+// leaves a new or changed report, while one left over from an earlier build stays identical. This
+// avoids comparing file timestamps, which are too coarse to rely on.
+function findNewReport(directory, before) {
+    for (const [path, content] of snapshotReports(directory)) {
+        if (before.get(path) !== content)
             return path;
-        }
     }
     return undefined;
 }
@@ -29692,7 +29698,7 @@ async function direct(inputs) {
     info(`Analysing the ${tool.name} build in ${workingDirectory}`);
     // The token goes through the environment, which the scanner reads, so it never shows up in a command line.
     const env = { ...process.env, SONAR_TOKEN: inputs.token };
-    const started = Date.now();
+    const reportsBefore = snapshotReports(workingDirectory);
     let errorOutput = '';
     const exitCode = await exec(tool.executable, args, {
         cwd: workingDirectory,
@@ -29702,8 +29708,9 @@ async function direct(inputs) {
     });
     if (exitCode !== 0)
         throw new Error(buildFailure(tool, exitCode, errorOutput));
-    // A green build is not proof of an analysis: Gradle, for one, may run another task matching 'sonar'.
-    if (!findReport(workingDirectory, started))
+    // Sanity check against misconfiguration, e.g. Gradle running another task matching 'sonar'. Not a
+    // guarantee: the build can write any report it likes.
+    if (!findNewReport(workingDirectory, reportsBefore))
         throw new Error(missingAnalysis(tool));
 }
 async function dispatch(inputs) {

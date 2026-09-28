@@ -10,7 +10,7 @@ import {
 } from './direct.js'
 import { readInputs, type Inputs } from './inputs.js'
 import { resolveMode } from './mode.js'
-import { findReport } from './report.js'
+import { findNewReport, snapshotReports } from './report.js'
 
 async function direct(inputs: Inputs): Promise<void> {
   if (!inputs.projectKey) throw new Error('Input required: project-key')
@@ -26,7 +26,7 @@ async function direct(inputs: Inputs): Promise<void> {
   core.info(`Analysing the ${tool.name} build in ${workingDirectory}`)
   // The token goes through the environment, which the scanner reads, so it never shows up in a command line.
   const env = { ...process.env, SONAR_TOKEN: inputs.token }
-  const started = Date.now()
+  const reportsBefore = snapshotReports(workingDirectory)
   let errorOutput = ''
   const exitCode = await exec(tool.executable, args, {
     cwd: workingDirectory,
@@ -35,8 +35,9 @@ async function direct(inputs: Inputs): Promise<void> {
     listeners: { stderr: (data) => (errorOutput += data.toString()) }
   })
   if (exitCode !== 0) throw new Error(buildFailure(tool, exitCode, errorOutput))
-  // A green build is not proof of an analysis: Gradle, for one, may run another task matching 'sonar'.
-  if (!findReport(workingDirectory, started))
+  // Sanity check against misconfiguration, e.g. Gradle running another task matching 'sonar'. Not a
+  // guarantee: the build can write any report it likes.
+  if (!findNewReport(workingDirectory, reportsBefore))
     throw new Error(missingAnalysis(tool))
 }
 
