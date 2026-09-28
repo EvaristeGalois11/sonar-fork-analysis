@@ -6,16 +6,13 @@ export type SonarSettings = {
   organization: string
 }
 
-export type PluginVersions = {
-  maven: string
-  gradle: string
-}
+const DEFAULT_GOALS = { maven: ['verify'], gradle: ['check'] }
 
 export function sonarProperties(settings: SonarSettings): string[] {
-  const properties = [
-    `-Dsonar.host.url=${settings.hostUrl}`,
-    `-Dsonar.projectKey=${settings.projectKey}`
-  ]
+  const properties = [`-Dsonar.projectKey=${settings.projectKey}`]
+  // Without a host the scanner defaults to SonarQube Cloud and honours SONAR_HOST_URL, which an
+  // explicit -D would override.
+  if (settings.hostUrl) properties.push(`-Dsonar.host.url=${settings.hostUrl}`)
   if (settings.organization)
     properties.push(`-Dsonar.organization=${settings.organization}`)
   return properties
@@ -23,31 +20,41 @@ export function sonarProperties(settings: SonarSettings): string[] {
 
 export function directArguments(
   tool: BuildTool,
-  settings: SonarSettings,
-  versions: PluginVersions,
-  extraArguments: string[],
+  goals: string[],
+  properties: string[],
+  buildArguments: string[],
+  mavenPluginVersion: string,
   gradleInitScript: string
 ): string[] {
-  const properties = sonarProperties(settings)
+  const buildGoals = goals.length > 0 ? goals : DEFAULT_GOALS[tool.name]
   if (tool.name === 'maven') {
     // One invocation on purpose: a separate `sonar:sonar` run cannot resolve the reactor's own modules
     // unless they were installed, and silently analyses without them.
-    const goal = `org.sonarsource.scanner.maven:sonar-maven-plugin:${versions.maven}:sonar`
-    return ['-B', 'verify', goal, ...properties, ...extraArguments]
+    const sonar = `org.sonarsource.scanner.maven:sonar-maven-plugin:${mavenPluginVersion}:sonar`
+    return [
+      ...tool.prefix,
+      '-B',
+      ...buildGoals,
+      sonar,
+      ...properties,
+      ...buildArguments
+    ]
   }
   return [
-    'check',
+    ...tool.prefix,
+    ...buildGoals,
     'sonar',
     '--init-script',
     gradleInitScript,
     ...properties,
-    ...extraArguments
+    ...buildArguments
   ]
 }
 
-// Applies the Sonar plugin only to builds that do not apply it themselves. The check has to wait for
-// projectsEvaluated: done earlier, a project applying its own version ends up with both, and Gradle
-// fails with a ClassCastException between the two SonarExtension classes.
+// Applies the Sonar plugin only to builds that apply it nowhere themselves. Applied to the root, the
+// plugin registers its extension on every project, so a subproject that already has it would fail.
+// The check has to wait for projectsEvaluated: done earlier, a project applying its own version ends
+// up with both, and Gradle fails with a ClassCastException between the two SonarExtension classes.
 // Kotlin rather than Groovy: Gradle's Groovy lags behind new JDKs ("Unsupported class file major
 // version") while its Kotlin compiler still copes.
 export function gradleInitScript(pluginVersion: string): string {
@@ -59,7 +66,7 @@ export function gradleInitScript(pluginVersion: string): string {
 gradle.projectsEvaluated {
     // buildSrc and included builds have a parent; only the main build is analysed.
     if (parent != null) return@projectsEvaluated
-    if (!rootProject.pluginManager.hasPlugin("org.sonarqube")) {
+    if (rootProject.allprojects.none { it.pluginManager.hasPlugin("org.sonarqube") }) {
         rootProject.pluginManager.apply(org.sonarqube.gradle.SonarQubePlugin::class.java)
     }
 }

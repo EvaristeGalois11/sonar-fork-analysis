@@ -1,33 +1,67 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { detectBuildTool } from '../src/build-tool.js'
 
+const directories: string[] = []
+
 function project(...files: string[]): string {
   const directory = mkdtempSync(join(tmpdir(), 'build-tool-'))
-  for (const file of files) writeFileSync(join(directory, file), '')
+  directories.push(directory)
+  for (const file of files) {
+    writeFileSync(join(directory, file), '')
+    if (file === 'mvnw' || file === 'gradlew')
+      chmodSync(join(directory, file), 0o755)
+  }
   return directory
 }
+
+afterAll(() => {
+  for (const directory of directories)
+    rmSync(directory, { recursive: true, force: true })
+})
 
 describe('detectBuildTool', () => {
   it('prefers the Maven wrapper', () => {
     expect(detectBuildTool(project('pom.xml', 'mvnw'))).toEqual({
       name: 'maven',
-      executable: './mvnw'
+      executable: './mvnw',
+      prefix: []
     })
   })
 
   it('falls back to mvn without a wrapper', () => {
     expect(detectBuildTool(project('pom.xml'))).toEqual({
       name: 'maven',
-      executable: 'mvn'
+      executable: 'mvn',
+      prefix: []
     })
   })
 
   it('detects Gradle from a Kotlin settings file', () => {
     expect(detectBuildTool(project('settings.gradle.kts', 'gradlew'))).toEqual({
       name: 'gradle',
-      executable: './gradlew'
+      executable: './gradlew',
+      prefix: []
+    })
+  })
+
+  it('falls back to gradle without a wrapper', () => {
+    expect(detectBuildTool(project('build.gradle'))).toEqual({
+      name: 'gradle',
+      executable: 'gradle',
+      prefix: []
+    })
+  })
+
+  it('runs a wrapper without the executable bit through sh', () => {
+    const directory = project('build.gradle')
+    writeFileSync(join(directory, 'gradlew'), '')
+    chmodSync(join(directory, 'gradlew'), 0o644)
+    expect(detectBuildTool(directory)).toEqual({
+      name: 'gradle',
+      executable: 'sh',
+      prefix: ['gradlew']
     })
   })
 
@@ -41,6 +75,12 @@ describe('detectBuildTool', () => {
     expect(
       detectBuildTool(project('pom.xml', 'build.gradle'), 'gradle').name
     ).toBe('gradle')
+  })
+
+  it('rejects an unknown build tool', () => {
+    expect(() => detectBuildTool(project('pom.xml'), 'ant')).toThrow(
+      /Unknown build tool 'ant'/
+    )
   })
 
   it('points at working-directory when nothing is found', () => {

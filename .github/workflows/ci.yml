@@ -58,3 +58,47 @@ jobs:
       # gradle-wrapper.jar is a binary nobody can review, and Gradle has no script-only wrapper.
       - name: 'Validate wrapper jar'
         uses: gradle/actions/wrapper-validation@v6
+
+  # The Gradle fixture applies the Sonar plugin itself, so the init script's own path needs a
+  # separate test. The plugin's simulation mode writes the analysis settings to a file instead of
+  # contacting a server, so this needs no token.
+  gradle-plugin-injection:
+    name: 'Gradle plugin injection (${{ matrix.scenario }})'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [no-plugin, subproject-plugin]
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@v7
+
+      - name: 'Set up Java'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: 'Remove the plugin from the root build'
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          : > fixtures/gradle/build.gradle.kts
+          if [ "$SCENARIO" = subproject-plugin ]; then
+            sed -i 's/^plugins {/plugins {\n    id("org.sonarqube") version "7.5.0.8588"/' \
+              fixtures/gradle/composite/build.gradle.kts
+          fi
+
+      - name: 'Run the action'
+        uses: ./
+        with:
+          mode: direct
+          working-directory: fixtures/gradle
+          project-key: plugin-injection
+          sonar-token: not-a-real-token
+          build-arguments: -Dsonar.scanner.internal.dumpToFile=dump.properties
+
+      - name: 'Check the analysis settings were produced'
+        run: |
+          grep '^sonar.scanner.appVersion=7.5.0.8588/' fixtures/gradle/dump.properties

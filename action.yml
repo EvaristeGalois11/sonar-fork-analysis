@@ -13,8 +13,13 @@ inputs:
   build-tool:
     description: 'auto, maven or gradle.'
     default: auto
+  build-goals:
+    description: >
+      Maven goals or Gradle tasks to run before the analysis, one per line.
+      Defaults to verify for Maven and check for Gradle.
+    default: ''
   build-arguments:
-    description: 'Extra arguments for the build, one per line.'
+    description: 'Extra build flags (not goals or tasks), one per line.'
     default: ''
   project-key:
     description: 'The project key assigned by Sonar.'
@@ -22,8 +27,10 @@ inputs:
     description: 'The Sonar organization, required by SonarQube Cloud.'
     default: ''
   sonar-host-url:
-    description: 'The Sonar server.'
-    default: https://sonarcloud.io
+    description: >
+      The Sonar server. Leave empty for SonarQube Cloud, or to use
+      SONAR_HOST_URL or the build's own sonar.host.url.
+    default: ''
   sonar-token:
     description:
       'The Sonar token. Empty on pull requests from forks, which is what selects
