@@ -1,9 +1,11 @@
-import { existsSync } from 'node:fs'
+import { accessSync, constants, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 export type BuildTool = {
   name: 'maven' | 'gradle'
   executable: string
+  // Arguments that must precede the build's own, e.g. the wrapper script run through sh.
+  prefix: string[]
 }
 
 const GRADLE_BUILD_FILES = [
@@ -12,6 +14,15 @@ const GRADLE_BUILD_FILES = [
   'build.gradle.kts',
   'build.gradle'
 ]
+
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
 
 export function detectBuildTool(
   directory: string,
@@ -42,10 +53,11 @@ export function detectBuildTool(
   }
 
   const wrapper = name === 'maven' ? 'mvnw' : 'gradlew'
-  const executable = existsSync(join(directory, wrapper))
-    ? `./${wrapper}`
-    : name === 'maven'
-      ? 'mvn'
-      : 'gradle'
-  return { name, executable }
+  if (!existsSync(join(directory, wrapper))) {
+    return { name, executable: name === 'maven' ? 'mvn' : 'gradle', prefix: [] }
+  }
+  // Wrappers committed from Windows often lack the executable bit.
+  return isExecutable(join(directory, wrapper))
+    ? { name, executable: `./${wrapper}`, prefix: [] }
+    : { name, executable: 'sh', prefix: [wrapper] }
 }

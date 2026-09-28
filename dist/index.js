@@ -33,7 +33,7 @@ import require$$1$5 from 'node:dns';
 import require$$5$3 from 'string_decoder';
 import * as child from 'child_process';
 import { setTimeout as setTimeout$1 } from 'timers';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, accessSync, constants as constants$5, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -29449,13 +29449,21 @@ function setSecret(secret) {
  */
 function getInput(name, options) {
     const val = process.env[`INPUT_${name.replace(/ /g, '_').toUpperCase()}`] || '';
-    if (options && options.required && !val) {
-        throw new Error(`Input required and not supplied: ${name}`);
-    }
-    if (options && options.trimWhitespace === false) {
-        return val;
-    }
     return val.trim();
+}
+/**
+ * Gets the values of an multiline input.  Each value is also trimmed.
+ *
+ * @param     name     name of the input to get
+ * @param     options  optional. See InputOptions.
+ * @returns   string[]
+ *
+ */
+function getMultilineInput(name, options) {
+    const inputs = getInput(name)
+        .split('\n')
+        .filter(x => x !== '');
+    return inputs.map(input => input.trim());
 }
 //-----------------------------------------------------------------------
 // Results
@@ -29476,6 +29484,14 @@ function setFailed(message) {
  */
 function error(message, properties = {}) {
     issueCommand('error', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+/**
+ * Adds a warning issue
+ * @param message warning issue message. Errors will be converted to string via toString()
+ * @param properties optional properties to add to the annotation.
+ */
+function warning(message, properties = {}) {
+    issueCommand('warning', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 /**
  * Adds a notice issue
@@ -29499,6 +29515,15 @@ const GRADLE_BUILD_FILES = [
     'build.gradle.kts',
     'build.gradle'
 ];
+function isExecutable(path) {
+    try {
+        accessSync(path, constants$5.X_OK);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 function detectBuildTool(directory, requested = 'auto') {
     const maven = existsSync(join(directory, 'pom.xml'));
     const gradle = GRADLE_BUILD_FILES.some((file) => existsSync(join(directory, file)));
@@ -29519,43 +29544,55 @@ function detectBuildTool(directory, requested = 'auto') {
         throw new Error(`No Maven or Gradle build found in '${directory}', set the working-directory input`);
     }
     const wrapper = name === 'maven' ? 'mvnw' : 'gradlew';
-    const executable = existsSync(join(directory, wrapper))
-        ? `./${wrapper}`
-        : name === 'maven'
-            ? 'mvn'
-            : 'gradle';
-    return { name, executable };
+    if (!existsSync(join(directory, wrapper))) {
+        return { name, executable: name === 'maven' ? 'mvn' : 'gradle', prefix: [] };
+    }
+    // Wrappers committed from Windows often lack the executable bit.
+    return isExecutable(join(directory, wrapper))
+        ? { name, executable: `./${wrapper}`, prefix: [] }
+        : { name, executable: 'sh', prefix: [wrapper] };
 }
 
+const DEFAULT_GOALS = { maven: ['verify'], gradle: ['check'] };
 function sonarProperties(settings) {
-    const properties = [
-        `-Dsonar.host.url=${settings.hostUrl}`,
-        `-Dsonar.projectKey=${settings.projectKey}`
-    ];
+    const properties = [`-Dsonar.projectKey=${settings.projectKey}`];
+    // Without a host the scanner defaults to SonarQube Cloud and honours SONAR_HOST_URL, which an
+    // explicit -D would override.
+    if (settings.hostUrl)
+        properties.push(`-Dsonar.host.url=${settings.hostUrl}`);
     if (settings.organization)
         properties.push(`-Dsonar.organization=${settings.organization}`);
     return properties;
 }
-function directArguments(tool, settings, versions, extraArguments, gradleInitScript) {
-    const properties = sonarProperties(settings);
+function directArguments(tool, goals, properties, buildArguments, mavenPluginVersion, gradleInitScript) {
+    const buildGoals = goals.length > 0 ? goals : DEFAULT_GOALS[tool.name];
     if (tool.name === 'maven') {
         // One invocation on purpose: a separate `sonar:sonar` run cannot resolve the reactor's own modules
         // unless they were installed, and silently analyses without them.
-        const goal = `org.sonarsource.scanner.maven:sonar-maven-plugin:${versions.maven}:sonar`;
-        return ['-B', 'verify', goal, ...properties, ...extraArguments];
+        const sonar = `org.sonarsource.scanner.maven:sonar-maven-plugin:${mavenPluginVersion}:sonar`;
+        return [
+            ...tool.prefix,
+            '-B',
+            ...buildGoals,
+            sonar,
+            ...properties,
+            ...buildArguments
+        ];
     }
     return [
-        'check',
+        ...tool.prefix,
+        ...buildGoals,
         'sonar',
         '--init-script',
         gradleInitScript,
         ...properties,
-        ...extraArguments
+        ...buildArguments
     ];
 }
-// Applies the Sonar plugin only to builds that do not apply it themselves. The check has to wait for
-// projectsEvaluated: done earlier, a project applying its own version ends up with both, and Gradle
-// fails with a ClassCastException between the two SonarExtension classes.
+// Applies the Sonar plugin only to builds that apply it nowhere themselves. Applied to the root, the
+// plugin registers its extension on every project, so a subproject that already has it would fail.
+// The check has to wait for projectsEvaluated: done earlier, a project applying its own version ends
+// up with both, and Gradle fails with a ClassCastException between the two SonarExtension classes.
 // Kotlin rather than Groovy: Gradle's Groovy lags behind new JDKs ("Unsupported class file major
 // version") while its Kotlin compiler still copes.
 function gradleInitScript(pluginVersion) {
@@ -29567,11 +29604,39 @@ function gradleInitScript(pluginVersion) {
 gradle.projectsEvaluated {
     // buildSrc and included builds have a parent; only the main build is analysed.
     if (parent != null) return@projectsEvaluated
-    if (!rootProject.pluginManager.hasPlugin("org.sonarqube")) {
+    if (rootProject.allprojects.none { it.pluginManager.hasPlugin("org.sonarqube") }) {
         rootProject.pluginManager.apply(org.sonarqube.gradle.SonarQubePlugin::class.java)
     }
 }
 `;
+}
+
+// Mirrors the defaults in action.yml. They are repeated here because an input passed explicitly as
+// an empty string (e.g. a reusable workflow forwarding an unset input) does not get the default.
+const DEFAULTS = {
+    mode: 'auto',
+    'working-directory': '.',
+    'build-tool': 'auto',
+    'maven-plugin-version': '5.8.0.7211',
+    'gradle-plugin-version': '7.5.0.8588'
+};
+function input(name) {
+    return getInput(name) || DEFAULTS[name] || '';
+}
+function readInputs() {
+    return {
+        mode: input('mode'),
+        workingDirectory: input('working-directory'),
+        buildTool: input('build-tool'),
+        buildGoals: getMultilineInput('build-goals'),
+        buildArguments: getMultilineInput('build-arguments'),
+        projectKey: input('project-key'),
+        organization: input('sonar-organization'),
+        hostUrl: input('sonar-host-url'),
+        token: input('sonar-token'),
+        mavenPluginVersion: input('maven-plugin-version'),
+        gradlePluginVersion: input('gradle-plugin-version')
+    };
 }
 
 const MODES = ['auto', 'direct', 'prepare', 'analyze'];
@@ -29579,71 +29644,88 @@ function resolveMode(requested, eventName, token) {
     if (!MODES.includes(requested)) {
         throw new Error(`Unknown mode '${requested}', expected one of: ${MODES.join(', ')}`);
     }
+    let mode;
     if (requested === 'auto') {
         if (eventName === 'workflow_run')
             return { mode: 'analyze' };
         // GitHub expands secrets to an empty string for pull requests from forks.
-        return { mode: token ? 'direct' : 'prepare' };
+        mode = token ? 'direct' : 'prepare';
     }
-    if (requested === 'direct' && !token) {
+    else {
+        mode = requested;
+    }
+    if (mode !== 'direct')
+        return { mode };
+    if (eventName === 'pull_request_target') {
+        // The token is available there, and a checkout of the pull request head would hand it to the
+        // fork's build. Refuse instead of analysing.
+        throw new Error('Refusing to build with the Sonar token on pull_request_target; trigger the build on pull_request instead.');
+    }
+    if (!token) {
+        if (eventName === 'pull_request') {
+            return {
+                skip: 'No Sonar token available (pull request from a fork or Dependabot), skipping the direct analysis.'
+            };
+        }
+        throw new Error('No Sonar token available, set the sonar-token input.');
+    }
+    if (eventName === 'workflow_run') {
         return {
-            skip: 'No Sonar token available (pull request from a fork?), skipping the direct analysis.'
+            mode,
+            warning: 'Direct analysis on workflow_run builds the checked-out code with the Sonar token; make sure it is not code from a fork.'
         };
     }
-    return { mode: requested };
+    return { mode };
 }
 
-function lines(value) {
-    return value
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0);
+function writeGradleInitScript(pluginVersion) {
+    const directory = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-fork-analysis-'));
+    const script = join(directory, 'sonar.init.gradle.kts');
+    writeFileSync(script, gradleInitScript(pluginVersion));
+    return script;
 }
-async function direct(token) {
-    const workingDirectory = resolve(getInput('working-directory'));
-    const tool = detectBuildTool(workingDirectory, getInput('build-tool'));
-    const scriptDirectory = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-fork-analysis-'));
-    const initScript = join(scriptDirectory, 'sonar.init.gradle.kts');
-    writeFileSync(initScript, gradleInitScript(getInput('gradle-plugin-version')));
-    const args = directArguments(tool, {
-        hostUrl: getInput('sonar-host-url'),
-        projectKey: getInput('project-key', { required: true }),
-        organization: getInput('sonar-organization')
-    }, {
-        maven: getInput('maven-plugin-version'),
-        gradle: getInput('gradle-plugin-version')
-    }, lines(getInput('build-arguments')), initScript);
+async function direct(inputs) {
+    if (!inputs.projectKey)
+        throw new Error('Input required: project-key');
+    const workingDirectory = resolve(inputs.workingDirectory);
+    const tool = detectBuildTool(workingDirectory, inputs.buildTool);
+    const initScript = tool.name === 'gradle'
+        ? writeGradleInitScript(inputs.gradlePluginVersion)
+        : '';
+    const args = directArguments(tool, inputs.buildGoals, sonarProperties(inputs), inputs.buildArguments, inputs.mavenPluginVersion, initScript);
     info(`Analysing the ${tool.name} build in ${workingDirectory}`);
     // The token goes through the environment, which the scanner reads, so it never shows up in a command line.
     await exec(tool.executable, args, {
         cwd: workingDirectory,
-        env: { ...process.env, SONAR_TOKEN: token }
+        env: { ...process.env, SONAR_TOKEN: inputs.token }
     });
 }
-async function run() {
-    try {
-        await dispatch();
-    }
-    catch (error) {
-        setFailed(error instanceof Error ? error.message : String(error));
-    }
-}
-async function dispatch() {
-    const token = getInput('sonar-token');
-    if (token)
-        setSecret(token);
-    const resolution = resolveMode(getInput('mode'), process.env.GITHUB_EVENT_NAME ?? '', token);
+async function dispatch(inputs) {
+    const resolution = resolveMode(inputs.mode, process.env.GITHUB_EVENT_NAME ?? '', inputs.token);
     if ('skip' in resolution) {
         notice(resolution.skip);
         return;
     }
+    if (resolution.warning)
+        warning(resolution.warning);
     info(`Mode: ${resolution.mode}`);
     switch (resolution.mode) {
         case 'direct':
-            return direct(token);
+            return direct(inputs);
         case 'prepare':
         case 'analyze':
             throw new Error(`Mode '${resolution.mode}' is not implemented yet`);
+    }
+}
+async function run() {
+    try {
+        const inputs = readInputs();
+        if (inputs.token)
+            setSecret(inputs.token);
+        await dispatch(inputs);
+    }
+    catch (error) {
+        setFailed(error instanceof Error ? error.message : String(error));
     }
 }
 
