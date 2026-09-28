@@ -34,7 +34,7 @@ import require$$5$3 from 'string_decoder';
 import * as child from 'child_process';
 import { setTimeout as setTimeout$1 } from 'timers';
 import { join, resolve } from 'node:path';
-import { existsSync, accessSync, constants as constants$5 } from 'node:fs';
+import { existsSync, accessSync, constants as constants$5, readdirSync, statSync } from 'node:fs';
 
 // We use any as a valid input type
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -29493,14 +29493,6 @@ function warning(message, properties = {}) {
     issueCommand('warning', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 /**
- * Adds a notice issue
- * @param message notice issue message. Errors will be converted to string via toString()
- * @param properties optional properties to add to the annotation.
- */
-function notice(message, properties = {}) {
-    issueCommand('notice', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
-}
-/**
  * Writes info to log with console.log.
  * @param message info message
  */
@@ -29589,11 +29581,20 @@ function directArguments(tool, goals, properties, buildArguments) {
         ...buildArguments
     ];
 }
+const TOOL_NAMES = { maven: 'Maven', gradle: 'Gradle' };
 function buildFailure(tool, exitCode, errorOutput) {
-    if (tool.name === 'gradle' && /Task 'sonar' not found/.test(errorOutput)) {
+    if (tool.name === 'gradle' &&
+        /Task 'sonar' (not found|is ambiguous)/.test(errorOutput)) {
         return `The Gradle build has no 'sonar' task: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`;
     }
-    return `The ${tool.name} build failed with exit code ${exitCode}`;
+    return `The ${TOOL_NAMES[tool.name]} build failed with exit code ${exitCode}`;
+}
+function missingAnalysis(tool) {
+    const message = `The ${TOOL_NAMES[tool.name]} build succeeded but no Sonar analysis ran`;
+    // Gradle runs any single task whose name starts with 'sonar' when the plugin is missing.
+    return tool.name === 'gradle'
+        ? `${message}: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`
+        : `${message}: check that sonar.skip is not set`;
 }
 
 // Mirrors the defaults in action.yml. They are repeated here because an input passed explicitly as
@@ -29606,13 +29607,18 @@ const DEFAULTS = {
 function input(name) {
     return getInput(name) || DEFAULTS[name] || '';
 }
+// getMultilineInput drops empty lines before trimming, so whitespace-only lines would survive as
+// empty arguments.
+function lines(name) {
+    return getMultilineInput(name).filter((line) => line.length > 0);
+}
 function readInputs() {
     return {
         mode: input('mode'),
         workingDirectory: input('working-directory'),
         buildTool: input('build-tool'),
-        buildGoals: getMultilineInput('build-goals'),
-        buildArguments: getMultilineInput('build-arguments'),
+        buildGoals: lines('build-goals'),
+        buildArguments: lines('build-arguments'),
         projectKey: input('project-key'),
         organization: input('sonar-organization'),
         hostUrl: input('sonar-host-url'),
@@ -29621,6 +29627,9 @@ function readInputs() {
 }
 
 const MODES = ['auto', 'direct', 'prepare', 'analyze'];
+// Events that run with the base repository's secrets and write token. Building a pull request
+// there would hand those to its code, which is exactly what this action exists to avoid.
+const PRIVILEGED_EVENTS = ['pull_request_target', 'issue_comment'];
 function resolveMode(requested, eventName, token) {
     if (!MODES.includes(requested)) {
         throw new Error(`Unknown mode '${requested}', expected one of: ${MODES.join(', ')}`);
@@ -29635,28 +29644,43 @@ function resolveMode(requested, eventName, token) {
     else {
         mode = requested;
     }
-    if (mode !== 'direct')
+    if (mode === 'analyze')
         return { mode };
-    if (eventName === 'pull_request_target') {
-        // The token is available there, and a checkout of the pull request head would hand it to the
-        // fork's build. Refuse instead of analysing.
-        throw new Error('Refusing to build with the Sonar token on pull_request_target; trigger the build on pull_request instead.');
+    if (PRIVILEGED_EVENTS.includes(eventName) ||
+        (mode === 'prepare' && eventName === 'workflow_run')) {
+        throw new Error(`Refusing to build on ${eventName}, which runs with the repository's secrets; trigger the build on pull_request instead.`);
     }
-    if (!token) {
-        if (eventName === 'pull_request') {
-            return {
-                skip: 'No Sonar token available (pull request from a fork or Dependabot), skipping the direct analysis.'
-            };
-        }
-        throw new Error('No Sonar token available, set the sonar-token input.');
+    if (mode === 'direct' && !token) {
+        throw new Error('No Sonar token available, set the sonar-token input. On pull requests from forks, use mode auto.');
     }
-    if (eventName === 'workflow_run') {
+    if (mode === 'direct' && eventName === 'workflow_run') {
         return {
             mode,
             warning: 'Direct analysis on workflow_run builds the checked-out code with the Sonar token; make sure it is not code from a fork.'
         };
     }
     return { mode };
+}
+
+const SKIPPED = new Set(['.git', 'node_modules', '.gradle']);
+// The scanner writes report-task.txt after every analysis it uploads (target/sonar for Maven,
+// build/sonar for Gradle). Searching instead of checking those paths copes with custom build
+// directories.
+function findReport(directory, writtenSince) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory() && !SKIPPED.has(entry.name)) {
+            const found = findReport(path, writtenSince);
+            if (found)
+                return found;
+        }
+        else if (entry.isFile() &&
+            entry.name === 'report-task.txt' &&
+            statSync(path).mtimeMs >= writtenSince) {
+            return path;
+        }
+    }
+    return undefined;
 }
 
 async function direct(inputs) {
@@ -29668,6 +29692,7 @@ async function direct(inputs) {
     info(`Analysing the ${tool.name} build in ${workingDirectory}`);
     // The token goes through the environment, which the scanner reads, so it never shows up in a command line.
     const env = { ...process.env, SONAR_TOKEN: inputs.token };
+    const started = Date.now();
     let errorOutput = '';
     const exitCode = await exec(tool.executable, args, {
         cwd: workingDirectory,
@@ -29677,13 +29702,12 @@ async function direct(inputs) {
     });
     if (exitCode !== 0)
         throw new Error(buildFailure(tool, exitCode, errorOutput));
+    // A green build is not proof of an analysis: Gradle, for one, may run another task matching 'sonar'.
+    if (!findReport(workingDirectory, started))
+        throw new Error(missingAnalysis(tool));
 }
 async function dispatch(inputs) {
     const resolution = resolveMode(inputs.mode, process.env.GITHUB_EVENT_NAME ?? '', inputs.token);
-    if ('skip' in resolution) {
-        notice(resolution.skip);
-        return;
-    }
     if (resolution.warning)
         warning(resolution.warning);
     info(`Mode: ${resolution.mode}`);

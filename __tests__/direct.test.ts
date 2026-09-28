@@ -1,6 +1,7 @@
 import {
   buildFailure,
   directArguments,
+  missingAnalysis,
   sonarProperties
 } from '../src/direct.js'
 
@@ -80,12 +81,30 @@ describe('buildFailure', () => {
     )
   })
 
+  it('explains a Gradle build where sonar is ambiguous', () => {
+    const output =
+      "Task 'sonar' is ambiguous in root project 'app'. Candidates are: 'sonarlintMain', 'sonarlintTest'."
+    expect(buildFailure(gradle, 1, output)).toMatch(/apply the org\.sonarqube/)
+  })
+
   it('reports the exit code otherwise', () => {
     expect(buildFailure(gradle, 1, 'compilation failed')).toBe(
-      'The gradle build failed with exit code 1'
+      'The Gradle build failed with exit code 1'
     )
     expect(buildFailure(maven, 2, "Task 'sonar' not found")).toBe(
-      'The maven build failed with exit code 2'
+      'The Maven build failed with exit code 2'
     )
+  })
+})
+
+describe('missingAnalysis', () => {
+  it('points Gradle users at the plugin', () => {
+    expect(missingAnalysis(gradle)).toMatch(
+      /^The Gradle build succeeded but no Sonar analysis ran: apply the org\.sonarqube plugin/
+    )
+  })
+
+  it('points Maven users at sonar.skip', () => {
+    expect(missingAnalysis(maven)).toMatch(/sonar\.skip/)
   })
 })

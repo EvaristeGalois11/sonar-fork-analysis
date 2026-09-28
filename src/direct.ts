@@ -52,13 +52,26 @@ export function directArguments(
   ]
 }
 
+const TOOL_NAMES = { maven: 'Maven', gradle: 'Gradle' }
+
 export function buildFailure(
   tool: BuildTool,
   exitCode: number,
   errorOutput: string
 ): string {
-  if (tool.name === 'gradle' && /Task 'sonar' not found/.test(errorOutput)) {
+  if (
+    tool.name === 'gradle' &&
+    /Task 'sonar' (not found|is ambiguous)/.test(errorOutput)
+  ) {
     return `The Gradle build has no 'sonar' task: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`
   }
-  return `The ${tool.name} build failed with exit code ${exitCode}`
+  return `The ${TOOL_NAMES[tool.name]} build failed with exit code ${exitCode}`
+}
+
+export function missingAnalysis(tool: BuildTool): string {
+  const message = `The ${TOOL_NAMES[tool.name]} build succeeded but no Sonar analysis ran`
+  // Gradle runs any single task whose name starts with 'sonar' when the plugin is missing.
+  return tool.name === 'gradle'
+    ? `${message}: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`
+    : `${message}: check that sonar.skip is not set`
 }
