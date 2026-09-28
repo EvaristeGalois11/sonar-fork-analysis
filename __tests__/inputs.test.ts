@@ -30,7 +30,7 @@ describe('readInputs', () => {
   })
 
   it('reads goals and arguments one per line', () => {
-    process.env['INPUT_BUILD-GOALS'] = 'clean\n\n verify \n'
+    process.env['INPUT_BUILD-GOALS'] = 'clean\n\n    \n verify \n'
     process.env['INPUT_BUILD-ARGUMENTS'] = '-Pci\n-Dfoo=bar baz'
     const inputs = readInputs()
     expect(inputs.buildGoals).toEqual(['clean', 'verify'])
@@ -39,9 +39,10 @@ describe('readInputs', () => {
 })
 
 describe('DEFAULTS', () => {
-  it('matches the defaults declared in action.yml', () => {
-    const declared = actionYmlDefaults()
-    for (const [name, value] of Object.entries(DEFAULTS))
-      expect([name, declared[name]]).toEqual([name, value])
+  it('matches the defaults declared in action.yml, both ways', () => {
+    const declared = Object.fromEntries(
+      Object.entries(actionYmlDefaults()).filter(([, value]) => value !== '')
+    )
+    expect(DEFAULTS).toEqual(declared)
   })
 })

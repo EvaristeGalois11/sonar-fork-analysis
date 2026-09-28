@@ -18,6 +18,10 @@ jobs:
       fail-fast: false
       matrix:
         fixture: [maven, gradle]
+    env:
+      # Forks and Dependabot get no Actions secrets, and a forced direct analysis fails without the
+      # token, so skip it there.
+      HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
     steps:
       - name: 'Checkout project'
         uses: actions/checkout@v7
@@ -32,6 +36,7 @@ jobs:
           cache: ${{ matrix.fixture }}
 
       - name: 'Analyse with Sonar'
+        if: env.HAS_SONAR_TOKEN == 'true'
         uses: ./
         with:
           mode: direct

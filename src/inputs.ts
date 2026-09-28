@@ -24,13 +24,19 @@ function input(name: string): string {
   return core.getInput(name) || DEFAULTS[name] || ''
 }
 
+// getMultilineInput drops empty lines before trimming, so whitespace-only lines would survive as
+// empty arguments.
+function lines(name: string): string[] {
+  return core.getMultilineInput(name).filter((line) => line.length > 0)
+}
+
 export function readInputs(): Inputs {
   return {
     mode: input('mode'),
     workingDirectory: input('working-directory'),
     buildTool: input('build-tool'),
-    buildGoals: core.getMultilineInput('build-goals'),
-    buildArguments: core.getMultilineInput('build-arguments'),
+    buildGoals: lines('build-goals'),
+    buildArguments: lines('build-arguments'),
     projectKey: input('project-key'),
     organization: input('sonar-organization'),
     hostUrl: input('sonar-host-url'),

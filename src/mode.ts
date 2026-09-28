@@ -1,8 +1,12 @@
 export type Mode = 'direct' | 'prepare' | 'analyze'
 
-export type Resolution = { mode: Mode; warning?: string } | { skip: string }
+export type Resolution = { mode: Mode; warning?: string }
 
 const MODES = ['auto', 'direct', 'prepare', 'analyze']
+
+// Events that run with the base repository's secrets and write token. Building a pull request
+// there would hand those to its code, which is exactly what this action exists to avoid.
+const PRIVILEGED_EVENTS = ['pull_request_target', 'issue_comment']
 
 export function resolveMode(
   requested: string,
@@ -23,24 +27,22 @@ export function resolveMode(
   } else {
     mode = requested as Mode
   }
-  if (mode !== 'direct') return { mode }
+  if (mode === 'analyze') return { mode }
 
-  if (eventName === 'pull_request_target') {
-    // The token is available there, and a checkout of the pull request head would hand it to the
-    // fork's build. Refuse instead of analysing.
+  if (
+    PRIVILEGED_EVENTS.includes(eventName) ||
+    (mode === 'prepare' && eventName === 'workflow_run')
+  ) {
     throw new Error(
-      'Refusing to build with the Sonar token on pull_request_target; trigger the build on pull_request instead.'
+      `Refusing to build on ${eventName}, which runs with the repository's secrets; trigger the build on pull_request instead.`
     )
   }
-  if (!token) {
-    if (eventName === 'pull_request') {
-      return {
-        skip: 'No Sonar token available (pull request from a fork or Dependabot), skipping the direct analysis.'
-      }
-    }
-    throw new Error('No Sonar token available, set the sonar-token input.')
+  if (mode === 'direct' && !token) {
+    throw new Error(
+      'No Sonar token available, set the sonar-token input. On pull requests from forks, use mode auto.'
+    )
   }
-  if (eventName === 'workflow_run') {
+  if (mode === 'direct' && eventName === 'workflow_run') {
     return {
       mode,
       warning:
