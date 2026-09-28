@@ -17,7 +17,7 @@ jobs:
       - name: 'Set up Node'
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: npm
 
       - name: 'Install dependencies'
@@ -29,11 +29,22 @@ jobs:
       - name: 'Test'
         run: npm test
 
-      # The action runs from the committed dist/, so it must match the sources.
+      # The action runs from the committed dist/, so it must match the sources. Deleting it first
+      # also catches stale files the build no longer produces.
       - name: 'Check dist is up to date'
+        id: check-dist
         run: |
+          rm -rf dist
           npm run build
+          git add --intent-to-add dist
           git diff --exit-code dist/
+
+      - name: 'Upload the expected dist'
+        if: ${{ failure() && steps.check-dist.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
 
   gradle-wrapper:
     name: 'Validate Gradle wrapper'
