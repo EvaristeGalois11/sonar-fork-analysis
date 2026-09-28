@@ -1,9 +1,12 @@
 # Sonar Fork Analysis
-The goal of this action is to open up the possibility of Sonar scanning external forks of your project.
+
+The goal of this action is to open up the possibility of Sonar scanning external
+forks of your project.
 
 ## Usage
 
 Add this action to your build workflow.
+
 ```yml
 name: 'Build'
 on:
@@ -17,7 +20,7 @@ jobs:
     name: 'Build project'
     runs-on: ubuntu-latest
     steps:
-      
+
       ...
 
       - name: 'Build'
@@ -27,12 +30,14 @@ jobs:
         uses: evaristegalois11/sonar-fork-analysis@v1
 ```
 
-Create a new workflow triggered by the conclusion of the previous one and add this action to it. 
+Create a new workflow triggered by the conclusion of the previous one and add
+this action to it.
+
 ```yml
 name: 'Sonar'
 on:
   workflow_run:
-    workflows: [ Build ]
+    workflows: [Build]
     types:
       - completed
 jobs:
@@ -53,13 +58,19 @@ jobs:
           project-key: your-project-key
 ```
 
-The first workflow will gather all the necessary files and upload them as an artifact. The second one will use the produced artifact to kick off the Sonar analysis.
+The first workflow will gather all the necessary files and upload them as an
+artifact. The second one will use the produced artifact to kick off the Sonar
+analysis.
 
 ## Parameters
 
-- `java-version`:The Java version to set up. Takes a whole or semver Java version. See examples of supported syntax in [actions/setup-java README file](https://github.com/actions/setup-java?tab=readme-ov-file#usage).
+- `java-version`:The Java version to set up. Takes a whole or semver Java
+  version. See examples of supported syntax in
+  [actions/setup-java README file](https://github.com/actions/setup-java?tab=readme-ov-file#usage).
 
-- `distribution`:The Java distribution. See the list of supported distributions in [actions/setup-java README file](https://github.com/actions/setup-java?tab=readme-ov-file#usage).
+- `distribution`:The Java distribution. See the list of supported distributions
+  in
+  [actions/setup-java README file](https://github.com/actions/setup-java?tab=readme-ov-file#usage).
 
 - `github-token`:The GitHub token used to authenticate with the GitHub API.
 
@@ -68,6 +79,7 @@ The first workflow will gather all the necessary files and upload them as an art
 - `project-key`:The project's unique key assigned by Sonar.
 
 ## Useful resources
+
 - https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
 - https://community.sonarsource.com/t/sonar-cannot-be-run-on-pr-from-a-fork/69229
 - https://community.sonarsource.com/t/how-to-use-sonarcloud-with-a-forked-repository-on-github/7363
