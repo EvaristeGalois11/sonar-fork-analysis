@@ -15,9 +15,14 @@ const TOKEN = 'sqa_not_a_real_token'
 let project: string
 let inputs: Record<string, string>
 
+let analyses = 0
+
 function writeReport(directory: string): void {
   mkdirSync(join(directory, 'target', 'sonar'), { recursive: true })
-  writeFileSync(join(directory, 'target', 'sonar', 'report-task.txt'), '')
+  writeFileSync(
+    join(directory, 'target', 'sonar', 'report-task.txt'),
+    `ceTaskId=${++analyses}\n`
+  )
 }
 
 beforeEach(() => {
@@ -86,6 +91,17 @@ describe('run', () => {
   })
 
   it('fails when the build succeeded without an analysis', async () => {
+    exec.mockResolvedValue(0)
+
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining('no Sonar analysis ran')
+    )
+  })
+
+  it('does not count a report left over from an earlier build', async () => {
+    writeReport(project)
     exec.mockResolvedValue(0)
 
     await run()
