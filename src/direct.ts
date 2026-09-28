@@ -12,8 +12,12 @@ export type PluginVersions = {
 }
 
 export function sonarProperties(settings: SonarSettings): string[] {
-  const properties = [`-Dsonar.host.url=${settings.hostUrl}`, `-Dsonar.projectKey=${settings.projectKey}`]
-  if (settings.organization) properties.push(`-Dsonar.organization=${settings.organization}`)
+  const properties = [
+    `-Dsonar.host.url=${settings.hostUrl}`,
+    `-Dsonar.projectKey=${settings.projectKey}`
+  ]
+  if (settings.organization)
+    properties.push(`-Dsonar.organization=${settings.organization}`)
   return properties
 }
 
@@ -22,7 +26,7 @@ export function directArguments(
   settings: SonarSettings,
   versions: PluginVersions,
   extraArguments: string[],
-  gradleInitScript: string,
+  gradleInitScript: string
 ): string[] {
   const properties = sonarProperties(settings)
   if (tool.name === 'maven') {
@@ -31,7 +35,14 @@ export function directArguments(
     const goal = `org.sonarsource.scanner.maven:sonar-maven-plugin:${versions.maven}:sonar`
     return ['-B', 'verify', goal, ...properties, ...extraArguments]
   }
-  return ['check', 'sonar', '--init-script', gradleInitScript, ...properties, ...extraArguments]
+  return [
+    'check',
+    'sonar',
+    '--init-script',
+    gradleInitScript,
+    ...properties,
+    ...extraArguments
+  ]
 }
 
 // Applies the Sonar plugin only to builds that do not apply it themselves. The check has to wait for
