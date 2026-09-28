@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
 import { resolveMode } from '../src/mode.js'
 
 describe('resolveMode', () => {
   it('analyses directly when the token is available', () => {
-    expect(resolveMode('auto', 'pull_request', 'token')).toEqual({ mode: 'direct' })
+    expect(resolveMode('auto', 'pull_request', 'token')).toEqual({
+      mode: 'direct'
+    })
     expect(resolveMode('auto', 'push', 'token')).toEqual({ mode: 'direct' })
   })
 
@@ -12,7 +13,9 @@ describe('resolveMode', () => {
   })
 
   it('analyses the artifact on workflow_run, token or not', () => {
-    expect(resolveMode('auto', 'workflow_run', 'token')).toEqual({ mode: 'analyze' })
+    expect(resolveMode('auto', 'workflow_run', 'token')).toEqual({
+      mode: 'analyze'
+    })
   })
 
   it('honours a forced mode', () => {
@@ -25,6 +28,8 @@ describe('resolveMode', () => {
   })
 
   it('rejects unknown modes', () => {
-    expect(() => resolveMode('fast', 'push', 'token')).toThrow(/Unknown mode 'fast'/)
+    expect(() => resolveMode('fast', 'push', 'token')).toThrow(
+      /Unknown mode 'fast'/
+    )
   })
 })

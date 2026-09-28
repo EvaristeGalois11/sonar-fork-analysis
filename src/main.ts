@@ -10,42 +10,62 @@ import { resolveMode } from './mode.js'
 function lines(value: string): string[] {
   return value
     .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
 }
 
 async function direct(token: string): Promise<void> {
   const workingDirectory = resolve(core.getInput('working-directory'))
   const tool = detectBuildTool(workingDirectory, core.getInput('build-tool'))
-  const scriptDirectory = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-fork-analysis-'))
+  const scriptDirectory = mkdtempSync(
+    join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-fork-analysis-')
+  )
   const initScript = join(scriptDirectory, 'sonar.init.gradle.kts')
-  writeFileSync(initScript, gradleInitScript(core.getInput('gradle-plugin-version')))
+  writeFileSync(
+    initScript,
+    gradleInitScript(core.getInput('gradle-plugin-version'))
+  )
 
   const args = directArguments(
     tool,
     {
       hostUrl: core.getInput('sonar-host-url'),
       projectKey: core.getInput('project-key', { required: true }),
-      organization: core.getInput('sonar-organization'),
+      organization: core.getInput('sonar-organization')
     },
-    { maven: core.getInput('maven-plugin-version'), gradle: core.getInput('gradle-plugin-version') },
+    {
+      maven: core.getInput('maven-plugin-version'),
+      gradle: core.getInput('gradle-plugin-version')
+    },
     lines(core.getInput('build-arguments')),
-    initScript,
+    initScript
   )
 
   core.info(`Analysing the ${tool.name} build in ${workingDirectory}`)
   // The token goes through the environment, which the scanner reads, so it never shows up in a command line.
   await exec(tool.executable, args, {
     cwd: workingDirectory,
-    env: { ...process.env, SONAR_TOKEN: token } as Record<string, string>,
+    env: { ...process.env, SONAR_TOKEN: token } as Record<string, string>
   })
 }
 
-async function run(): Promise<void> {
+export async function run(): Promise<void> {
+  try {
+    await dispatch()
+  } catch (error) {
+    core.setFailed(error instanceof Error ? error.message : String(error))
+  }
+}
+
+async function dispatch(): Promise<void> {
   const token = core.getInput('sonar-token')
   if (token) core.setSecret(token)
 
-  const resolution = resolveMode(core.getInput('mode'), process.env.GITHUB_EVENT_NAME ?? '', token)
+  const resolution = resolveMode(
+    core.getInput('mode'),
+    process.env.GITHUB_EVENT_NAME ?? '',
+    token
+  )
   if ('skip' in resolution) {
     core.notice(resolution.skip)
     return
@@ -60,5 +80,3 @@ async function run(): Promise<void> {
       throw new Error(`Mode '${resolution.mode}' is not implemented yet`)
   }
 }
-
-run().catch(error => core.setFailed(error instanceof Error ? error.message : String(error)))
