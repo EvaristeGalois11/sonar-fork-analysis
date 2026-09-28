@@ -3,8 +3,9 @@ description: 'Sonar scan external forks of your project'
 inputs:
   mode:
     description: >
-      auto: analyse directly when sonar-token is set, otherwise prepare an artifact; on workflow_run,
-      analyse the prepared artifact. direct, prepare and analyze force one of those steps.
+      auto: analyse directly when sonar-token is set, otherwise prepare an
+      artifact; on workflow_run, analyse the prepared artifact. direct, prepare
+      and analyze force one of those steps.
     default: auto
   working-directory:
     description: 'Directory containing the Maven or Gradle build.'
@@ -24,13 +25,17 @@ inputs:
     description: 'The Sonar server.'
     default: https://sonarcloud.io
   sonar-token:
-    description: 'The Sonar token. Empty on pull requests from forks, which is what selects the fork path.'
+    description:
+      'The Sonar token. Empty on pull requests from forks, which is what selects
+      the fork path.'
     default: ''
   maven-plugin-version:
     description: 'Version of the Sonar Maven plugin.'
     default: 5.8.0.7211
   gradle-plugin-version:
-    description: 'Version of the Sonar Gradle plugin, used when the build does not apply it itself.'
+    description:
+      'Version of the Sonar Gradle plugin, used when the build does not apply it
+      itself.'
     default: 7.5.0.8588
 branding:
   icon: search

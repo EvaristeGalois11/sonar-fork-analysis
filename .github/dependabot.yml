@@ -1,21 +1,21 @@
 version: 2
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "daily"
+      interval: 'daily'
 
-  - package-ecosystem: "maven"
-    directory: "/fixtures/maven"
+  - package-ecosystem: 'maven'
+    directory: '/fixtures/maven'
     schedule:
-      interval: "daily"
+      interval: 'daily'
 
-  - package-ecosystem: "gradle"
-    directory: "/fixtures/gradle"
+  - package-ecosystem: 'gradle'
+    directory: '/fixtures/gradle'
     schedule:
-      interval: "daily"
+      interval: 'daily'
 
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "daily"
+      interval: 'daily'
