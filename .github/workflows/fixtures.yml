@@ -38,5 +38,5 @@ jobs:
           working-directory: fixtures/${{ matrix.fixture }}
           project-key:
             EvaristeGalois11_sonar-fork-analysis_${{ matrix.fixture }}_direct
-          sonar-organization: evaristegalois
+          sonar-organization: evaristegalois11
           sonar-token: ${{ secrets.SONAR_TOKEN }}
