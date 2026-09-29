@@ -29,6 +29,9 @@ jobs:
       - name: 'Lint'
         run: npm run lint
 
+      - name: 'Type-check scripts'
+        run: npm run typecheck
+
       - name: 'Test'
         run: npm run ci-test
 
