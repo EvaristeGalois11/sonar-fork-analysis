@@ -17,7 +17,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture: [maven, gradle]
+        include:
+          - fixture: maven
+            name: Maven
+          - fixture: gradle
+            name: Gradle
     env:
       # Forks and Dependabot get no Actions secrets, and a forced direct analysis fails without the
       # token, so skip it there.
@@ -45,3 +49,8 @@ jobs:
             evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_direct
           sonar-organization: evaristegalois11
           sonar-token: ${{ secrets.SONAR_TOKEN }}
+          # SonarCloud names a project after the build (fixture-maven, fixture-gradle) and labels its PR
+          # check with that name, so the direct and split projects of a fixture would post same-named
+          # checks that GitHub merges into one.
+          build-arguments:
+            -Dsonar.projectName=Sonar fork analysis - ${{ matrix.name }} direct
