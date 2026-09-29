@@ -16471,15 +16471,15 @@ function requireRedirect () {
 	return redirect;
 }
 
-var retry$2;
+var retry$3;
 var hasRequiredRetry;
 
 function requireRetry () {
-	if (hasRequiredRetry) return retry$2;
+	if (hasRequiredRetry) return retry$3;
 	hasRequiredRetry = 1;
 	const RetryHandler = requireRetryHandler();
 
-	retry$2 = globalOpts => {
+	retry$3 = globalOpts => {
 	  return dispatch => {
 	    return function retryInterceptor (opts, handler) {
 	      return dispatch(
@@ -16495,7 +16495,7 @@ function requireRetry () {
 	    }
 	  }
 	};
-	return retry$2;
+	return retry$3;
 }
 
 var dump;
@@ -84448,7 +84448,7 @@ function constant(value) {
 const DEFAULT_TIMES = 5;
 const DEFAULT_INTERVAL = 0;
 
-function retry$1(opts, task, callback) {
+function retry$2(opts, task, callback) {
     var options = {
         times: DEFAULT_TIMES,
         intervalFunc: constant(DEFAULT_INTERVAL)
@@ -84550,8 +84550,8 @@ function retryable (opts, task) {
             _task(...args, cb);
         }
 
-        if (opts) retry$1(opts, taskFn, callback);
-        else retry$1(taskFn, callback);
+        if (opts) retry$2(opts, taskFn, callback);
+        else retry$2(taskFn, callback);
 
         return callback[PROMISE_SYMBOL]
     });
@@ -85716,7 +85716,7 @@ var index = {
     reject: reject$1,
     rejectLimit: rejectLimit$1,
     rejectSeries: rejectSeries$1,
-    retry: retry$1,
+    retry: retry$2,
     retryable,
     seq,
     series,
@@ -85849,7 +85849,7 @@ var async = /*#__PURE__*/Object.freeze({
     reject: reject$1,
     rejectLimit: rejectLimit$1,
     rejectSeries: rejectSeries$1,
-    retry: retry$1,
+    retry: retry$2,
     retryable: retryable,
     select: filter$1,
     selectLimit: filterLimit$1,
@@ -126806,7 +126806,7 @@ async function requestWithGraphqlErrorHandling(state, octokit, request, options)
 }
 
 // pkg/dist-src/index.js
-function retry(octokit, octokitOptions) {
+function retry$1(octokit, octokitOptions) {
   const state = Object.assign(
     {
       enabled: true,
@@ -126833,7 +126833,7 @@ function retry(octokit, octokitOptions) {
   }
   return retryPlugin;
 }
-retry.VERSION = VERSION$1;
+retry$1.VERSION = VERSION$1;
 
 var __awaiter$5 = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -126855,7 +126855,7 @@ function getArtifactPublic(artifactName, workflowRunId, repositoryOwner, reposit
             retry: retryOpts,
             request: requestOpts
         };
-        const github = getOctokit(token, opts, retry, requestLog);
+        const github = getOctokit(token, opts, retry$1, requestLog);
         const getArtifactResp = yield github.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}/artifacts{?name}', {
             owner: repositoryOwner,
             repo: repositoryName,
@@ -126943,7 +126943,7 @@ function deleteArtifactPublic(artifactName, workflowRunId, repositoryOwner, repo
             retry: retryOpts,
             request: requestOpts
         };
-        const github = getOctokit(token, opts, retry, requestLog);
+        const github = getOctokit(token, opts, retry$1, requestLog);
         const getArtifactResp = yield getArtifactPublic(artifactName, workflowRunId, repositoryOwner, repositoryName, token);
         const deleteArtifactResp = yield github.rest.actions.deleteArtifact({
             owner: repositoryOwner,
@@ -127013,7 +127013,7 @@ function listArtifactsPublic(workflowRunId_1, repositoryOwner_1, repositoryName_
             retry: retryOpts,
             request: requestOpts
         };
-        const github = getOctokit(token, opts, retry, requestLog);
+        const github = getOctokit(token, opts, retry$1, requestLog);
         let currentPageNumber = 1;
         const { data: listArtifactResponse } = yield github.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}/artifacts', {
             owner: repositoryOwner,
@@ -127568,6 +127568,28 @@ function detectBuildTool(directory, requested = 'auto') {
         : { name, executable: 'sh', prefix: [wrapper] };
 }
 
+const CHECKOUT_POLICY = {
+    attempts: 3,
+    minSeconds: 10,
+    maxSeconds: 20,
+    sleep: (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000))
+};
+async function retry(action, policy = CHECKOUT_POLICY) {
+    for (let attempt = 1; attempt < policy.attempts; attempt++) {
+        try {
+            return await action();
+        }
+        catch (error) {
+            info(error instanceof Error ? error.message : String(error));
+        }
+        const seconds = Math.floor(Math.random() * (policy.maxSeconds - policy.minSeconds + 1)) +
+            policy.minSeconds;
+        info(`Waiting ${seconds} seconds before trying again`);
+        await policy.sleep(seconds);
+    }
+    return action();
+}
+
 async function git(workspace, args, env) {
     return getExecOutput('git', args, {
         cwd: workspace,
@@ -127606,7 +127628,8 @@ async function checkoutCommit(workspace, serverUrl, repository, sha, token) {
         'origin',
         `${serverUrl}/${repository}`
     ]);
-    await required(workspace, [
+    // The only network operation, so the only one worth retrying, as actions/checkout does.
+    await retry(() => required(workspace, [
         'fetch',
         '--quiet',
         '--no-tags',
@@ -127614,7 +127637,7 @@ async function checkoutCommit(workspace, serverUrl, repository, sha, token) {
         'origin',
         '+refs/heads/*:refs/remotes/origin/*',
         sha
-    ], env);
+    ], env));
     await required(workspace, ['checkout', '--quiet', '--detach', sha]);
 }
 async function verifyCheckout(workspace, sha) {

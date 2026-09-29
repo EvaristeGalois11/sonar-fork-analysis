@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { getExecOutput } from '@actions/exec'
 import { readdirSync } from 'node:fs'
+import { retry } from './retry.js'
 
 async function git(
   workspace: string,
@@ -58,18 +59,21 @@ export async function checkoutCommit(
     'origin',
     `${serverUrl}/${repository}`
   ])
-  await required(
-    workspace,
-    [
-      'fetch',
-      '--quiet',
-      '--no-tags',
-      '--no-recurse-submodules',
-      'origin',
-      '+refs/heads/*:refs/remotes/origin/*',
-      sha
-    ],
-    env
+  // The only network operation, so the only one worth retrying, as actions/checkout does.
+  await retry(() =>
+    required(
+      workspace,
+      [
+        'fetch',
+        '--quiet',
+        '--no-tags',
+        '--no-recurse-submodules',
+        'origin',
+        '+refs/heads/*:refs/remotes/origin/*',
+        sha
+      ],
+      env
+    )
   )
   await required(workspace, ['checkout', '--quiet', '--detach', sha])
 }
