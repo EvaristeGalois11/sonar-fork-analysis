@@ -118,3 +118,31 @@ jobs:
           sonar-token: ${{ secrets.SONAR_TOKEN }}
           build-arguments:
             -Dsonar.projectName=Sonar fork analysis - ${{ matrix.name }} split
+
+  # Fails when the fork path loses anything a direct analysis finds. On pull requests Sonar only keeps
+  # issues on changed lines, so the full comparison happens on main.
+  compare:
+    name: 'Compare the ${{ matrix.fixture }} analyses'
+    needs: [direct, analyze]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture: [maven, gradle]
+    env:
+      HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: 'Compare direct and fork path results'
+        if: env.HAS_SONAR_TOKEN == 'true'
+        run: >
+          node scripts/compare-analyses.mjs
+          evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_direct
+          evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
