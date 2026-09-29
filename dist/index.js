@@ -46,7 +46,7 @@ import https$1 from 'node:https';
 import { createHmac, createHash } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
-import fs$1, { lstatSync, existsSync as existsSync$1, rmSync, readdirSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, cpSync, writeFileSync, readFileSync as readFileSync$1, mkdtempSync } from 'node:fs';
+import fs$1, { lstatSync, existsSync as existsSync$1, rmSync, readdirSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
 import require$$1$7, { relative, isAbsolute, resolve as resolve$1, sep as sep$2, join, dirname } from 'node:path';
@@ -131276,8 +131276,8 @@ function _getGlobal(key, defaultValue) {
 }
 
 const VERSION = '8.1.0.6389';
-// The tool cache wants semver, which has no fourth component.
-const CACHE_VERSION = '8.1.0';
+// The tool cache wants semver, which has no fourth component; the build goes in the prerelease.
+const CACHE_VERSION = '8.1.0-build.6389';
 // Builds with their own Java runtime, so the analysis needs no Java on the runner.
 const BUNDLED = {
     'linux-x64': {
@@ -131318,7 +131318,10 @@ async function installScanner(platform = process.platform, arch = process.arch) 
     let directory = find(tool, CACHE_VERSION);
     if (!directory) {
         const name = `sonar-scanner-cli-${VERSION}${build.suffix}`;
-        const zip = await downloadTool(`https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${name}.zip`);
+        const download = await downloadTool(`https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${name}.zip`);
+        // PowerShell 5.1, which extracts on some Windows runners, refuses a file without the extension.
+        const zip = `${download}.zip`;
+        renameSync(download, zip);
         const actual = createHash('sha256').update(readFileSync$1(zip)).digest('hex');
         if (actual !== build.sha256) {
             throw new Error(`The downloaded scanner has SHA-256 ${actual}, expected ${build.sha256}`);

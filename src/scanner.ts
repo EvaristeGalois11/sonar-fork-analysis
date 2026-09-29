@@ -1,12 +1,12 @@
 import * as core from '@actions/core'
 import * as tc from '@actions/tool-cache'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 
 const VERSION = '8.1.0.6389'
-// The tool cache wants semver, which has no fourth component.
-const CACHE_VERSION = '8.1.0'
+// The tool cache wants semver, which has no fourth component; the build goes in the prerelease.
+const CACHE_VERSION = '8.1.0-build.6389'
 
 type Build = { suffix: string; sha256: string }
 
@@ -58,9 +58,12 @@ export async function installScanner(
   let directory = tc.find(tool, CACHE_VERSION)
   if (!directory) {
     const name = `sonar-scanner-cli-${VERSION}${build.suffix}`
-    const zip = await tc.downloadTool(
+    const download = await tc.downloadTool(
       `https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${name}.zip`
     )
+    // PowerShell 5.1, which extracts on some Windows runners, refuses a file without the extension.
+    const zip = `${download}.zip`
+    renameSync(download, zip)
     const actual = createHash('sha256').update(readFileSync(zip)).digest('hex')
     if (actual !== build.sha256) {
       throw new Error(
