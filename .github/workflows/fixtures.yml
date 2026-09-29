@@ -137,10 +137,17 @@ jobs:
         with:
           persist-credentials: false
 
+      # Node runs the TypeScript script directly from 22.18; the runner may have an older one.
+      - name: 'Set up Node'
+        if: env.HAS_SONAR_TOKEN == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
       - name: 'Compare direct and fork path results'
         if: env.HAS_SONAR_TOKEN == 'true'
         run: >
-          node scripts/compare-analyses.mjs
+          node scripts/compare-analyses.ts
           evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_direct
           evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
         env:

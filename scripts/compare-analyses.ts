@@ -1,7 +1,7 @@
 // Fails when two Sonar projects hold different results for the same code: the fixture analysed
 // directly and through the fork path must look identical, or the fork path lost something.
 //
-// Usage: node scripts/compare-analyses.mjs <project key> <other project key>
+// Usage: node scripts/compare-analyses.ts <project key> <other project key>
 // Environment: SONAR_TOKEN, SONAR_HOST_URL (default SonarQube Cloud), PULL_REQUEST (compare that pull
 // request's analyses instead of the main branch's).
 //
@@ -12,7 +12,7 @@ const host = process.env.SONAR_HOST_URL || 'https://sonarcloud.io'
 const pullRequest = process.env.PULL_REQUEST
 const [first, second] = process.argv.slice(2)
 if (!first || !second) {
-  console.error('Usage: compare-analyses.mjs <project key> <other project key>')
+  console.error('Usage: compare-analyses.ts <project key> <other project key>')
   process.exit(2)
 }
 
@@ -37,7 +37,15 @@ const METRICS = [
   'security_hotspots'
 ]
 
-async function api(path, parameters) {
+type Measure = { metric: string; value?: string }
+type Issue = { rule: string; component: string; line?: number; message: string }
+type File = { path: string; measures: Measure[] }
+type Results = Record<'measures' | 'issues' | 'files', string[]>
+
+async function api<T>(
+  path: string,
+  parameters: Record<string, string>
+): Promise<T> {
   const url = new URL(path, host)
   for (const [name, value] of Object.entries(parameters))
     url.searchParams.set(name, value)
@@ -50,30 +58,35 @@ async function api(path, parameters) {
       `${url.pathname} answered ${response.status}: ${await response.text()}`
     )
   }
-  return response.json()
+  return (await response.json()) as T
 }
 
 // The analyses were submitted before this runs; the server may still be processing them.
-async function processed(project) {
+async function processed(project: string): Promise<void> {
   for (let attempt = 0; attempt < 60; attempt++) {
-    const { queue } = await api('/api/ce/component', { component: project })
+    const { queue } = await api<{ queue: unknown[] }>('/api/ce/component', {
+      component: project
+    })
     if (queue.length === 0) return
     await new Promise((resolve) => setTimeout(resolve, 5000))
   }
   throw new Error(`${project} still has analyses waiting after 5 minutes`)
 }
 
-async function results(project) {
-  const scope = pullRequest ? { pullRequest } : {}
-  const { component } = await api('/api/measures/component', {
-    component: project,
-    metricKeys: METRICS.join(','),
-    ...scope
-  })
+async function results(project: string): Promise<Results> {
+  const scope: Record<string, string> = pullRequest ? { pullRequest } : {}
+  const { component } = await api<{ component: { measures: Measure[] } }>(
+    '/api/measures/component',
+    {
+      component: project,
+      metricKeys: METRICS.join(','),
+      ...scope
+    }
+  )
   const measures = component.measures
     .map((measure) => `${measure.metric} ${measure.value}`)
     .sort()
-  const { issues } = await api('/api/issues/search', {
+  const { issues } = await api<{ issues: Issue[] }>('/api/issues/search', {
     // 'projects' is the one name SonarQube Cloud and SonarQube Server both accept.
     projects: project,
     resolved: 'false',
@@ -81,7 +94,7 @@ async function results(project) {
     ...scope
   })
   // Component keys are <project>:<path>; project-level issues carry the bare project key.
-  const path = (key) =>
+  const path = (key: string): string =>
     key.includes(':') ? key.slice(key.indexOf(':') + 1) : ''
   const issueLines = issues
     .map(
@@ -89,13 +102,16 @@ async function results(project) {
         `${issue.rule} ${path(issue.component)}:${issue.line ?? '-'} ${issue.message}`
     )
     .sort()
-  const { components } = await api('/api/measures/component_tree', {
-    component: project,
-    qualifiers: 'FIL,UTS',
-    metricKeys: 'coverage',
-    ps: '500',
-    ...scope
-  })
+  const { components } = await api<{ components: File[] }>(
+    '/api/measures/component_tree',
+    {
+      component: project,
+      qualifiers: 'FIL,UTS',
+      metricKeys: 'coverage',
+      ps: '500',
+      ...scope
+    }
+  )
   const files = components
     .map(
       (file) =>
@@ -109,7 +125,7 @@ await Promise.all([processed(first), processed(second)])
 const [expected, actual] = await Promise.all([results(first), results(second)])
 
 let different = false
-for (const kind of ['measures', 'issues', 'files']) {
+for (const kind of ['measures', 'issues', 'files'] as const) {
   const missing = expected[kind].filter((line) => !actual[kind].includes(line))
   const extra = actual[kind].filter((line) => !expected[kind].includes(line))
   if (missing.length === 0 && extra.length === 0) {
