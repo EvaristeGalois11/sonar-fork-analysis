@@ -1,7 +1,7 @@
 # Analyses the fixtures prepared by the 'Fixtures' workflow, the way a pull request from a fork is.
 #
 # This job holds the Sonar token, so it must never run code from the analysed commit: the action comes
-# from main, never from the checkout, and the checkout is only read by the scanner.
+# from main, and it checks out the analysed commit itself, which the scanner then only reads.
 name: 'Fixtures Sonar'
 on:
   workflow_run:
@@ -26,14 +26,6 @@ jobs:
           - fixture: gradle
             name: Gradle
     steps:
-      - name: 'Checkout the analysed commit'
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ github.event.workflow_run.head_repository.full_name }}
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
       # No cache: in this job it would be saved for main's builds with whatever the fork put in it.
       - name: 'Set up Java'
         uses: actions/setup-java@v6
