@@ -29,6 +29,14 @@ describe('readInputs', () => {
     expect(inputs.buildTool).toBe('auto')
   })
 
+  it('reads the checkout flag', () => {
+    expect(readInputs().checkout).toBe(true)
+    process.env['INPUT_CHECKOUT'] = 'False'
+    expect(readInputs().checkout).toBe(false)
+    process.env['INPUT_CHECKOUT'] = 'yes'
+    expect(() => readInputs()).toThrow(/must be true or false/)
+  })
+
   it('reads goals and arguments one per line', () => {
     process.env['INPUT_BUILD-GOALS'] = 'clean\n\n    \n verify \n'
     process.env['INPUT_BUILD-ARGUMENTS'] = '-Pci\n-Dfoo=bar baz'

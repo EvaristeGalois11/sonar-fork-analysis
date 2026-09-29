@@ -3,6 +3,8 @@ export type PullRequest = { key: string; branch: string; base: string }
 export type Origin = {
   // The run holding the prepared artifact; undefined for the current run.
   runId?: number
+  // The repository holding the analysed commit: the fork, for a pull request from one.
+  repository: string
   headSha: string
   pullRequest?: PullRequest
   // Set for branches other than the default one, which Sonar analyses as branches.
@@ -71,7 +73,11 @@ export async function resolveOrigin(
   const { eventName, event } = context
   if (eventName === 'workflow_run') {
     const run = event.workflow_run
-    const origin: Origin = { runId: run.id, headSha: run.head_sha }
+    const origin: Origin = {
+      runId: run.id,
+      repository: run.head_repository.full_name,
+      headSha: run.head_sha
+    }
     if (run.event === 'pull_request') {
       origin.pullRequest = await findPullRequest(
         context,
@@ -92,6 +98,7 @@ export async function resolveOrigin(
   if (eventName === 'pull_request' || eventName === 'pull_request_target') {
     const pull = event.pull_request
     return {
+      repository: pull.head.repo.full_name,
       headSha: pull.head.sha,
       pullRequest: {
         key: String(pull.number),
@@ -100,7 +107,10 @@ export async function resolveOrigin(
       }
     }
   }
-  const origin: Origin = { headSha: context.sha }
+  const origin: Origin = {
+    repository: context.repository,
+    headSha: context.sha
+  }
   if (context.refName !== event.repository?.default_branch)
     origin.branch = context.refName
   return origin

@@ -227,6 +227,7 @@ describe('run in prepare mode', () => {
 describe('run in analyze mode', () => {
   const saved = { ...process.env }
   let artifactDir: string
+  let head: string
 
   function prepared(settings: Record<string, string>): void {
     artifactDir = mkdtempSync(join(tmpdir(), 'artifact-'))
@@ -258,10 +259,13 @@ describe('run in analyze mode', () => {
       JSON.stringify({ repository: { default_branch: 'main' } })
     )
     process.env.GITHUB_EVENT_PATH = event
-    getExecOutput.mockResolvedValue({
-      exitCode: 0,
-      stdout: 'head-sha\n',
-      stderr: ''
+    inputs.checkout = 'false'
+    head = 'head-sha'
+    getExecOutput.mockImplementation(async (_tool, args) => {
+      if (args!.includes('--is-shallow-repository'))
+        return { exitCode: 0, stdout: 'false\n', stderr: '' }
+      if (args![0] === 'config') return { exitCode: 1, stdout: '', stderr: '' }
+      return { exitCode: 0, stdout: `${head}\n`, stderr: '' }
     })
     exec.mockResolvedValue(0)
   })
@@ -297,16 +301,12 @@ describe('run in analyze mode', () => {
 
   it('refuses a checkout of another commit', async () => {
     prepared({})
-    getExecOutput.mockResolvedValue({
-      exitCode: 0,
-      stdout: 'other\n',
-      stderr: ''
-    })
+    head = 'other'
 
     await run()
 
     expect(core.setFailed).toHaveBeenCalledWith(
-      expect.stringContaining('check out that commit first')
+      expect.stringContaining('check out that commit')
     )
     expect(exec).not.toHaveBeenCalled()
   })
