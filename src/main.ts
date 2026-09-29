@@ -9,6 +9,7 @@ import {
   rmSync,
   writeFileSync
 } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
@@ -29,7 +30,13 @@ import {
 } from './direct.js'
 import { readInputs, type Inputs } from './inputs.js'
 import { resolveMode } from './mode.js'
-import { resolveOrigin, type Context, type Origin } from './origin.js'
+import {
+  choosePullRequest,
+  resolveOrigin,
+  type Context,
+  type Origin,
+  type PullRequest
+} from './origin.js'
 import {
   ARTIFACT_FORMAT,
   artifactName,
@@ -113,7 +120,8 @@ async function prepare(inputs: Inputs): Promise<void> {
       home: homedir()
     },
     staging,
-    tool.name
+    tool.name,
+    pullRequestNumber()
   )
   for (const warning of staged.warnings) core.warning(warning)
 
@@ -132,6 +140,14 @@ async function prepare(inputs: Inputs): Promise<void> {
     }
   )
   core.info(`Uploaded ${name} with ${staged.files.length} files`)
+}
+
+// Tells the analysis which pull request this build is for, in case several share its head.
+function pullRequestNumber(): number | undefined {
+  const eventPath = process.env.GITHUB_EVENT_PATH
+  if (process.env.GITHUB_EVENT_NAME !== 'pull_request' || !eventPath)
+    return undefined
+  return JSON.parse(readFileSync(eventPath, 'utf8')).pull_request?.number
 }
 
 function tempDirectory(): string {
@@ -200,13 +216,13 @@ async function analyze(inputs: Inputs): Promise<void> {
   }
 
   if (inputs.checkout) {
-    await checkoutCommit(
-      workspace,
-      process.env.GITHUB_SERVER_URL ?? 'https://github.com',
-      origin.repository,
-      origin.headSha,
-      inputs.githubToken
-    )
+    await checkoutCommit(workspace, {
+      serverUrl: process.env.GITHUB_SERVER_URL ?? 'https://github.com',
+      repository: context.repository,
+      headRepository: origin.repository,
+      sha: origin.headSha,
+      token: inputs.githubToken
+    })
   }
   await verifyCheckout(workspace, origin.headSha)
 
@@ -242,13 +258,23 @@ async function analyze(inputs: Inputs): Promise<void> {
   ]
   if (existsSync(join(artifact, 'home')))
     cpSync(join(artifact, 'home'), home, { recursive: true })
+  let pullRequest: PullRequest | undefined
+  if (origin.pullRequests) {
+    const choice = choosePullRequest(origin.pullRequests, manifest.pullRequest)
+    pullRequest = choice.pullRequest
+    if (choice.warning) warnings.push(choice.warning)
+  }
   // core.warning escapes its message, unlike core.info, so artifact content cannot inject commands.
   for (const warning of warnings) core.warning(warning)
 
   const properties = resolved.properties
   if (!properties.has('sonar.projectBaseDir'))
     properties.set('sonar.projectBaseDir', workspace)
-  const trusted = trustedProperties(inputs, origin)
+  const trusted = trustedProperties(
+    inputs,
+    { headSha: origin.headSha, pullRequest, branch: origin.branch },
+    join(temp, 'scannerwork')
+  )
   for (const [key, value] of trusted) properties.set(key, value)
   const settingsFile = join(temp, 'sonar-project.properties')
   writeFileSync(settingsFile, formatProperties(properties))
@@ -256,15 +282,24 @@ async function analyze(inputs: Inputs): Promise<void> {
   const scanner = await installScanner()
   core.info(`Analysing ${name}`)
   const env = { ...process.env, SONAR_TOKEN: inputs.token }
-  const exitCode = await exec(
-    scanner,
-    [`-Dproject.settings=${settingsFile}`, ...inputs.buildArguments],
-    {
-      cwd: workspace,
-      env: env as Record<string, string>,
-      ignoreReturnCode: true
-    }
-  )
+  // The scanner prints module names and paths from the artifact and the checkout; none of it may
+  // pass for a workflow command.
+  const resume = randomUUID()
+  core.info(`::stop-commands::${resume}`)
+  let exitCode: number
+  try {
+    exitCode = await exec(
+      scanner,
+      [`-Dproject.settings=${settingsFile}`, ...inputs.buildArguments],
+      {
+        cwd: workspace,
+        env: env as Record<string, string>,
+        ignoreReturnCode: true
+      }
+    )
+  } finally {
+    core.info(`::${resume}::`)
+  }
   if (exitCode !== 0)
     throw new Error(`The Sonar scanner failed with exit code ${exitCode}`)
 }

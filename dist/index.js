@@ -43,13 +43,13 @@ import require$$0$d, { Buffer as Buffer$1 } from 'buffer';
 import os$1, { EOL as EOL$1, homedir, tmpdir } from 'node:os';
 import process$2 from 'node:process';
 import https$1 from 'node:https';
-import { createHmac, createHash } from 'node:crypto';
+import { createHmac, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
-import fs$1, { lstatSync, existsSync as existsSync$1, rmSync, readdirSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
+import fs$1, { lstatSync, realpathSync, existsSync as existsSync$1, rmSync, readdirSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
-import require$$1$7, { relative, isAbsolute, resolve as resolve$1, sep as sep$2, join, dirname } from 'node:path';
+import require$$1$7, { relative, isAbsolute, resolve as resolve$1, sep as sep$2, join, basename, dirname } from 'node:path';
 import require$$5$6 from 'node:fs/promises';
 import require$$2$1 from 'node:string_decoder';
 import require$$0$e from 'zlib';
@@ -127312,15 +127312,28 @@ function isAllowed(bareKey) {
 }
 // Every module prefix, nested ones included: '', 'a.', 'a.b.'. Module ids may contain dots
 // (groupId:artifactId), so prefixes come from each level's sonar.modules, never from splitting keys.
-function modulePrefixes(settings, prefix = '') {
-    const modules = (settings.get(`${prefix}sonar.modules`) ?? '')
-        .split(',')
-        .map((module) => module.trim())
-        .filter((module) => module.length > 0);
-    return [
-        prefix,
-        ...modules.flatMap((module) => modulePrefixes(settings, `${prefix}${module}.`))
-    ];
+// Each prefix is visited once: repeated or overlapping ids would otherwise multiply the walk.
+function modulePrefixes(settings) {
+    const prefixes = [''];
+    const seen = new Set(prefixes);
+    for (let index = 0; index < prefixes.length; index++) {
+        const prefix = prefixes[index];
+        const modules = (settings.get(`${prefix}sonar.modules`) ?? '')
+            .split(',')
+            .map((module) => module.trim())
+            .filter((module) => module.length > 0);
+        for (const module of modules) {
+            // The scanner turns a module id into a directory under its parent's.
+            if (module === '.' || module === '..' || /[/\\]/.test(module))
+                throw new Error(`Invalid module id: ${module}`);
+            const nested = `${prefix}${module}.`;
+            if (!seen.has(nested)) {
+                seen.add(nested);
+                prefixes.push(nested);
+            }
+        }
+    }
+    return prefixes;
 }
 function splitKey(key, prefixes) {
     // Longest first, so a nested module wins over its parent.
@@ -127364,19 +127377,30 @@ function mapPlaceholder(entry, workspace, home) {
     return undefined;
 }
 // Must run on the pristine checkout: sources and tests are only accepted if the checkout has them.
+// Paths are compared by their real location, since the checkout may contain links.
 function resolveSettings(settings, workspace, home) {
     const { kept } = filterSettings(new Map(Object.entries(settings)));
     const prefixes = modulePrefixes(kept);
     const warnings = [];
     const sourceRoots = [];
     const properties = new Map();
+    const realWorkspace = realpathSync(workspace);
+    const realHome = existsSync$1(home) ? realpathSync(home) : home;
+    const inCheckout = (path) => existsSync$1(path) && isWithin(realpathSync(path), realWorkspace);
+    // The scanner resolves a module's relative paths against its base directory, and derives a missing
+    // one from the module id, so every module must come with a base checked here.
     const bases = new Map();
     for (const prefix of prefixes) {
         const base = kept.get(`${prefix}sonar.projectBaseDir`);
-        const mapped = base && mapPlaceholder(base, workspace, home);
-        if (mapped && isWithin(mapped, workspace) && existsSync$1(mapped))
-            bases.set(prefix, mapped);
+        const mapped = base === undefined && prefix === ''
+            ? workspace
+            : base && mapPlaceholder(base, workspace, home);
+        if (!mapped || !inCheckout(mapped)) {
+            throw new Error(`The artifact gives ${prefix ? `module ${prefix.slice(0, -1)}` : 'the project'} no base directory in the checkout`);
+        }
+        bases.set(prefix, mapped);
     }
+    const withSources = new Set();
     for (const [key, value] of kept) {
         const { prefix, bareKey } = splitKey(key, prefixes);
         const shipped = SHIPPED_PATH_KEYS.has(bareKey);
@@ -127385,7 +127409,9 @@ function resolveSettings(settings, workspace, home) {
             properties.set(key, value);
             continue;
         }
-        const base = bases.get(prefix) ?? workspace;
+        const base = bases.get(prefix);
+        if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests')
+            withSources.add(prefix);
         const entries = [];
         for (const entry of value.split(',').filter((path) => path !== '')) {
             const path = entry.startsWith('{')
@@ -127395,17 +127421,29 @@ function resolveSettings(settings, workspace, home) {
                     : inside(workspace, resolve$1(base, entry));
             // Shipped paths may live in the private home; output directories appear when unpacking;
             // checkout paths must already be in the checkout.
-            const accepted = path !== undefined &&
-                (shipped || (isWithin(path, workspace) && (output || existsSync$1(path))));
+            let accepted = false;
+            if (path !== undefined && existsSync$1(path)) {
+                const real = realpathSync(path);
+                accepted =
+                    isWithin(real, realWorkspace) || (shipped && isWithin(real, realHome));
+            }
+            else if (path !== undefined) {
+                accepted = shipped || (output && isWithin(path, workspace));
+            }
             if (!accepted) {
                 warnings.push(`Dropped ${key} entry: ${entry}`);
                 continue;
             }
-            entries.push(entry.startsWith('{') ? path : entry);
+            entries.push(path);
             if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests')
-                sourceRoots.push(path);
+                sourceRoots.push(realpathSync(path));
         }
         properties.set(key, entries.join(','));
+    }
+    // Without either setting the scanner analyses the whole base directory.
+    for (const [prefix, base] of bases) {
+        if (!withSources.has(prefix))
+            sourceRoots.push(realpathSync(base));
     }
     return { properties, sourceRoots, warnings };
 }
@@ -127421,11 +127459,20 @@ function checkNoLinks(directory) {
         }
     }
 }
+// Git would take a planted repository's config and history when Sonar runs it on the checkout.
+// Case and Windows aliases (trailing dots, 8.3 short names) matter on some runners.
+function isGitDirectory(segment) {
+    return /^(\.git|git~\d+)$/i.test(segment.replace(/[. ]+$/, ''));
+}
 function unpackFile(source, rel, workspace, protectedRoots) {
     const target = join(workspace, rel);
-    if (rel.split(sep$2)[0] === '.git')
+    if (rel.split(sep$2).some(isGitDirectory))
         return 'inside .git';
-    if (protectedRoots.some((root) => isWithin(target, root)))
+    if (basename(rel).toLowerCase() === 'sonar-project.properties')
+        return 'the scanner would read it as settings';
+    // Directories on the way are never links (checked below), so this is where the file really lands.
+    const real = join(realpathSync(workspace), rel);
+    if (protectedRoots.some((root) => isWithin(real, root)))
         return 'inside the sources';
     // A committed symlink (e.g. target -> /home/runner/.m2) must not redirect the write.
     let directory = workspace;
@@ -127488,7 +127535,9 @@ function escape(text, isKey) {
         .replace(/\n/g, '\\n')
         .replace(/\r/g, '\\r')
         .replace(/\t/g, '\\t')
-        .replace(/\f/g, '\\f');
+        .replace(/\f/g, '\\f')
+        // Correct whichever encoding the scanner reads the file with.
+        .replace(/[^\x20-\x7e]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
     if (isKey)
         escaped = escaped.replace(/[:= #!]/g, '\\$&');
     else
@@ -127502,22 +127551,24 @@ function formatProperties(properties) {
         .concat('\n');
 }
 // Set by the trusted side only; they override anything that came with the artifact.
-function trustedProperties(target, origin) {
+function trustedProperties(target, analysed, workingDirectory) {
     const properties = new Map([
         ['sonar.projectKey', target.projectKey],
-        ['sonar.scm.revision', origin.headSha]
+        ['sonar.scm.revision', analysed.headSha],
+        // The scanner empties its working directory, which by default is a name the checkout could link.
+        ['sonar.working.directory', workingDirectory]
     ]);
     if (target.organization)
         properties.set('sonar.organization', target.organization);
     if (target.hostUrl)
         properties.set('sonar.host.url', target.hostUrl);
-    if (origin.pullRequest) {
-        properties.set('sonar.pullrequest.key', origin.pullRequest.key);
-        properties.set('sonar.pullrequest.branch', origin.pullRequest.branch);
-        properties.set('sonar.pullrequest.base', origin.pullRequest.base);
+    if (analysed.pullRequest) {
+        properties.set('sonar.pullrequest.key', analysed.pullRequest.key);
+        properties.set('sonar.pullrequest.branch', analysed.pullRequest.branch);
+        properties.set('sonar.pullrequest.base', analysed.pullRequest.base);
     }
-    else if (origin.branch) {
-        properties.set('sonar.branch.name', origin.branch);
+    else if (analysed.branch) {
+        properties.set('sonar.branch.name', analysed.branch);
     }
     return properties;
 }
@@ -127588,23 +127639,26 @@ async function retry(action, policy = CHECKOUT_POLICY) {
     return action();
 }
 
-async function git(workspace, args, env) {
+// Never wait for a password, and never let the checkout's attributes send git-lfs to a server.
+const QUIET_GIT = { GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1' };
+async function git(workspace, args, env = {}) {
     return getExecOutput('git', args, {
         cwd: workspace,
-        env: env && { ...process.env, ...env },
+        env: { ...process.env, ...QUIET_GIT, ...env },
         ignoreReturnCode: true,
         silent: true
     });
 }
 async function required(workspace, args, env) {
-    const { exitCode, stdout } = await git(workspace, args, env);
-    if (exitCode !== 0)
-        throw new Error(`git ${args[0]} failed with exit code ${exitCode}`);
+    const { exitCode, stdout, stderr } = await git(workspace, args, env);
+    if (exitCode !== 0) {
+        throw new Error(`git ${args[0]} failed with exit code ${exitCode}: ${stderr.trim()}`);
+    }
     return stdout.trim();
 }
 // Fetches the analysed commit the way a safe checkout step would: the exact commit, full history for
 // blame, and credentials handed to git through its environment only, so none are written to disk.
-async function checkoutCommit(workspace, serverUrl, repository, sha, token) {
+async function checkoutCommit(workspace, { serverUrl, repository, headRepository, sha, token }) {
     if (readdirSync(workspace).length > 0) {
         throw new Error('The workspace is not empty: remove your checkout step, or set checkout to false to keep it');
     }
@@ -127618,24 +127672,20 @@ async function checkoutCommit(workspace, serverUrl, repository, sha, token) {
             GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}`
         });
     }
-    info(`Checking out ${sha} of ${repository}`);
+    info(`Checking out ${sha} of ${headRepository}`);
     await required(workspace, ['init', '--quiet']);
+    // Sonar finds a pull request's base branch as origin/<base>, so origin must be this repository even
+    // when the commit comes from a fork, whose copy of that branch could be anything.
     await required(workspace, [
         'remote',
         'add',
         'origin',
         `${serverUrl}/${repository}`
     ]);
-    // The only network operation, so the only one worth retrying, as actions/checkout does.
-    await retry(() => required(workspace, [
-        'fetch',
-        '--quiet',
-        '--no-tags',
-        '--no-recurse-submodules',
-        'origin',
-        '+refs/heads/*:refs/remotes/origin/*',
-        sha
-    ], env));
+    const fetch = ['fetch', '--quiet', '--no-tags', '--no-recurse-submodules'];
+    // The only network operations, so the only ones worth retrying, as actions/checkout does.
+    await retry(() => required(workspace, [...fetch, 'origin', '+refs/heads/*:refs/remotes/origin/*'], env));
+    await retry(() => required(workspace, [...fetch, `${serverUrl}/${headRepository}`, sha], env));
     await required(workspace, ['checkout', '--quiet', '--detach', sha]);
 }
 async function verifyCheckout(workspace, sha) {
@@ -127647,10 +127697,12 @@ async function verifyCheckout(workspace, sha) {
         'true') {
         throw new Error('The checkout is shallow, so Sonar would get no history: fetch it with fetch-depth 0');
     }
-    // The analysed code may come from a fork; a stored token would sit right next to it.
+    // The analysed code may come from a fork; a stored token would sit right next to it. Newer
+    // actions/checkout versions keep it in a file that .git/config includes.
     const { stdout } = await git(workspace, [
         'config',
         '--local',
+        '--includes',
         '--get-regexp',
         '^http\\..*\\.extraheader$'
     ]);
@@ -127788,7 +127840,7 @@ function resolveMode(requested, eventName, token) {
 }
 
 // workflow_run payloads carry no pull request for forks, so it is looked up by its head.
-async function findPullRequest(context, owner, branch, sha) {
+async function findPullRequests(context, owner, branch, sha) {
     const query = new URLSearchParams({
         state: 'open',
         head: `${owner}:${branch}`,
@@ -127803,12 +127855,29 @@ async function findPullRequest(context, owner, branch, sha) {
     if (!response.ok) {
         throw new Error(`Could not look up the pull request: GitHub answered ${response.status}`);
     }
-    const found = (await response.json()).find((pull) => pull.head.sha === sha);
-    return (found && {
-        key: String(found.number),
-        branch: found.head.ref,
-        base: found.base.ref
-    });
+    return (await response.json())
+        .filter((pull) => pull.head.sha === sha)
+        .map((pull) => ({
+        key: String(pull.number),
+        branch: pull.head.ref,
+        base: pull.base.ref
+    }));
+}
+// The hint comes from the artifact, i.e. from the fork: it may only choose among the pull requests
+// already matched by their head, never name another one.
+function choosePullRequest(candidates, hint) {
+    const hinted = typeof hint === 'number' && Number.isSafeInteger(hint)
+        ? candidates.find((pull) => pull.key === String(hint))
+        : undefined;
+    if (hinted)
+        return { pullRequest: hinted };
+    const [first] = candidates;
+    return candidates.length > 1
+        ? {
+            pullRequest: first,
+            warning: `${candidates.length} open pull requests have this head, analysing #${first.key}`
+        }
+        : { pullRequest: first };
 }
 async function resolveOrigin(context) {
     const { eventName, event } = context;
@@ -127820,12 +127889,20 @@ async function resolveOrigin(context) {
             headSha: run.head_sha
         };
         if (run.event === 'pull_request') {
-            origin.pullRequest = await findPullRequest(context, run.head_repository.owner.login, run.head_branch, run.head_sha);
-            if (!origin.pullRequest) {
+            origin.pullRequests = await findPullRequests(context, run.head_repository.owner.login, run.head_branch, run.head_sha);
+            if (origin.pullRequests.length === 0) {
                 return {
                     skip: `No open pull request has ${run.head_sha} as its head any more; a newer run analyses it.`
                 };
             }
+        }
+        else if (run.head_repository.full_name.toLowerCase() !==
+            context.repository.toLowerCase()) {
+            // A fork's pull request can add a workflow with the same name on another event; its branch
+            // must not pass for one of ours.
+            return {
+                skip: `The run analyses ${run.head_repository.full_name}, not this repository, and is not for a pull request.`
+            };
         }
         else if (run.head_branch !== event.repository.default_branch) {
             origin.branch = run.head_branch;
@@ -127837,11 +127914,13 @@ async function resolveOrigin(context) {
         return {
             repository: pull.head.repo.full_name,
             headSha: pull.head.sha,
-            pullRequest: {
-                key: String(pull.number),
-                branch: pull.head.ref,
-                base: pull.base.ref
-            }
+            pullRequests: [
+                {
+                    key: String(pull.number),
+                    branch: pull.head.ref,
+                    base: pull.base.ref
+                }
+            ]
         };
     }
     const origin = {
@@ -127898,7 +127977,7 @@ function filesUnder(directory) {
 }
 // Rewrites paths to {workspace}/… and {home}/… so the analysis can map them onto its own
 // directories, and copies the build output they point to into the staging directory.
-function stageAnalysis(settings, roots, staging, buildTool) {
+function stageAnalysis(settings, roots, staging, buildTool, pullRequest) {
     const prefixes = modulePrefixes(settings);
     const shipped = new Map();
     const warnings = [];
@@ -127954,7 +128033,7 @@ function stageAnalysis(settings, roots, staging, buildTool) {
             dereference: true
         });
     }
-    writeFileSync(join(staging, 'settings.json'), JSON.stringify({ format: ARTIFACT_FORMAT, buildTool, settings: out }, null, 2));
+    writeFileSync(join(staging, 'settings.json'), JSON.stringify({ format: ARTIFACT_FORMAT, buildTool, pullRequest, settings: out }, null, 2));
     return { settings: out, files: filesUnder(staging), warnings };
 }
 
@@ -131387,7 +131466,7 @@ async function prepare(inputs) {
     const staged = stageAnalysis(kept, {
         workspace: process.env.GITHUB_WORKSPACE ?? process.cwd(),
         home: homedir()
-    }, staging, tool.name);
+    }, staging, tool.name, pullRequestNumber());
     for (const warning$1 of staged.warnings)
         warning(warning$1);
     if (!process.env.ACTIONS_RUNTIME_TOKEN) {
@@ -131398,6 +131477,13 @@ async function prepare(inputs) {
         retentionDays: 1
     });
     info(`Uploaded ${name} with ${staged.files.length} files`);
+}
+// Tells the analysis which pull request this build is for, in case several share its head.
+function pullRequestNumber() {
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    if (process.env.GITHUB_EVENT_NAME !== 'pull_request' || !eventPath)
+        return undefined;
+    return JSON.parse(readFileSync$1(eventPath, 'utf8')).pull_request?.number;
 }
 function tempDirectory() {
     return mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-fork-analysis-'));
@@ -131458,7 +131544,13 @@ async function analyze(inputs) {
         return;
     }
     if (inputs.checkout) {
-        await checkoutCommit(workspace, process.env.GITHUB_SERVER_URL ?? 'https://github.com', origin.repository, origin.headSha, inputs.githubToken);
+        await checkoutCommit(workspace, {
+            serverUrl: process.env.GITHUB_SERVER_URL ?? 'https://github.com',
+            repository: context.repository,
+            headRepository: origin.repository,
+            sha: origin.headSha,
+            token: inputs.githubToken
+        });
     }
     await verifyCheckout(workspace, origin.headSha);
     const temp = tempDirectory();
@@ -131482,13 +131574,20 @@ async function analyze(inputs) {
     ];
     if (existsSync$1(join(artifact, 'home')))
         cpSync(join(artifact, 'home'), home, { recursive: true });
+    let pullRequest;
+    if (origin.pullRequests) {
+        const choice = choosePullRequest(origin.pullRequests, manifest.pullRequest);
+        pullRequest = choice.pullRequest;
+        if (choice.warning)
+            warnings.push(choice.warning);
+    }
     // core.warning escapes its message, unlike core.info, so artifact content cannot inject commands.
     for (const warning$1 of warnings)
         warning(warning$1);
     const properties = resolved.properties;
     if (!properties.has('sonar.projectBaseDir'))
         properties.set('sonar.projectBaseDir', workspace);
-    const trusted = trustedProperties(inputs, origin);
+    const trusted = trustedProperties(inputs, { headSha: origin.headSha, pullRequest, branch: origin.branch }, join(temp, 'scannerwork'));
     for (const [key, value] of trusted)
         properties.set(key, value);
     const settingsFile = join(temp, 'sonar-project.properties');
@@ -131496,11 +131595,21 @@ async function analyze(inputs) {
     const scanner = await installScanner();
     info(`Analysing ${name}`);
     const env = { ...process.env, SONAR_TOKEN: inputs.token };
-    const exitCode = await exec(scanner, [`-Dproject.settings=${settingsFile}`, ...inputs.buildArguments], {
-        cwd: workspace,
-        env: env,
-        ignoreReturnCode: true
-    });
+    // The scanner prints module names and paths from the artifact and the checkout; none of it may
+    // pass for a workflow command.
+    const resume = randomUUID$2();
+    info(`::stop-commands::${resume}`);
+    let exitCode;
+    try {
+        exitCode = await exec(scanner, [`-Dproject.settings=${settingsFile}`, ...inputs.buildArguments], {
+            cwd: workspace,
+            env: env,
+            ignoreReturnCode: true
+        });
+    }
+    finally {
+        info(`::${resume}::`);
+    }
     if (exitCode !== 0)
         throw new Error(`The Sonar scanner failed with exit code ${exitCode}`);
 }

@@ -176,6 +176,9 @@ describe('run in prepare mode', () => {
         'env.SECRET=leaked'
       ].join('\n')
     )
+    const event = join(project, 'event.json')
+    writeFileSync(event, JSON.stringify({ pull_request: { number: 12 } }))
+    process.env.GITHUB_EVENT_PATH = event
 
     await run()
 
@@ -186,6 +189,7 @@ describe('run in prepare mode', () => {
     expect(name).toBe('sonar-fork-analysis')
     expect(options).toEqual({ retentionDays: 1 })
     const settings = readFileSync(join(staging, 'settings.json'), 'utf8')
+    expect(JSON.parse(settings).pullRequest).toBe(12)
     expect(JSON.parse(settings).settings).toEqual({
       'sonar.projectBaseDir': '{workspace}',
       'sonar.java.binaries': '{workspace}/target/classes'
@@ -229,11 +233,14 @@ describe('run in analyze mode', () => {
   let artifactDir: string
   let head: string
 
-  function prepared(settings: Record<string, string>): void {
+  function prepared(
+    settings: Record<string, string>,
+    pullRequest?: number
+  ): void {
     artifactDir = mkdtempSync(join(tmpdir(), 'artifact-'))
     writeFileSync(
       join(artifactDir, 'settings.json'),
-      JSON.stringify({ format: 1, buildTool: 'maven', settings })
+      JSON.stringify({ format: 1, buildTool: 'maven', pullRequest, settings })
     )
     mkdirSync(join(artifactDir, 'workspace', 'target', 'classes'), {
       recursive: true
@@ -278,6 +285,7 @@ describe('run in analyze mode', () => {
   it('scans with trusted settings and the token only in the environment', async () => {
     prepared({
       'sonar.projectBaseDir': '{workspace}',
+      'sonar.sources': '',
       'sonar.java.binaries': '{workspace}/target/classes',
       'sonar.host.url': 'https://evil.example.com'
     })
@@ -297,6 +305,72 @@ describe('run in analyze mode', () => {
     expect(
       readFileSync(join(project, 'target', 'classes', 'App.class'), 'utf8')
     ).toBe('bytes')
+  })
+
+  it('keeps workflow commands in the scanner output inert', async () => {
+    prepared({})
+
+    await run()
+
+    const stop = core.info.mock.calls.find(([message]) =>
+      message.startsWith('::stop-commands::')
+    )
+    const resume = stop![0].replace('::stop-commands::', '')
+    expect(core.info).toHaveBeenCalledWith(`::${resume}::`)
+    const order = (message: string): number =>
+      core.info.mock.invocationCallOrder[
+        core.info.mock.calls.findIndex(([m]) => m === message)
+      ]
+    expect(order(stop![0])).toBeLessThan(exec.mock.invocationCallOrder[0])
+    expect(order(`::${resume}::`)).toBeGreaterThan(
+      exec.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('lets the artifact choose only among pull requests with the analysed head', async () => {
+    const event = process.env.GITHUB_EVENT_PATH!
+    process.env.GITHUB_EVENT_NAME = 'workflow_run'
+    writeFileSync(
+      event,
+      JSON.stringify({
+        repository: { default_branch: 'main' },
+        workflow_run: {
+          id: 42,
+          event: 'pull_request',
+          head_sha: 'head-sha',
+          head_branch: 'feature',
+          head_repository: {
+            full_name: 'forker/repo',
+            owner: { login: 'forker' }
+          }
+        }
+      })
+    )
+    const pull = (number: number, base: string) => ({
+      number,
+      head: { sha: 'head-sha', ref: 'feature' },
+      base: { ref: base }
+    })
+    const fetch = jest.spyOn(globalThis, 'fetch')
+    const scan = async (hint: number): Promise<string> => {
+      fetch.mockResolvedValue(
+        new Response(JSON.stringify([pull(7, 'main'), pull(8, 'release')]))
+      )
+      exec.mockClear()
+      prepared({}, hint)
+      await run()
+      return readFileSync(
+        exec.mock.calls[0][1]![0].replace('-Dproject.settings=', ''),
+        'utf8'
+      )
+    }
+
+    expect(await scan(8)).toContain('sonar.pullrequest.key=8')
+    expect(await scan(3)).toContain('sonar.pullrequest.key=7')
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('2 open pull requests')
+    )
+    fetch.mockRestore()
   })
 
   it('refuses a checkout of another commit', async () => {

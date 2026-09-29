@@ -5,10 +5,19 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  realpathSync,
   rmSync
 } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import type { Origin } from './origin.js'
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep
+} from 'node:path'
+import type { PullRequest } from './origin.js'
 import {
   CHECKOUT_PATH_KEYS,
   OUTPUT_PATH_KEYS,
@@ -52,6 +61,7 @@ export type Resolved = {
 }
 
 // Must run on the pristine checkout: sources and tests are only accepted if the checkout has them.
+// Paths are compared by their real location, since the checkout may contain links.
 export function resolveSettings(
   settings: Record<string, string>,
   workspace: string,
@@ -62,15 +72,29 @@ export function resolveSettings(
   const warnings: string[] = []
   const sourceRoots: string[] = []
   const properties = new Map<string, string>()
+  const realWorkspace = realpathSync(workspace)
+  const realHome = existsSync(home) ? realpathSync(home) : home
+  const inCheckout = (path: string): boolean =>
+    existsSync(path) && isWithin(realpathSync(path), realWorkspace)
 
+  // The scanner resolves a module's relative paths against its base directory, and derives a missing
+  // one from the module id, so every module must come with a base checked here.
   const bases = new Map<string, string>()
   for (const prefix of prefixes) {
     const base = kept.get(`${prefix}sonar.projectBaseDir`)
-    const mapped = base && mapPlaceholder(base, workspace, home)
-    if (mapped && isWithin(mapped, workspace) && existsSync(mapped))
-      bases.set(prefix, mapped)
+    const mapped =
+      base === undefined && prefix === ''
+        ? workspace
+        : base && mapPlaceholder(base, workspace, home)
+    if (!mapped || !inCheckout(mapped)) {
+      throw new Error(
+        `The artifact gives ${prefix ? `module ${prefix.slice(0, -1)}` : 'the project'} no base directory in the checkout`
+      )
+    }
+    bases.set(prefix, mapped)
   }
 
+  const withSources = new Set<string>()
   for (const [key, value] of kept) {
     const { prefix, bareKey } = splitKey(key, prefixes)
     const shipped = SHIPPED_PATH_KEYS.has(bareKey)
@@ -79,7 +103,9 @@ export function resolveSettings(
       properties.set(key, value)
       continue
     }
-    const base = bases.get(prefix) ?? workspace
+    const base = bases.get(prefix) as string
+    if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests')
+      withSources.add(prefix)
     const entries: string[] = []
     for (const entry of value.split(',').filter((path) => path !== '')) {
       const path = entry.startsWith('{')
@@ -89,18 +115,27 @@ export function resolveSettings(
           : inside(workspace, resolve(base, entry))
       // Shipped paths may live in the private home; output directories appear when unpacking;
       // checkout paths must already be in the checkout.
-      const accepted =
-        path !== undefined &&
-        (shipped || (isWithin(path, workspace) && (output || existsSync(path))))
+      let accepted = false
+      if (path !== undefined && existsSync(path)) {
+        const real = realpathSync(path)
+        accepted =
+          isWithin(real, realWorkspace) || (shipped && isWithin(real, realHome))
+      } else if (path !== undefined) {
+        accepted = shipped || (output && isWithin(path, workspace))
+      }
       if (!accepted) {
         warnings.push(`Dropped ${key} entry: ${entry}`)
         continue
       }
-      entries.push(entry.startsWith('{') ? path : entry)
+      entries.push(path as string)
       if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests')
-        sourceRoots.push(path)
+        sourceRoots.push(realpathSync(path as string))
     }
     properties.set(key, entries.join(','))
+  }
+  // Without either setting the scanner analyses the whole base directory.
+  for (const [prefix, base] of bases) {
+    if (!withSources.has(prefix)) sourceRoots.push(realpathSync(base))
   }
   return { properties, sourceRoots, warnings }
 }
@@ -123,6 +158,12 @@ export function checkNoLinks(directory: string): void {
   }
 }
 
+// Git would take a planted repository's config and history when Sonar runs it on the checkout.
+// Case and Windows aliases (trailing dots, 8.3 short names) matter on some runners.
+function isGitDirectory(segment: string): boolean {
+  return /^(\.git|git~\d+)$/i.test(segment.replace(/[. ]+$/, ''))
+}
+
 function unpackFile(
   source: string,
   rel: string,
@@ -130,8 +171,12 @@ function unpackFile(
   protectedRoots: string[]
 ): string | undefined {
   const target = join(workspace, rel)
-  if (rel.split(sep)[0] === '.git') return 'inside .git'
-  if (protectedRoots.some((root) => isWithin(target, root)))
+  if (rel.split(sep).some(isGitDirectory)) return 'inside .git'
+  if (basename(rel).toLowerCase() === 'sonar-project.properties')
+    return 'the scanner would read it as settings'
+  // Directories on the way are never links (checked below), so this is where the file really lands.
+  const real = join(realpathSync(workspace), rel)
+  if (protectedRoots.some((root) => isWithin(real, root)))
     return 'inside the sources'
   // A committed symlink (e.g. target -> /home/runner/.m2) must not redirect the write.
   let directory = workspace
@@ -200,6 +245,11 @@ function escape(text: string, isKey: boolean): string {
     .replace(/\r/g, '\\r')
     .replace(/\t/g, '\\t')
     .replace(/\f/g, '\\f')
+    // Correct whichever encoding the scanner reads the file with.
+    .replace(
+      /[^\x20-\x7e]/g,
+      (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`
+    )
   if (isKey) escaped = escaped.replace(/[:= #!]/g, '\\$&')
   else escaped = escaped.replace(/^ /, '\\ ')
   return escaped
@@ -218,24 +268,33 @@ export type Target = {
   hostUrl: string
 }
 
+export type Analysed = {
+  headSha: string
+  pullRequest?: PullRequest
+  branch?: string
+}
+
 // Set by the trusted side only; they override anything that came with the artifact.
 export function trustedProperties(
   target: Target,
-  origin: Origin
+  analysed: Analysed,
+  workingDirectory: string
 ): Map<string, string> {
   const properties = new Map([
     ['sonar.projectKey', target.projectKey],
-    ['sonar.scm.revision', origin.headSha]
+    ['sonar.scm.revision', analysed.headSha],
+    // The scanner empties its working directory, which by default is a name the checkout could link.
+    ['sonar.working.directory', workingDirectory]
   ])
   if (target.organization)
     properties.set('sonar.organization', target.organization)
   if (target.hostUrl) properties.set('sonar.host.url', target.hostUrl)
-  if (origin.pullRequest) {
-    properties.set('sonar.pullrequest.key', origin.pullRequest.key)
-    properties.set('sonar.pullrequest.branch', origin.pullRequest.branch)
-    properties.set('sonar.pullrequest.base', origin.pullRequest.base)
-  } else if (origin.branch) {
-    properties.set('sonar.branch.name', origin.branch)
+  if (analysed.pullRequest) {
+    properties.set('sonar.pullrequest.key', analysed.pullRequest.key)
+    properties.set('sonar.pullrequest.branch', analysed.pullRequest.branch)
+    properties.set('sonar.pullrequest.base', analysed.pullRequest.base)
+  } else if (analysed.branch) {
+    properties.set('sonar.branch.name', analysed.branch)
   }
   return properties
 }

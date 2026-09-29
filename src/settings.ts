@@ -66,20 +66,28 @@ export function isAllowed(bareKey: string): boolean {
 
 // Every module prefix, nested ones included: '', 'a.', 'a.b.'. Module ids may contain dots
 // (groupId:artifactId), so prefixes come from each level's sonar.modules, never from splitting keys.
-export function modulePrefixes(
-  settings: Map<string, string>,
-  prefix = ''
-): string[] {
-  const modules = (settings.get(`${prefix}sonar.modules`) ?? '')
-    .split(',')
-    .map((module) => module.trim())
-    .filter((module) => module.length > 0)
-  return [
-    prefix,
-    ...modules.flatMap((module) =>
-      modulePrefixes(settings, `${prefix}${module}.`)
-    )
-  ]
+// Each prefix is visited once: repeated or overlapping ids would otherwise multiply the walk.
+export function modulePrefixes(settings: Map<string, string>): string[] {
+  const prefixes = ['']
+  const seen = new Set(prefixes)
+  for (let index = 0; index < prefixes.length; index++) {
+    const prefix = prefixes[index]
+    const modules = (settings.get(`${prefix}sonar.modules`) ?? '')
+      .split(',')
+      .map((module) => module.trim())
+      .filter((module) => module.length > 0)
+    for (const module of modules) {
+      // The scanner turns a module id into a directory under its parent's.
+      if (module === '.' || module === '..' || /[/\\]/.test(module))
+        throw new Error(`Invalid module id: ${module}`)
+      const nested = `${prefix}${module}.`
+      if (!seen.has(nested)) {
+        seen.add(nested)
+        prefixes.push(nested)
+      }
+    }
+  }
+  return prefixes
 }
 
 export type SplitKey = { prefix: string; bareKey: string }

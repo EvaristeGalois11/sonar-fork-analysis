@@ -1,5 +1,9 @@
 import { jest } from '@jest/globals'
-import { resolveOrigin, type Context } from '../src/origin.js'
+import {
+  choosePullRequest,
+  resolveOrigin,
+  type Context
+} from '../src/origin.js'
 
 const base: Context = {
   eventName: '',
@@ -11,7 +15,11 @@ const base: Context = {
   token: 'gh-token'
 }
 
-function workflowRun(event: string, headBranch = 'feature') {
+function workflowRun(
+  event: string,
+  headBranch = 'feature',
+  headRepository = 'forker/repo'
+) {
   return {
     eventName: 'workflow_run',
     event: {
@@ -22,8 +30,8 @@ function workflowRun(event: string, headBranch = 'feature') {
         head_sha: 'head-sha',
         head_branch: headBranch,
         head_repository: {
-          full_name: 'forker/repo',
-          owner: { login: 'forker' }
+          full_name: headRepository,
+          owner: { login: headRepository.split('/')[0] }
         }
       }
     }
@@ -62,7 +70,7 @@ describe('resolveOrigin', () => {
       runId: 42,
       repository: 'forker/repo',
       headSha: 'head-sha',
-      pullRequest: { key: '7', branch: 'feature', base: 'main' }
+      pullRequests: [{ key: '7', branch: 'feature', base: 'main' }]
     })
     const [url, init] = fetch.mock.calls[0]
     expect(String(url)).toBe(
@@ -94,20 +102,36 @@ describe('resolveOrigin', () => {
 
   it('analyses pushes to other branches as branches', async () => {
     expect(
-      await resolveOrigin({ ...base, ...workflowRun('push', 'release') })
+      await resolveOrigin({
+        ...base,
+        ...workflowRun('push', 'release', 'owner/repo')
+      })
     ).toEqual({
       runId: 42,
-      repository: 'forker/repo',
+      repository: 'owner/repo',
       headSha: 'head-sha',
       branch: 'release'
     })
     expect(
-      await resolveOrigin({ ...base, ...workflowRun('push', 'main') })
+      await resolveOrigin({
+        ...base,
+        ...workflowRun('push', 'main', 'owner/repo')
+      })
     ).toEqual({
       runId: 42,
-      repository: 'forker/repo',
+      repository: 'owner/repo',
       headSha: 'head-sha'
     })
+  })
+
+  it("skips a fork's run that is not for a pull request", async () => {
+    // e.g. a workflow the pull request added, named like ours, on pull_request_review
+    expect(
+      await resolveOrigin({
+        ...base,
+        ...workflowRun('pull_request_review', 'main')
+      })
+    ).toHaveProperty('skip')
   })
 
   it('takes a pull request of the current run from the event', async () => {
@@ -129,7 +153,7 @@ describe('resolveOrigin', () => {
     expect(origin).toEqual({
       repository: 'owner/repo',
       headSha: 'pr-head',
-      pullRequest: { key: '9', branch: 'topic', base: 'main' }
+      pullRequests: [{ key: '9', branch: 'topic', base: 'main' }]
     })
   })
 
@@ -142,4 +166,28 @@ describe('resolveOrigin', () => {
       })
     ).toEqual({ repository: 'owner/repo', headSha: 'merge-sha' })
   })
+})
+
+describe('choosePullRequest', () => {
+  const toMain = { key: '7', branch: 'feature', base: 'main' }
+  const toRelease = { key: '8', branch: 'feature', base: 'release' }
+
+  it('takes the only candidate whatever the hint says', () => {
+    expect(choosePullRequest([toMain], 1)).toEqual({ pullRequest: toMain })
+  })
+
+  it('lets the hint choose among the candidates', () => {
+    expect(choosePullRequest([toMain, toRelease], 8)).toEqual({
+      pullRequest: toRelease
+    })
+  })
+
+  it.each([undefined, 99, '8', 8.5])(
+    'falls back to the first candidate, with a warning, for the hint %p',
+    (hint) => {
+      const choice = choosePullRequest([toMain, toRelease], hint)
+      expect(choice.pullRequest).toBe(toMain)
+      expect(choice.warning).toMatch(/2 open pull requests/)
+    }
+  )
 })

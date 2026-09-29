@@ -24,7 +24,9 @@ inputs:
       Defaults to verify for Maven and check for Gradle.
     default: ''
   build-arguments:
-    description: 'Extra build flags (not goals or tasks), one per line.'
+    description: >
+      Extra build flags (not goals or tasks), one per line. In analyze mode they
+      go to the Sonar scanner instead, e.g. -Dsonar.projectName=App.
     default: ''
   project-key:
     description: 'The project key assigned by Sonar.'
@@ -45,7 +47,8 @@ inputs:
     description: >
       Analyze mode: check out the analysed commit. Set to false to check out
       yourself, e.g. for submodules or LFS: the checkout must then be at that
-      commit, with full history and without persisted credentials.
+      commit, with full history and without persisted credentials, and origin
+      must be this repository, where Sonar looks for the base branch.
     default: 'true'
   github-token:
     description: >
