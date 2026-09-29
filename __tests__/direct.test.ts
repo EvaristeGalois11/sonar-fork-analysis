@@ -1,6 +1,6 @@
 import {
   buildFailure,
-  directArguments,
+  sonarBuildArguments,
   missingAnalysis,
   sonarProperties
 } from '../src/direct.js'
@@ -28,9 +28,9 @@ describe('sonarProperties', () => {
   })
 })
 
-describe('directArguments', () => {
+describe('sonarBuildArguments', () => {
   it('builds and analyses Maven in one invocation, analysis last', () => {
-    expect(directArguments(maven, [], properties, ['-Pci'])).toEqual([
+    expect(sonarBuildArguments(maven, [], properties, ['-Pci'])).toEqual([
       '-B',
       'verify',
       'org.sonarsource.scanner.maven:sonar-maven-plugin:sonar',
@@ -40,7 +40,7 @@ describe('directArguments', () => {
   })
 
   it('runs custom Maven goals before the analysis', () => {
-    const args = directArguments(
+    const args = sonarBuildArguments(
       maven,
       ['clean', 'verify', 'org.jacoco:jacoco-maven-plugin:report'],
       properties,
@@ -57,12 +57,12 @@ describe('directArguments', () => {
 
   it('runs custom Gradle tasks before the analysis', () => {
     expect(
-      directArguments(gradle, ['test', 'jacocoTestReport'], properties, [])
+      sonarBuildArguments(gradle, ['test', 'jacocoTestReport'], properties, [])
     ).toEqual(['test', 'jacocoTestReport', 'sonar', '-Dsonar.projectKey=key'])
   })
 
   it('runs a non-executable wrapper through sh', () => {
-    const args = directArguments(
+    const args = sonarBuildArguments(
       { name: 'gradle', executable: 'sh', prefix: ['gradlew'] },
       [],
       properties,

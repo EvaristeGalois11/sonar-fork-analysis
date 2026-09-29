@@ -1,13 +1,22 @@
 import { jest } from '@jest/globals'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as artifact from '../__fixtures__/artifact.js'
 import * as core from '../__fixtures__/core.js'
 import { exec } from '../__fixtures__/exec.js'
 
 // Mocks must be declared before the module under test is imported.
 jest.unstable_mockModule('@actions/core', () => core)
 jest.unstable_mockModule('@actions/exec', () => ({ exec }))
+jest.unstable_mockModule('@actions/artifact', () => artifact)
 
 const { run } = await import('../src/main.js')
 
@@ -122,5 +131,92 @@ describe('run', () => {
     )
     expect(exec).not.toHaveBeenCalled()
     expect(core.setSecret).not.toHaveBeenCalled()
+  })
+})
+
+describe('run in prepare mode', () => {
+  const saved = { ...process.env }
+
+  // Plays the Sonar plugin in simulation mode: writes the dump where it was asked to.
+  function simulate(dump: string): void {
+    exec.mockImplementation(async (_tool, args) => {
+      const target = args!
+        .find((arg) => arg.startsWith('-Dsonar.scanner.internal.dumpToFile='))!
+        .split('=')[1]
+      writeFileSync(target, dump)
+      return 0
+    })
+  }
+
+  beforeEach(() => {
+    inputs['sonar-token'] = ''
+    process.env.GITHUB_EVENT_NAME = 'pull_request'
+    process.env.GITHUB_WORKSPACE = project
+    process.env.RUNNER_TEMP = project
+    process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+    process.env.SONAR_TOKEN = 'must-not-reach-the-build'
+    artifact.uploadArtifact.mockResolvedValue({ id: 1, size: 1 })
+  })
+
+  afterEach(() => {
+    process.env = { ...saved }
+  })
+
+  it('builds without the token and uploads only analysis settings', async () => {
+    mkdirSync(join(project, 'target', 'classes'), { recursive: true })
+    writeFileSync(join(project, 'target', 'classes', 'App.class'), '')
+    simulate(
+      [
+        `sonar.projectBaseDir=${project}`,
+        `sonar.java.binaries=${project}/target/classes`,
+        'sonar.host.url=http\\://127.0.0.1\\:9',
+        'env.SECRET=leaked'
+      ].join('\n')
+    )
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(exec.mock.calls[0][2]!.env!.SONAR_TOKEN).toBeUndefined()
+    const [name, files, staging, options] =
+      artifact.uploadArtifact.mock.calls[0]
+    expect(name).toBe('sonar-fork-analysis')
+    expect(options).toEqual({ retentionDays: 1 })
+    const settings = readFileSync(join(staging, 'settings.json'), 'utf8')
+    expect(JSON.parse(settings).settings).toEqual({
+      'sonar.projectBaseDir': '{workspace}',
+      'sonar.java.binaries': '{workspace}/target/classes'
+    })
+    expect(settings).not.toContain('leaked')
+    expect(files).toContain(
+      join(staging, 'workspace', 'target', 'classes', 'App.class')
+    )
+    expect(
+      readdirSync(join(staging, '..')).filter((f) => f.endsWith('.properties'))
+    ).toEqual([])
+  })
+
+  it('fails when the plugin wrote no settings', async () => {
+    exec.mockResolvedValue(0)
+
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining('wrote no analysis settings')
+    )
+    expect(artifact.uploadArtifact).not.toHaveBeenCalled()
+  })
+
+  it('keeps the artifact local outside GitHub Actions', async () => {
+    delete process.env.ACTIONS_RUNTIME_TOKEN
+    simulate(`sonar.projectBaseDir=${project}`)
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(artifact.uploadArtifact).not.toHaveBeenCalled()
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('was not uploaded')
+    )
   })
 })

@@ -10,6 +10,7 @@ export const DEFAULTS: Record<string, string> = {
 
 export type Inputs = {
   mode: string
+  id: string
   workingDirectory: string
   buildTool: string
   buildGoals: string[]
@@ -33,6 +34,7 @@ function lines(name: string): string[] {
 export function readInputs(): Inputs {
   return {
     mode: input('mode'),
+    id: input('id'),
     workingDirectory: input('working-directory'),
     buildTool: input('build-tool'),
     buildGoals: lines('build-goals'),
