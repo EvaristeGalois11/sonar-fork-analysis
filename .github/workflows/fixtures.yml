@@ -27,9 +27,12 @@ jobs:
       # token, so skip it there.
       HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
     steps:
+      # The pull request's head, not GitHub's merge commit: the fork path analyses the head, and both
+      # sides must analyse the same code to be compared.
       - name: 'Checkout project'
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: 'Set up Java'
@@ -63,8 +66,11 @@ jobs:
       matrix:
         fixture: [maven, gradle]
     steps:
+      # The head, like analyze checks out, so the shipped build output matches the analysed sources.
       - name: 'Checkout project'
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: 'Set up Java'
         uses: actions/setup-java@v6
