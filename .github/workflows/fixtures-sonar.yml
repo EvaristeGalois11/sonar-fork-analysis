@@ -26,13 +26,6 @@ jobs:
           - fixture: gradle
             name: Gradle
     steps:
-      # No cache: in this job it would be saved for main's builds with whatever the fork put in it.
-      - name: 'Set up Java'
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: 21
-
       - name: 'Analyse with Sonar'
         uses: evaristegalois11/sonar-fork-analysis@main
         with:

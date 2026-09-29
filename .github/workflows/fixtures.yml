@@ -104,12 +104,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: 'Set up Java'
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: 21
-
       - name: 'Analyse with Sonar'
         if: env.HAS_SONAR_TOKEN == 'true'
         uses: ./
