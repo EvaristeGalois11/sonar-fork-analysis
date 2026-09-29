@@ -56,7 +56,8 @@ export default [
             '__fixtures__/*.ts',
             'eslint.config.mjs',
             'jest.config.js',
-            'rollup.config.ts'
+            'rollup.config.ts',
+            'scripts/*.mjs'
           ]
         },
         tsconfigRootDir: import.meta.dirname
