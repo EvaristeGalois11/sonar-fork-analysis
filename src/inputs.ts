@@ -19,6 +19,7 @@ export type Inputs = {
   organization: string
   hostUrl: string
   token: string
+  githubToken: string
 }
 
 function input(name: string): string {
@@ -42,6 +43,7 @@ export function readInputs(): Inputs {
     projectKey: input('project-key'),
     organization: input('sonar-organization'),
     hostUrl: input('sonar-host-url'),
-    token: input('sonar-token')
+    token: input('sonar-token'),
+    githubToken: input('github-token')
   }
 }

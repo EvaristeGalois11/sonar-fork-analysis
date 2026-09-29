@@ -24,9 +24,11 @@ export const CHECKOUT_PATH_KEYS = new Set([
   'sonar.sources',
   'sonar.tests',
   'sonar.projectBaseDir',
-  'sonar.projectBuildDir',
   'sonar.kotlin.gradleProjectRoot'
 ])
+
+// Build output directories: rewritten but never shipped whole, and not in the checkout.
+export const OUTPUT_PATH_KEYS = new Set(['sonar.projectBuildDir'])
 
 const PLAIN_KEYS = new Set([
   'sonar.modules',
@@ -56,6 +58,7 @@ export function isAllowed(bareKey: string): boolean {
   return (
     SHIPPED_PATH_KEYS.has(bareKey) ||
     CHECKOUT_PATH_KEYS.has(bareKey) ||
+    OUTPUT_PATH_KEYS.has(bareKey) ||
     PLAIN_KEYS.has(bareKey) ||
     PLAIN_PREFIXES.some((prefix) => bareKey.startsWith(prefix))
   )

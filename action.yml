@@ -41,6 +41,11 @@ inputs:
       'The Sonar token. Empty on pull requests from forks, which is what selects
       the fork path.'
     default: ''
+  github-token:
+    description: >
+      Token to download the prepared artifact and find the pull request, needing
+      actions: read and pull-requests: read.
+    default: ${{ github.token }}
 branding:
   icon: search
   color: blue
