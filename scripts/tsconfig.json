@@ -2,10 +2,12 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    // Node runs these files directly by stripping the types, which only works for erasable syntax.
+    // Node runs these files directly by stripping the types, which only works for erasable syntax
+    // and imports that say whether they are types.
     "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["./*.ts"],
+  "include": ["./**/*.ts"],
   "exclude": []
 }

@@ -153,3 +153,5 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
+          # What SonarQube Cloud records for both paths: the pull request's head, or the pushed commit.
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
