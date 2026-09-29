@@ -1,0 +1,53 @@
+# Analyses the fixtures prepared by the 'Fixtures' workflow, the way a pull request from a fork is.
+#
+# This job holds the Sonar token, so it must never run code from the analysed commit: the action comes
+# from main, never from the checkout, and the checkout is only read by the scanner.
+name: 'Fixtures Sonar'
+on:
+  workflow_run:
+    workflows: [Fixtures]
+    types:
+      - completed
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+jobs:
+  analyze:
+    name: 'Analyse ${{ matrix.fixture }} on the fork path'
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - fixture: maven
+            name: Maven
+          - fixture: gradle
+            name: Gradle
+    steps:
+      - name: 'Checkout the analysed commit'
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.workflow_run.head_repository.full_name }}
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # No cache: in this job it would be saved for main's builds with whatever the fork put in it.
+      - name: 'Set up Java'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: 'Analyse with Sonar'
+        uses: evaristegalois11/sonar-fork-analysis@main
+        with:
+          id: ${{ matrix.fixture }}
+          project-key:
+            evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
+          sonar-organization: evaristegalois11
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
+          build-arguments:
+            -Dsonar.projectName=Sonar fork analysis - ${{ matrix.name }} split
