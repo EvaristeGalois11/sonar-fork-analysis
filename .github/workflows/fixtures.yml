@@ -79,3 +79,46 @@ jobs:
           mode: prepare
           id: ${{ matrix.fixture }}
           working-directory: fixtures/${{ matrix.fixture }}
+
+  # Analyses the prepared artifact in the same run, so changes to analyze mode are tested before they
+  # reach main (Fixtures Sonar only ever runs main's copy of itself).
+  analyze:
+    name: 'Analyse ${{ matrix.fixture }} from the prepared artifact'
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - fixture: maven
+            name: Maven
+          - fixture: gradle
+            name: Gradle
+    env:
+      HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 'Set up Java'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: 'Analyse with Sonar'
+        if: env.HAS_SONAR_TOKEN == 'true'
+        uses: ./
+        with:
+          mode: analyze
+          id: ${{ matrix.fixture }}
+          project-key:
+            evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
+          sonar-organization: evaristegalois11
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
+          build-arguments:
+            -Dsonar.projectName=Sonar fork analysis - ${{ matrix.name }} split
