@@ -41,7 +41,9 @@ describe('readInputs', () => {
 describe('DEFAULTS', () => {
   it('matches the defaults declared in action.yml, both ways', () => {
     const declared = Object.fromEntries(
-      Object.entries(actionYmlDefaults()).filter(([, value]) => value !== '')
+      Object.entries(actionYmlDefaults()).filter(
+        ([, value]) => value !== '' && !value.startsWith('${{')
+      )
     )
     expect(DEFAULTS).toEqual(declared)
   })

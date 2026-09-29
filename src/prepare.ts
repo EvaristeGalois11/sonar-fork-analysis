@@ -9,6 +9,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { BuildTool } from './build-tool.js'
 import {
   CHECKOUT_PATH_KEYS,
+  OUTPUT_PATH_KEYS,
   SHIPPED_PATH_KEYS,
   modulePrefixes,
   splitKey
@@ -97,7 +98,11 @@ export function stageAnalysis(
   for (const [key, value] of settings) {
     const { prefix, bareKey } = splitKey(key, prefixes)
     const isShipped = SHIPPED_PATH_KEYS.has(bareKey)
-    if (!isShipped && !CHECKOUT_PATH_KEYS.has(bareKey)) {
+    if (
+      !isShipped &&
+      !CHECKOUT_PATH_KEYS.has(bareKey) &&
+      !OUTPUT_PATH_KEYS.has(bareKey)
+    ) {
       out[key] = value
       continue
     }

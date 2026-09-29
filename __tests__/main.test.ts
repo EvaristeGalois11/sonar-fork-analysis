@@ -11,11 +11,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as artifact from '../__fixtures__/artifact.js'
 import * as core from '../__fixtures__/core.js'
-import { exec } from '../__fixtures__/exec.js'
+import { exec, getExecOutput } from '../__fixtures__/exec.js'
 
 // Mocks must be declared before the module under test is imported.
 jest.unstable_mockModule('@actions/core', () => core)
-jest.unstable_mockModule('@actions/exec', () => ({ exec }))
+jest.unstable_mockModule('@actions/exec', () => ({ exec, getExecOutput }))
+jest.unstable_mockModule('../src/scanner.js', () => ({
+  installScanner: async () => '/opt/sonar-scanner/bin/sonar-scanner'
+}))
 jest.unstable_mockModule('@actions/artifact', () => artifact)
 
 const { run } = await import('../src/main.js')
@@ -218,5 +221,103 @@ describe('run in prepare mode', () => {
     expect(core.warning).toHaveBeenCalledWith(
       expect.stringContaining('was not uploaded')
     )
+  })
+})
+
+describe('run in analyze mode', () => {
+  const saved = { ...process.env }
+  let artifactDir: string
+
+  function prepared(settings: Record<string, string>): void {
+    artifactDir = mkdtempSync(join(tmpdir(), 'artifact-'))
+    writeFileSync(
+      join(artifactDir, 'settings.json'),
+      JSON.stringify({ format: 1, buildTool: 'maven', settings })
+    )
+    mkdirSync(join(artifactDir, 'workspace', 'target', 'classes'), {
+      recursive: true
+    })
+    writeFileSync(
+      join(artifactDir, 'workspace', 'target', 'classes', 'App.class'),
+      'bytes'
+    )
+    process.env.SONAR_FORK_ANALYSIS_ARTIFACT = artifactDir
+  }
+
+  beforeEach(() => {
+    inputs.mode = 'analyze'
+    delete process.env.ACTIONS_RUNTIME_TOKEN
+    process.env.GITHUB_WORKSPACE = project
+    process.env.RUNNER_TEMP = project
+    process.env.GITHUB_EVENT_NAME = 'push'
+    process.env.GITHUB_SHA = 'head-sha'
+    process.env.GITHUB_REF_NAME = 'main'
+    const event = join(project, 'event.json')
+    writeFileSync(
+      event,
+      JSON.stringify({ repository: { default_branch: 'main' } })
+    )
+    process.env.GITHUB_EVENT_PATH = event
+    getExecOutput.mockResolvedValue({
+      exitCode: 0,
+      stdout: 'head-sha\n',
+      stderr: ''
+    })
+    exec.mockResolvedValue(0)
+  })
+
+  afterEach(() => {
+    process.env = { ...saved }
+    if (artifactDir) rmSync(artifactDir, { recursive: true, force: true })
+  })
+
+  it('scans with trusted settings and the token only in the environment', async () => {
+    prepared({
+      'sonar.projectBaseDir': '{workspace}',
+      'sonar.java.binaries': '{workspace}/target/classes',
+      'sonar.host.url': 'https://evil.example.com'
+    })
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    const [tool, args, options] = exec.mock.calls[0]
+    expect(tool).toBe('/opt/sonar-scanner/bin/sonar-scanner')
+    expect(args!.join(' ')).not.toContain(TOKEN)
+    expect(options!.env!.SONAR_TOKEN).toBe(TOKEN)
+    const settingsFile = args![0].replace('-Dproject.settings=', '')
+    const settings = readFileSync(settingsFile, 'utf8')
+    expect(settings).toContain('sonar.projectKey=key')
+    expect(settings).toContain('sonar.scm.revision=head-sha')
+    expect(settings).not.toContain('evil.example.com')
+    expect(
+      readFileSync(join(project, 'target', 'classes', 'App.class'), 'utf8')
+    ).toBe('bytes')
+  })
+
+  it('refuses a checkout of another commit', async () => {
+    prepared({})
+    getExecOutput.mockResolvedValue({
+      exitCode: 0,
+      stdout: 'other\n',
+      stderr: ''
+    })
+
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining('check out that commit first')
+    )
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it('skips when nothing was prepared', async () => {
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.notice).toHaveBeenCalledWith(
+      expect.stringContaining('No sonar-fork-analysis artifact')
+    )
+    expect(exec).not.toHaveBeenCalled()
   })
 })
