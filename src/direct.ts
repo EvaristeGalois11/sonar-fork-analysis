@@ -21,7 +21,7 @@ export function sonarProperties(settings: SonarSettings): string[] {
   return properties
 }
 
-export function directArguments(
+export function sonarBuildArguments(
   tool: BuildTool,
   goals: string[],
   properties: string[],

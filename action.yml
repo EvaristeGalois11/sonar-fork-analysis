@@ -7,6 +7,11 @@ inputs:
       artifact; on workflow_run, analyse the prepared artifact. direct, prepare
       and analyze force one of those steps.
     default: auto
+  id:
+    description: >
+      Names the analysis when a workflow prepares more than one, e.g. one per
+      project in a monorepo. Use the same id when analysing.
+    default: ''
   working-directory:
     description: 'Directory containing the Maven or Gradle build.'
     default: .
