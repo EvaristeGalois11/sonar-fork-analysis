@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import { ArtifactNotFoundError, DefaultArtifactClient } from '@actions/artifact'
-import { exec, getExecOutput } from '@actions/exec'
+import { exec } from '@actions/exec'
 import {
   cpSync,
   existsSync,
@@ -20,6 +20,7 @@ import {
   unpackWorkspace
 } from './analyze.js'
 import { detectBuildTool } from './build-tool.js'
+import { checkoutCommit, verifyCheckout } from './checkout.js'
 import {
   buildFailure,
   sonarBuildArguments,
@@ -198,17 +199,16 @@ async function analyze(inputs: Inputs): Promise<void> {
     return
   }
 
-  const head = (
-    await getExecOutput('git', ['rev-parse', 'HEAD'], {
-      cwd: workspace,
-      silent: true
-    })
-  ).stdout.trim()
-  if (head !== origin.headSha) {
-    throw new Error(
-      `The checkout is at ${head} but the analysis is for ${origin.headSha}: check out that commit first`
+  if (inputs.checkout) {
+    await checkoutCommit(
+      workspace,
+      process.env.GITHUB_SERVER_URL ?? 'https://github.com',
+      origin.repository,
+      origin.headSha,
+      inputs.githubToken
     )
   }
+  await verifyCheckout(workspace, origin.headSha)
 
   const temp = tempDirectory()
   const artifact = await downloadAnalysis(name, origin, context, temp)

@@ -21,7 +21,10 @@ function workflowRun(event: string, headBranch = 'feature') {
         event,
         head_sha: 'head-sha',
         head_branch: headBranch,
-        head_repository: { owner: { login: 'forker' } }
+        head_repository: {
+          full_name: 'forker/repo',
+          owner: { login: 'forker' }
+        }
       }
     }
   }
@@ -57,6 +60,7 @@ describe('resolveOrigin', () => {
 
     expect(origin).toEqual({
       runId: 42,
+      repository: 'forker/repo',
       headSha: 'head-sha',
       pullRequest: { key: '7', branch: 'feature', base: 'main' }
     })
@@ -93,6 +97,7 @@ describe('resolveOrigin', () => {
       await resolveOrigin({ ...base, ...workflowRun('push', 'release') })
     ).toEqual({
       runId: 42,
+      repository: 'forker/repo',
       headSha: 'head-sha',
       branch: 'release'
     })
@@ -100,6 +105,7 @@ describe('resolveOrigin', () => {
       await resolveOrigin({ ...base, ...workflowRun('push', 'main') })
     ).toEqual({
       runId: 42,
+      repository: 'forker/repo',
       headSha: 'head-sha'
     })
   })
@@ -111,12 +117,17 @@ describe('resolveOrigin', () => {
       event: {
         pull_request: {
           number: 9,
-          head: { sha: 'pr-head', ref: 'topic' },
+          head: {
+            sha: 'pr-head',
+            ref: 'topic',
+            repo: { full_name: 'owner/repo' }
+          },
           base: { ref: 'main' }
         }
       }
     })
     expect(origin).toEqual({
+      repository: 'owner/repo',
       headSha: 'pr-head',
       pullRequest: { key: '9', branch: 'topic', base: 'main' }
     })
@@ -129,6 +140,6 @@ describe('resolveOrigin', () => {
         eventName: 'push',
         event: { repository: { default_branch: 'main' } }
       })
-    ).toEqual({ headSha: 'merge-sha' })
+    ).toEqual({ repository: 'owner/repo', headSha: 'merge-sha' })
   })
 })

@@ -222,6 +222,7 @@ describe('trustedProperties', () => {
     expect(
       Object.fromEntries(
         trustedProperties(target, {
+          repository: 'owner/repo',
           headSha: 'abc',
           pullRequest: { key: '7', branch: 'feature', base: 'main' }
         })
@@ -238,9 +239,11 @@ describe('trustedProperties', () => {
 
   it('names branches other than the default one', () => {
     expect(
-      trustedProperties(target, { headSha: 'abc', branch: 'release' }).get(
-        'sonar.branch.name'
-      )
+      trustedProperties(target, {
+        repository: 'owner/repo',
+        headSha: 'abc',
+        branch: 'release'
+      }).get('sonar.branch.name')
     ).toBe('release')
   })
 })
