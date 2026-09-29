@@ -54,3 +54,28 @@ jobs:
           # checks that GitHub merges into one.
           build-arguments:
             -Dsonar.projectName=Sonar fork analysis - ${{ matrix.name }} direct
+
+  prepare:
+    name: 'Prepare ${{ matrix.fixture }} for the fork path'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture: [maven, gradle]
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@v7
+
+      - name: 'Set up Java'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: ${{ matrix.fixture }}
+
+      - name: 'Prepare the analysis'
+        uses: ./
+        with:
+          mode: prepare
+          id: ${{ matrix.fixture }}
+          working-directory: fixtures/${{ matrix.fixture }}
