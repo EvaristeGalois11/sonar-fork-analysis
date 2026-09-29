@@ -99,6 +99,7 @@ describe('resolveSettings', () => {
   it('accepts build directories that only appear when unpacking', () => {
     const resolved = resolveSettings(
       {
+        'sonar.sources': '',
         'sonar.projectBuildDir': '{workspace}/target',
         'sonar.java.binaries': '{workspace}/target/classes'
       },
@@ -119,6 +120,69 @@ describe('resolveSettings', () => {
       home
     )
     expect(resolved.properties.get('sonar.projectBuildDir')).toBe('')
+  })
+
+  it('resolves relative entries against their module', () => {
+    file(join(workspace, 'app/src/App.java'))
+    const resolved = resolveSettings(
+      {
+        'sonar.modules': 'app',
+        'app.sonar.projectBaseDir': '{workspace}/app',
+        'app.sonar.sources': 'src',
+        'app.sonar.java.binaries': 'target/classes'
+      },
+      workspace,
+      home
+    )
+    expect(resolved.properties.get('app.sonar.sources')).toBe(
+      join(workspace, 'app/src')
+    )
+    expect(resolved.properties.get('app.sonar.java.binaries')).toBe(
+      join(workspace, 'app/target/classes')
+    )
+  })
+
+  it('refuses a module without a base directory in the checkout', () => {
+    // The scanner would place it under its parent by id.
+    expect(() =>
+      resolveSettings(
+        { 'sonar.modules': 'app', 'app.sonar.sources': 'src' },
+        workspace,
+        home
+      )
+    ).toThrow(/module app no base directory/)
+    expect(() =>
+      resolveSettings(
+        {
+          'sonar.modules': 'app',
+          'app.sonar.projectBaseDir': '{home}'
+        },
+        workspace,
+        home
+      )
+    ).toThrow(/module app no base directory/)
+  })
+
+  it('follows links in the checkout before accepting a path', () => {
+    file(join(workspace, 'gen/.keep'))
+    symlinkSync(outside, join(workspace, 'leak'))
+    symlinkSync(join(workspace, 'gen'), join(workspace, 'alias'))
+    const resolved = resolveSettings(
+      { 'sonar.sources': '{workspace}/leak,{workspace}/alias' },
+      workspace,
+      home
+    )
+    expect(resolved.properties.get('sonar.sources')).toBe(
+      join(workspace, 'alias')
+    )
+    // Protected where the files really are, so nothing can be unpacked into gen/ either.
+    expect(resolved.sourceRoots).toEqual([join(workspace, 'gen')])
+  })
+
+  it('protects the whole module when it names no sources', () => {
+    expect(resolveSettings({}, workspace, home).sourceRoots).toEqual([
+      workspace
+    ])
   })
 
   it('only accepts sources the checkout already has', () => {
@@ -179,6 +243,28 @@ describe('unpackWorkspace', () => {
       `Skipped ${join('src', 'Evil.java')}: inside the sources`
     ])
   })
+
+  it.each([
+    'app/.git/config',
+    'app/.GIT/config',
+    'app/.git./config',
+    'GIT~1/x'
+  ])('never plants a repository, such as %s', (path) => {
+    file(join(artifact, path))
+    expect(unpackWorkspace(artifact, workspace, [])).toEqual([
+      `Skipped ${join(...path.split('/'))}: inside .git`
+    ])
+  })
+
+  it('never adds scanner settings', () => {
+    file(join(artifact, 'app/sonar-project.properties'))
+    expect(unpackWorkspace(artifact, workspace, [])[0]).toMatch(
+      /read it as settings/
+    )
+    expect(existsSync(join(workspace, 'app/sonar-project.properties'))).toBe(
+      false
+    )
+  })
 })
 
 describe('checkNoLinks', () => {
@@ -209,9 +295,12 @@ describe('formatProperties', () => {
     const properties = new Map([
       ['org.acme:app.sonar.sources', '/work/app/src'],
       ['sonar.projectName', ' Leading space, tab\tand\nnewline'],
-      ['path', 'C:\\dir']
+      ['path', 'C:\\dir'],
+      ['sonar.projectDescription', 'Caffè ☕ 😀']
     ])
-    expect(parseProperties(formatProperties(properties))).toEqual(properties)
+    const formatted = formatProperties(properties)
+    expect(formatted).toMatch(/^[\x20-\x7e\n]*$/)
+    expect(parseProperties(formatted)).toEqual(properties)
   })
 })
 
@@ -221,15 +310,19 @@ describe('trustedProperties', () => {
   it('describes a pull request', () => {
     expect(
       Object.fromEntries(
-        trustedProperties(target, {
-          repository: 'owner/repo',
-          headSha: 'abc',
-          pullRequest: { key: '7', branch: 'feature', base: 'main' }
-        })
+        trustedProperties(
+          target,
+          {
+            headSha: 'abc',
+            pullRequest: { key: '7', branch: 'feature', base: 'main' }
+          },
+          '/tmp/scannerwork'
+        )
       )
     ).toEqual({
       'sonar.projectKey': 'key',
       'sonar.scm.revision': 'abc',
+      'sonar.working.directory': '/tmp/scannerwork',
       'sonar.organization': 'org',
       'sonar.pullrequest.key': '7',
       'sonar.pullrequest.branch': 'feature',
@@ -239,11 +332,11 @@ describe('trustedProperties', () => {
 
   it('names branches other than the default one', () => {
     expect(
-      trustedProperties(target, {
-        repository: 'owner/repo',
-        headSha: 'abc',
-        branch: 'release'
-      }).get('sonar.branch.name')
+      trustedProperties(
+        target,
+        { headSha: 'abc', branch: 'release' },
+        '/tmp/scannerwork'
+      ).get('sonar.branch.name')
     ).toBe('release')
   })
 })

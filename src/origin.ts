@@ -6,7 +6,8 @@ export type Origin = {
   // The repository holding the analysed commit: the fork, for a pull request from one.
   repository: string
   headSha: string
-  pullRequest?: PullRequest
+  // The open pull requests with this head; usually one.
+  pullRequests?: PullRequest[]
   // Set for branches other than the default one, which Sonar analyses as branches.
   branch?: string
 }
@@ -30,12 +31,12 @@ type ApiPullRequest = {
 }
 
 // workflow_run payloads carry no pull request for forks, so it is looked up by its head.
-async function findPullRequest(
+async function findPullRequests(
   context: Context,
   owner: string,
   branch: string,
   sha: string
-): Promise<PullRequest | undefined> {
+): Promise<PullRequest[]> {
   const query = new URLSearchParams({
     state: 'open',
     head: `${owner}:${branch}`,
@@ -55,16 +56,33 @@ async function findPullRequest(
       `Could not look up the pull request: GitHub answered ${response.status}`
     )
   }
-  const found = ((await response.json()) as ApiPullRequest[]).find(
-    (pull) => pull.head.sha === sha
-  )
-  return (
-    found && {
-      key: String(found.number),
-      branch: found.head.ref,
-      base: found.base.ref
-    }
-  )
+  return ((await response.json()) as ApiPullRequest[])
+    .filter((pull) => pull.head.sha === sha)
+    .map((pull) => ({
+      key: String(pull.number),
+      branch: pull.head.ref,
+      base: pull.base.ref
+    }))
+}
+
+// The hint comes from the artifact, i.e. from the fork: it may only choose among the pull requests
+// already matched by their head, never name another one.
+export function choosePullRequest(
+  candidates: PullRequest[],
+  hint: unknown
+): { pullRequest: PullRequest; warning?: string } {
+  const hinted =
+    typeof hint === 'number' && Number.isSafeInteger(hint)
+      ? candidates.find((pull) => pull.key === String(hint))
+      : undefined
+  if (hinted) return { pullRequest: hinted }
+  const [first] = candidates
+  return candidates.length > 1
+    ? {
+        pullRequest: first,
+        warning: `${candidates.length} open pull requests have this head, analysing #${first.key}`
+      }
+    : { pullRequest: first }
 }
 
 export async function resolveOrigin(
@@ -79,16 +97,25 @@ export async function resolveOrigin(
       headSha: run.head_sha
     }
     if (run.event === 'pull_request') {
-      origin.pullRequest = await findPullRequest(
+      origin.pullRequests = await findPullRequests(
         context,
         run.head_repository.owner.login,
         run.head_branch,
         run.head_sha
       )
-      if (!origin.pullRequest) {
+      if (origin.pullRequests.length === 0) {
         return {
           skip: `No open pull request has ${run.head_sha} as its head any more; a newer run analyses it.`
         }
+      }
+    } else if (
+      run.head_repository.full_name.toLowerCase() !==
+      context.repository.toLowerCase()
+    ) {
+      // A fork's pull request can add a workflow with the same name on another event; its branch
+      // must not pass for one of ours.
+      return {
+        skip: `The run analyses ${run.head_repository.full_name}, not this repository, and is not for a pull request.`
       }
     } else if (run.head_branch !== event.repository.default_branch) {
       origin.branch = run.head_branch
@@ -100,11 +127,13 @@ export async function resolveOrigin(
     return {
       repository: pull.head.repo.full_name,
       headSha: pull.head.sha,
-      pullRequest: {
-        key: String(pull.number),
-        branch: pull.head.ref,
-        base: pull.base.ref
-      }
+      pullRequests: [
+        {
+          key: String(pull.number),
+          branch: pull.head.ref,
+          base: pull.base.ref
+        }
+      ]
     }
   }
   const origin: Origin = {

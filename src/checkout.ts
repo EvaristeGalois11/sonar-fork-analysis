@@ -3,14 +3,17 @@ import { getExecOutput } from '@actions/exec'
 import { readdirSync } from 'node:fs'
 import { retry } from './retry.js'
 
+// Never wait for a password, and never let the checkout's attributes send git-lfs to a server.
+const QUIET_GIT = { GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1' }
+
 async function git(
   workspace: string,
   args: string[],
-  env?: Record<string, string>
-): Promise<{ exitCode: number; stdout: string }> {
+  env: Record<string, string> = {}
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return getExecOutput('git', args, {
     cwd: workspace,
-    env: env && ({ ...process.env, ...env } as Record<string, string>),
+    env: { ...process.env, ...QUIET_GIT, ...env } as Record<string, string>,
     ignoreReturnCode: true,
     silent: true
   })
@@ -21,20 +24,30 @@ async function required(
   args: string[],
   env?: Record<string, string>
 ): Promise<string> {
-  const { exitCode, stdout } = await git(workspace, args, env)
-  if (exitCode !== 0)
-    throw new Error(`git ${args[0]} failed with exit code ${exitCode}`)
+  const { exitCode, stdout, stderr } = await git(workspace, args, env)
+  if (exitCode !== 0) {
+    throw new Error(
+      `git ${args[0]} failed with exit code ${exitCode}: ${stderr.trim()}`
+    )
+  }
   return stdout.trim()
+}
+
+export type Checkout = {
+  serverUrl: string
+  // This repository, whose branches a pull request is compared with.
+  repository: string
+  // Where the analysed commit lives: a fork, for a pull request from one.
+  headRepository: string
+  sha: string
+  token: string
 }
 
 // Fetches the analysed commit the way a safe checkout step would: the exact commit, full history for
 // blame, and credentials handed to git through its environment only, so none are written to disk.
 export async function checkoutCommit(
   workspace: string,
-  serverUrl: string,
-  repository: string,
-  sha: string,
-  token: string
+  { serverUrl, repository, headRepository, sha, token }: Checkout
 ): Promise<void> {
   if (readdirSync(workspace).length > 0) {
     throw new Error(
@@ -51,29 +64,27 @@ export async function checkoutCommit(
       GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}`
     })
   }
-  core.info(`Checking out ${sha} of ${repository}`)
+  core.info(`Checking out ${sha} of ${headRepository}`)
   await required(workspace, ['init', '--quiet'])
+  // Sonar finds a pull request's base branch as origin/<base>, so origin must be this repository even
+  // when the commit comes from a fork, whose copy of that branch could be anything.
   await required(workspace, [
     'remote',
     'add',
     'origin',
     `${serverUrl}/${repository}`
   ])
-  // The only network operation, so the only one worth retrying, as actions/checkout does.
+  const fetch = ['fetch', '--quiet', '--no-tags', '--no-recurse-submodules']
+  // The only network operations, so the only ones worth retrying, as actions/checkout does.
   await retry(() =>
     required(
       workspace,
-      [
-        'fetch',
-        '--quiet',
-        '--no-tags',
-        '--no-recurse-submodules',
-        'origin',
-        '+refs/heads/*:refs/remotes/origin/*',
-        sha
-      ],
+      [...fetch, 'origin', '+refs/heads/*:refs/remotes/origin/*'],
       env
     )
+  )
+  await retry(() =>
+    required(workspace, [...fetch, `${serverUrl}/${headRepository}`, sha], env)
   )
   await required(workspace, ['checkout', '--quiet', '--detach', sha])
 }
@@ -96,10 +107,12 @@ export async function verifyCheckout(
       'The checkout is shallow, so Sonar would get no history: fetch it with fetch-depth 0'
     )
   }
-  // The analysed code may come from a fork; a stored token would sit right next to it.
+  // The analysed code may come from a fork; a stored token would sit right next to it. Newer
+  // actions/checkout versions keep it in a file that .git/config includes.
   const { stdout } = await git(workspace, [
     'config',
     '--local',
+    '--includes',
     '--get-regexp',
     '^http\\..*\\.extraheader$'
   ])

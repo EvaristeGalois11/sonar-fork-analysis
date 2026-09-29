@@ -22,6 +22,24 @@ describe('modulePrefixes', () => {
       'org.acme:parent-tests.org.acme:bean-tests.'
     ])
   })
+
+  it('visits each module once', () => {
+    const repeated = new Map([
+      ['sonar.modules', 'a,a,a.a'],
+      ['a.sonar.modules', 'a,a'],
+      ['a.a.sonar.modules', 'a,a']
+    ])
+    expect(modulePrefixes(repeated)).toEqual(['', 'a.', 'a.a.', 'a.a.a.'])
+  })
+
+  it.each(['..', '.', 'up/..', 'C:\\x'])(
+    'refuses the module id %s, which would leave its parent',
+    (id) => {
+      expect(() => modulePrefixes(new Map([['sonar.modules', id]]))).toThrow(
+        /Invalid module id/
+      )
+    }
+  )
 })
 
 describe('splitKey', () => {

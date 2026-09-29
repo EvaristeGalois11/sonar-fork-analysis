@@ -84,7 +84,8 @@ export function stageAnalysis(
   settings: Map<string, string>,
   roots: Roots,
   staging: string,
-  buildTool: BuildTool['name']
+  buildTool: BuildTool['name'],
+  pullRequest?: number
 ): Staged {
   const prefixes = modulePrefixes(settings)
   const shipped = new Map<string, [Root, string]>()
@@ -145,7 +146,7 @@ export function stageAnalysis(
   writeFileSync(
     join(staging, 'settings.json'),
     JSON.stringify(
-      { format: ARTIFACT_FORMAT, buildTool, settings: out },
+      { format: ARTIFACT_FORMAT, buildTool, pullRequest, settings: out },
       null,
       2
     )

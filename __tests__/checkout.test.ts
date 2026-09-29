@@ -8,6 +8,8 @@ let root: string
 let server: string
 let workspace: string
 let first: string
+let second: string
+let forked: string
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync(
@@ -30,7 +32,20 @@ beforeEach(() => {
   first = git(source, 'rev-parse', 'HEAD')
   writeFileSync(join(source, 'App.java'), 'class App { int x; }')
   git(source, 'commit', '--quiet', '-am', 'second')
+  second = git(source, 'rev-parse', 'HEAD')
   git(root, 'clone', '--quiet', '--bare', source, join(server, 'owner', 'repo'))
+  // A fork whose main is the pull request's head, the usual shape of a fork's pull request.
+  writeFileSync(join(source, 'App.java'), 'class App { int y; }')
+  git(source, 'commit', '--quiet', '-am', 'fork change')
+  forked = git(source, 'rev-parse', 'HEAD')
+  git(
+    root,
+    'clone',
+    '--quiet',
+    '--bare',
+    source,
+    join(server, 'forker', 'repo')
+  )
   workspace = join(root, 'workspace')
   mkdirSync(workspace)
 })
@@ -40,25 +55,45 @@ afterEach(() => {
 })
 
 describe('checkoutCommit', () => {
+  const checkout = {
+    repository: 'owner/repo',
+    headRepository: 'owner/repo',
+    token: 'a-token'
+  }
+
   it('checks out the exact commit with its history and no stored credentials', async () => {
-    await checkoutCommit(
-      workspace,
-      `file://${server}`,
-      'owner/repo',
-      first,
-      'a-token'
-    )
+    await checkoutCommit(workspace, {
+      ...checkout,
+      serverUrl: `file://${server}`,
+      sha: first
+    })
 
     expect(git(workspace, 'rev-parse', 'HEAD')).toBe(first)
     expect(git(workspace, 'rev-parse', '--is-shallow-repository')).toBe('false')
     await expect(verifyCheckout(workspace, first)).resolves.toBeUndefined()
   })
 
+  it("takes a fork's commit but this repository's branches", async () => {
+    await checkoutCommit(workspace, {
+      ...checkout,
+      serverUrl: `file://${server}`,
+      headRepository: 'forker/repo',
+      sha: forked
+    })
+
+    expect(git(workspace, 'rev-parse', 'HEAD')).toBe(forked)
+    expect(git(workspace, 'rev-parse', 'refs/remotes/origin/main')).toBe(second)
+  })
+
   it('refuses a workspace that already has a checkout', async () => {
     writeFileSync(join(workspace, 'pom.xml'), '')
 
     await expect(
-      checkoutCommit(workspace, `file://${server}`, 'owner/repo', first, '')
+      checkoutCommit(workspace, {
+        ...checkout,
+        serverUrl: `file://${server}`,
+        sha: first
+      })
     ).rejects.toThrow(/set checkout to false/)
   })
 })
@@ -98,6 +133,20 @@ describe('verifyCheckout', () => {
       'http.https://github.com/.extraheader',
       'AUTHORIZATION: basic secret'
     )
+    const head = git(workspace, 'rev-parse', 'HEAD')
+    await expect(verifyCheckout(workspace, head)).rejects.toThrow(
+      /persist-credentials false/
+    )
+  })
+
+  it('rejects credentials in an included config file', async () => {
+    clone()
+    const included = join(root, 'credentials.config')
+    writeFileSync(
+      included,
+      '[http "https://github.com/"]\n\textraheader = AUTHORIZATION: basic secret\n'
+    )
+    git(workspace, 'config', 'include.path', included)
     const head = git(workspace, 'rev-parse', 'HEAD')
     await expect(verifyCheckout(workspace, head)).rejects.toThrow(
       /persist-credentials false/
