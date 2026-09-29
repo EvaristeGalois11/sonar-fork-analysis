@@ -248,10 +248,7 @@ async function analyze(inputs: Inputs): Promise<void> {
   const properties = resolved.properties
   if (!properties.has('sonar.projectBaseDir'))
     properties.set('sonar.projectBaseDir', workspace)
-  const trusted = trustedProperties(
-    { ...inputs, javaHome: process.env.JAVA_HOME },
-    origin
-  )
+  const trusted = trustedProperties(inputs, origin)
   for (const [key, value] of trusted) properties.set(key, value)
   const settingsFile = join(temp, 'sonar-project.properties')
   writeFileSync(settingsFile, formatProperties(properties))

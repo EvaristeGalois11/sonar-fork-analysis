@@ -127511,8 +127511,6 @@ function trustedProperties(target, origin) {
         properties.set('sonar.organization', target.organization);
     if (target.hostUrl)
         properties.set('sonar.host.url', target.hostUrl);
-    if (target.javaHome)
-        properties.set('sonar.java.jdkHome', target.javaHome);
     if (origin.pullRequest) {
         properties.set('sonar.pullrequest.key', origin.pullRequest.key);
         properties.set('sonar.pullrequest.branch', origin.pullRequest.branch);
@@ -131129,6 +131127,9 @@ function cacheDir(sourceDir, tool, version, arch) {
  * @param arch          optional arch.  defaults to arch of computer
  */
 function find(toolName, versionSpec, arch) {
+    if (!toolName) {
+        throw new Error('toolName parameter is required');
+    }
     if (!versionSpec) {
         throw new Error('versionSpec parameter is required');
     }
@@ -131275,21 +131276,58 @@ function _getGlobal(key, defaultValue) {
 }
 
 const VERSION = '8.1.0.6389';
-const SHA256 = 'ab76ab3c360025e9108be5b55be066f304a164f8b2850d2f2f333915db51bc1b';
 // The tool cache wants semver, which has no fourth component.
 const CACHE_VERSION = '8.1.0';
-async function installScanner() {
-    let directory = find('sonar-scanner-cli', CACHE_VERSION);
+// Builds with their own Java runtime, so the analysis needs no Java on the runner.
+const BUNDLED = {
+    'linux-x64': {
+        suffix: '-linux-x64',
+        sha256: 'bb8f709f9cb73352f8d1260a3b3c506c0f41146754bc630762c126d795499d0b'
+    },
+    'linux-arm64': {
+        suffix: '-linux-aarch64',
+        sha256: '5e1c9328f4e261838de778c9e586ee608cca45ff7f0538108642219214628ba5'
+    },
+    'darwin-x64': {
+        suffix: '-macosx-x64',
+        sha256: '8afc8bbff9008434e53b31cb681333ff643b999f84ca537db573d0fae8883cdc'
+    },
+    'darwin-arm64': {
+        suffix: '-macosx-aarch64',
+        sha256: '20d12be4081896b337cd873d98ebd3d554be666086a45e31dd84a12ef51c3688'
+    },
+    'win32-x64': {
+        suffix: '-windows-x64',
+        sha256: '73f0e71928673d5b2f39bb86213342a30e51a14c8eec345164016bb29c8df8ee'
+    }
+};
+// Everywhere else: the plain build, which runs on the Java found on the runner.
+const PLAIN = {
+    suffix: '',
+    sha256: 'ab76ab3c360025e9108be5b55be066f304a164f8b2850d2f2f333915db51bc1b'
+};
+function scannerBuild(platform, arch) {
+    return BUNDLED[`${platform}-${arch}`] ?? PLAIN;
+}
+async function installScanner(platform = process.platform, arch = process.arch) {
+    const build = scannerBuild(platform, arch);
+    if (build === PLAIN) {
+        info(`No scanner with a bundled Java runtime for ${platform}-${arch}, using the Java on the runner`);
+    }
+    const tool = `sonar-scanner-cli${build.suffix}`;
+    let directory = find(tool, CACHE_VERSION);
     if (!directory) {
-        const zip = await downloadTool(`https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${VERSION}.zip`);
+        const name = `sonar-scanner-cli-${VERSION}${build.suffix}`;
+        const zip = await downloadTool(`https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${name}.zip`);
         const actual = createHash('sha256').update(readFileSync$1(zip)).digest('hex');
-        if (actual !== SHA256) {
-            throw new Error(`The downloaded scanner has SHA-256 ${actual}, expected ${SHA256}`);
+        if (actual !== build.sha256) {
+            throw new Error(`The downloaded scanner has SHA-256 ${actual}, expected ${build.sha256}`);
         }
         const extracted = await extractZip(zip);
-        directory = await cacheDir(join(extracted, `sonar-scanner-${VERSION}`), 'sonar-scanner-cli', CACHE_VERSION);
+        directory = await cacheDir(join(extracted, `sonar-scanner-${VERSION}${build.suffix}`), tool, CACHE_VERSION);
     }
-    return join(directory, 'bin', 'sonar-scanner');
+    const script = platform === 'win32' ? 'sonar-scanner.bat' : 'sonar-scanner';
+    return join(directory, 'bin', script);
 }
 
 async function direct(inputs) {
@@ -131447,7 +131485,7 @@ async function analyze(inputs) {
     const properties = resolved.properties;
     if (!properties.has('sonar.projectBaseDir'))
         properties.set('sonar.projectBaseDir', workspace);
-    const trusted = trustedProperties({ ...inputs, javaHome: process.env.JAVA_HOME }, origin);
+    const trusted = trustedProperties(inputs, origin);
     for (const [key, value] of trusted)
         properties.set(key, value);
     const settingsFile = join(temp, 'sonar-project.properties');

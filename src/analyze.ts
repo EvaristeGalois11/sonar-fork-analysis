@@ -216,7 +216,6 @@ export type Target = {
   projectKey: string
   organization: string
   hostUrl: string
-  javaHome?: string
 }
 
 // Set by the trusted side only; they override anything that came with the artifact.
@@ -231,7 +230,6 @@ export function trustedProperties(
   if (target.organization)
     properties.set('sonar.organization', target.organization)
   if (target.hostUrl) properties.set('sonar.host.url', target.hostUrl)
-  if (target.javaHome) properties.set('sonar.java.jdkHome', target.javaHome)
   if (origin.pullRequest) {
     properties.set('sonar.pullrequest.key', origin.pullRequest.key)
     properties.set('sonar.pullrequest.branch', origin.pullRequest.branch)
