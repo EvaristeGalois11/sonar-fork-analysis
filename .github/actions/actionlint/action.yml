@@ -1,0 +1,7 @@
+name: 'actionlint'
+description: 'Lints the workflows, and their run: scripts with shellcheck.'
+runs:
+  using: docker
+  image: Dockerfile
+  # actionlint predates GitHub's $/ self-repository syntax (rhysd/actionlint#732).
+  args: ['-color', '-ignore', 'action "\$/']

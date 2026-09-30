@@ -30,13 +30,14 @@ jobs:
       # The pull request's head, not GitHub's merge commit: the fork path analyses the head, and both
       # sides must analyse the same code to be compared.
       - name: 'Checkout project'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: 'Set up Java'
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: 21
@@ -44,7 +45,7 @@ jobs:
 
       - name: 'Analyse with Sonar'
         if: env.HAS_SONAR_TOKEN == 'true'
-        uses: ./
+        uses: $/
         with:
           mode: direct
           working-directory: fixtures/${{ matrix.fixture }}
@@ -68,19 +69,20 @@ jobs:
     steps:
       # The head, like analyze checks out, so the shipped build output matches the analysed sources.
       - name: 'Checkout project'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: 'Set up Java'
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: 21
           cache: ${{ matrix.fixture }}
 
       - name: 'Prepare the analysis'
-        uses: ./
+        uses: $/
         with:
           mode: prepare
           id: ${{ matrix.fixture }}
@@ -104,7 +106,7 @@ jobs:
       HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
     steps:
       - name: 'Checkout project'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
@@ -112,10 +114,10 @@ jobs:
 
       - name: 'Analyse with Sonar'
         if: env.HAS_SONAR_TOKEN == 'true'
-        uses: ./
+        uses: $/
         with:
           mode: analyze
-          # The action runs from this checkout, so it cannot check out itself.
+          # Uses the checkout above instead of its own.
           checkout: false
           id: ${{ matrix.fixture }}
           project-key:
@@ -139,14 +141,14 @@ jobs:
       HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
     steps:
       - name: 'Checkout project'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       # Node runs the TypeScript script directly from 22.18; the runner may have an older one.
       - name: 'Set up Node'
         if: env.HAS_SONAR_TOKEN == 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
 

@@ -4,21 +4,30 @@ updates:
     directory: '/'
     schedule:
       interval: 'daily'
+    # A compromised release is usually caught within days; security updates are not delayed.
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: 'maven'
     directory: '/fixtures/maven'
     schedule:
       interval: 'daily'
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: 'gradle'
     directory: '/fixtures/gradle'
     schedule:
       interval: 'daily'
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
       interval: 'daily'
+    cooldown:
+      default-days: 7
     ignore:
       # Types must match the runtime in action.yml (node24), not the newest Node.
       - dependency-name: '@types/node'
@@ -26,3 +35,10 @@ updates:
       # ts-jest and typescript-eslint do not support TypeScript 7 yet.
       - dependency-name: 'typescript'
         versions: ['>=7.0.0']
+
+  - package-ecosystem: 'docker'
+    directory: '/.github/actions/actionlint'
+    schedule:
+      interval: 'daily'
+    cooldown:
+      default-days: 7
