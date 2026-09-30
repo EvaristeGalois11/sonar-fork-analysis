@@ -30,12 +30,13 @@
     "format:write": "npx prettier --write .",
     "format:check": "npx prettier --check .",
     "lint": "npx eslint .",
+    "lint:workflows": "node scripts/lint-workflows.ts",
     "local": "npm run package && node --env-file=.env dist/index.js",
     "package": "npx rimraf ./dist && npx rollup --config rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "package:watch": "npm run package -- --watch",
     "test": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 npx jest",
     "typecheck": "npx tsc --project scripts",
-    "all": "npm run format:write && npm run lint && npm run typecheck && npm run test && npm run coverage && npm run package"
+    "all": "npm run format:write && npm run lint && npm run lint:workflows && npm run typecheck && npm run test && npm run coverage && npm run package"
   },
   "license": "MIT",
   "dependencies": {
@@ -45,6 +46,7 @@
     "@actions/tool-cache": "^4.0.0"
   },
   "devDependencies": {
+    "@actions/workflow-parser": "^0.3.61",
     "@eslint/compat": "^2.0.2",
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^10.0.1",
