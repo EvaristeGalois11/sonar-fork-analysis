@@ -69,8 +69,9 @@ jobs:
       - name: 'Validate wrapper jar'
         uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
-  workflows:
-    name: 'Lint workflows'
+  # Its token may write security events, so it runs nothing but the pinned zizmor action.
+  zizmor:
+    name: 'Audit workflows'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -82,12 +83,22 @@ jobs:
           persist-credentials: false
 
       # Audits the workflows and the action for security problems, such as v1's script injection.
-      # Findings go to code scanning, next to CodeQL's, and fail pull requests from there; this step
-      # itself does not fail, so it runs first.
+      # Findings go to code scanning, next to CodeQL's, which fails pull requests on those above its
+      # severity threshold.
+      # Without a version, zizmor is the one this action release pins by digest, so Dependabot's
+      # updates of the action update zizmor too.
       - name: 'Run zizmor'
-        # Without a version, zizmor is the one this action release pins by digest, so Dependabot's
-        # updates of the action update zizmor too.
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+
+  # A third-party image with the Docker socket, so its token only reads.
+  actionlint:
+    name: 'Lint workflows'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: 'Run actionlint'
         uses: $/.github/actions/actionlint
