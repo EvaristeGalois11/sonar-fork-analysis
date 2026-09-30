@@ -49,13 +49,19 @@ describe('simulationProperties', () => {
 })
 
 describe('artifactName', () => {
-  it('appends the id', () => {
-    expect(artifactName('')).toBe('sonar-fork-analysis')
-    expect(artifactName('maven')).toBe('sonar-fork-analysis-maven')
+  it('names the artifact after the project', () => {
+    expect(artifactName('acme_app')).toBe('sonar-fork-analysis-acme_app')
   })
 
-  it('rejects characters artifact names cannot hold', () => {
-    expect(() => artifactName('a/b')).toThrow(/Invalid id/)
+  it('replaces the colon, which artifact names cannot hold', () => {
+    expect(artifactName('org.acme:app')).toBe(
+      'sonar-fork-analysis-org.acme_app'
+    )
+  })
+
+  it('rejects what is no project key', () => {
+    expect(() => artifactName('a/b')).toThrow(/Invalid project key/)
+    expect(() => artifactName('')).toThrow(/Invalid project key/)
   })
 })
 

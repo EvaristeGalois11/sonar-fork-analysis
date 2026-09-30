@@ -40,18 +40,18 @@ export function simulationProperties(dumpFile: string): string[] {
   ]
 }
 
-export function artifactName(id: string): string {
-  if (id && !/^[A-Za-z0-9._-]+$/.test(id)) {
-    throw new Error(
-      `Invalid id '${id}': use letters, digits, dots, dashes or underscores`
-    )
+// Named after the project, so the build and the analysis agree without further settings, and every
+// project of a monorepo gets its own. Artifact names cannot hold ':', which project keys may.
+export function artifactName(projectKey: string): string {
+  if (!/^[A-Za-z0-9._:-]+$/.test(projectKey)) {
+    throw new Error(`Invalid project key '${projectKey}'`)
   }
-  return id ? `sonar-fork-analysis-${id}` : 'sonar-fork-analysis'
+  return `sonar-fork-analysis-${projectKey.replaceAll(':', '_')}`
 }
 
-// '+' cannot occur in an id, so no id's prepared artifact can take this name.
-export function directArtifactName(id: string): string {
-  return `${artifactName(id)}+direct`
+// '+' cannot occur in a project key, so no prepared artifact can take this name.
+export function directArtifactName(projectKey: string): string {
+  return `${artifactName(projectKey)}+direct`
 }
 
 export function missingDump(tool: BuildTool): string {

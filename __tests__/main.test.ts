@@ -125,7 +125,6 @@ describe('run', () => {
 
   it('notes the direct analysis for the fork path', async () => {
     process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
-    inputs.id = 'app'
     artifact.uploadArtifact.mockResolvedValue({ id: 1, size: 1 })
     exec.mockImplementation(async (_tool, _args, options) => {
       writeReport(options!.cwd!)
@@ -136,7 +135,7 @@ describe('run', () => {
 
     expect(core.setFailed).not.toHaveBeenCalled()
     const [name, files, , options] = artifact.uploadArtifact.mock.calls[0]
-    expect(name).toBe('sonar-fork-analysis-app+direct')
+    expect(name).toBe('sonar-fork-analysis-key+direct')
     expect(files).toHaveLength(1)
     expect(options).toEqual({ retentionDays: 1 })
     delete process.env.ACTIONS_RUNTIME_TOKEN
@@ -154,7 +153,7 @@ describe('run', () => {
 
     expect(core.setFailed).not.toHaveBeenCalled()
     expect(core.warning).toHaveBeenCalledWith(
-      expect.stringContaining('need distinct ids')
+      expect.stringContaining('need distinct project keys')
     )
     delete process.env.ACTIONS_RUNTIME_TOKEN
   })
@@ -222,7 +221,7 @@ describe('run in prepare mode', () => {
     expect(exec.mock.calls[0][2]!.env!.SONAR_TOKEN).toBeUndefined()
     const [name, files, staging, options] =
       artifact.uploadArtifact.mock.calls[0]
-    expect(name).toBe('sonar-fork-analysis')
+    expect(name).toBe('sonar-fork-analysis-key')
     expect(options).toEqual({ retentionDays: 1 })
     const settings = readFileSync(join(staging, 'settings.json'), 'utf8')
     expect(JSON.parse(settings).pullRequest).toBe(12)
@@ -237,6 +236,15 @@ describe('run in prepare mode', () => {
     expect(
       readdirSync(join(staging, '..')).filter((f) => f.endsWith('.properties'))
     ).toEqual([])
+  })
+
+  it('needs the project key, which names the artifact', async () => {
+    delete inputs['project-key']
+
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledWith('Input required: project-key')
+    expect(exec).not.toHaveBeenCalled()
   })
 
   it('fails when the plugin wrote no settings', async () => {
@@ -510,7 +518,7 @@ describe('run in analyze mode', () => {
       triggeredBy('push', 'owner/repo')
       process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
       artifact.getArtifact.mockImplementation(async (name) => {
-        if (name === 'sonar-fork-analysis+direct')
+        if (name === 'sonar-fork-analysis-key+direct')
           return { artifact: { id: 1, name, size: 1 } }
         throw new artifact.ArtifactNotFoundError(name)
       })
@@ -588,7 +596,7 @@ describe('run in analyze mode', () => {
 
     expect(core.setFailed).not.toHaveBeenCalled()
     expect(core.notice).toHaveBeenCalledWith(
-      expect.stringContaining('No sonar-fork-analysis artifact')
+      expect.stringContaining('No sonar-fork-analysis-key artifact')
     )
     expect(exec).not.toHaveBeenCalled()
   })

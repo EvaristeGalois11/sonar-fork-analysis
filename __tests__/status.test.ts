@@ -11,7 +11,7 @@ const target = {
   repository: 'owner/repo',
   sha: 'head-sha',
   token: 'gh-token',
-  name: 'Sonar fork analysis (maven)',
+  name: 'Sonar fork analysis (acme_app)',
   url: 'https://github.com/owner/repo/actions/runs/42'
 }
 
@@ -45,7 +45,7 @@ describe('statusReporter', () => {
     expect(sent()).toEqual({
       state: 'success',
       description: 'Analysed',
-      context: 'Sonar fork analysis (maven)',
+      context: 'Sonar fork analysis (acme_app)',
       target_url: 'https://github.com/owner/repo/actions/runs/42'
     })
     expect(core.warning).not.toHaveBeenCalled()
@@ -113,7 +113,7 @@ describe('the post step', () => {
     expect(sent()).toMatchObject({
       state: 'failure',
       description: 'The analysis ended without reporting its result',
-      context: 'Sonar fork analysis (maven)'
+      context: 'Sonar fork analysis (acme_app)'
     })
     expect(fetch.mock.calls[0][1]!.headers).toMatchObject({
       Authorization: 'Bearer input-token'

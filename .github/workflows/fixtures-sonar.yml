@@ -33,7 +33,6 @@ jobs:
         # This repository at the commit the workflow runs from, which for workflow_run is main's.
         uses: $/
         with:
-          id: ${{ matrix.fixture }}
           project-key:
             evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
           sonar-organization: evaristegalois11

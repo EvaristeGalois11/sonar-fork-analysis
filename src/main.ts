@@ -84,30 +84,31 @@ async function direct(inputs: Inputs): Promise<void> {
   // guarantee: the build can write any report it likes.
   if (!findNewReport(workingDirectory, reportsBefore))
     throw new Error(missingAnalysis(tool))
-  await leaveDirectNote(inputs.id)
+  await leaveDirectNote(inputs.projectKey)
 }
 
 // Tells a fork path's analysis, which runs after every build, that this one already analysed.
-async function leaveDirectNote(id: string): Promise<void> {
+async function leaveDirectNote(projectKey: string): Promise<void> {
   if (!process.env.ACTIONS_RUNTIME_TOKEN) return
   const note = join(tempDirectory(), 'analysed-directly.json')
   writeFileSync(note, JSON.stringify({ format: ARTIFACT_FORMAT }))
   try {
     await new DefaultArtifactClient().uploadArtifact(
-      directArtifactName(id),
+      directArtifactName(projectKey),
       [note],
       dirname(note),
       { retentionDays: 1 }
     )
   } catch (error) {
     core.warning(
-      `Could not note the direct analysis for the fork path (${error instanceof Error ? error.message : String(error)}); analyses in one workflow need distinct ids`
+      `Could not note the direct analysis for the fork path (${error instanceof Error ? error.message : String(error)}); analyses in one workflow need distinct project keys`
     )
   }
 }
 
 async function prepare(inputs: Inputs): Promise<void> {
-  const name = artifactName(inputs.id)
+  if (!inputs.projectKey) throw new Error('Input required: project-key')
+  const name = artifactName(inputs.projectKey)
   const workingDirectory = resolve(inputs.workingDirectory)
   const tool = detectBuildTool(workingDirectory, inputs.buildTool)
   const temp = tempDirectory()
@@ -267,17 +268,19 @@ async function analyze(inputs: Inputs): Promise<void> {
     repository: context.repository,
     sha: origin.headSha,
     token: inputs.githubToken,
-    name: `Sonar fork analysis${inputs.id ? ` (${inputs.id})` : ''}`,
+    name: `Sonar fork analysis (${inputs.projectKey})`,
     url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
   }
   const report =
     context.eventName === 'workflow_run' ? statusReporter(target) : noReporter
 
   // Looked up before checking out, so a run with nothing to do takes seconds.
-  const name = artifactName(inputs.id)
+  const name = artifactName(inputs.projectKey)
   const found = await findArtifact(name, origin, context)
   if (!found) {
-    if (await findArtifact(directArtifactName(inputs.id), origin, context)) {
+    if (
+      await findArtifact(directArtifactName(inputs.projectKey), origin, context)
+    ) {
       core.info('The build analysed directly, so there is nothing to analyse.')
       return
     }
@@ -311,7 +314,7 @@ async function analyzeCommit(
   workspace: string,
   found: Found
 ): Promise<void> {
-  const name = artifactName(inputs.id)
+  const name = artifactName(inputs.projectKey)
   if (inputs.checkout) {
     await checkoutCommit(workspace, {
       serverUrl: process.env.GITHUB_SERVER_URL ?? 'https://github.com',
