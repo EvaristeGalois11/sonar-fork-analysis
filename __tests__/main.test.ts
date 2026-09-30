@@ -563,6 +563,81 @@ describe('run in analyze mode', () => {
       })
     })
 
+    it('reports a missing token as a failure, without a pending status', async () => {
+      triggeredBy('push', 'owner/repo')
+      prepared({})
+      delete inputs['sonar-token']
+
+      await run()
+
+      expect(statuses()).toEqual(['failure: The analysis failed, see the run'])
+      expect(core.setFailed).toHaveBeenCalledWith(
+        expect.stringContaining('No Sonar token')
+      )
+    })
+
+    it('does not need the token when the build analysed directly', async () => {
+      triggeredBy('push', 'owner/repo')
+      delete inputs['sonar-token']
+      process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+      artifact.getArtifact.mockImplementation(async (name) => {
+        if (name.endsWith('+direct'))
+          return { artifact: { id: 1, name, size: 1 } }
+        throw new artifact.ArtifactNotFoundError(name)
+      })
+
+      await run()
+
+      expect(statuses()).toEqual([])
+      expect(core.setFailed).not.toHaveBeenCalled()
+    })
+
+    it('reports a failed pull request lookup on the commit GitHub named', async () => {
+      triggeredBy('pull_request', 'forker/repo')
+      fetch.mockImplementation(
+        async (_url, init) =>
+          new Response('{}', { status: init?.method === 'POST' ? 201 : 500 })
+      )
+
+      await run()
+
+      expect(statuses()).toEqual(['failure: The analysis failed, see the run'])
+      const posted = fetch.mock.calls.find(
+        ([, init]) => init?.method === 'POST'
+      )!
+      expect(String(posted[0])).toMatch(/\/statuses\/head-sha$/)
+      expect(core.setFailed).toHaveBeenCalledWith(
+        expect.stringContaining('GitHub answered 500')
+      )
+    })
+
+    it('reports a failed artifact lookup', async () => {
+      triggeredBy('push', 'owner/repo')
+      process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+      artifact.getArtifact.mockRejectedValue(new Error('artifacts API down'))
+
+      await run()
+
+      expect(statuses()).toEqual(['failure: The analysis failed, see the run'])
+      expect(core.setFailed).toHaveBeenCalledWith('artifacts API down')
+    })
+
+    it('reports a missing project key under a plain name', async () => {
+      triggeredBy('push', 'owner/repo')
+      delete inputs['project-key']
+
+      await run()
+
+      const posted = fetch.mock.calls.find(
+        ([, init]) => init?.method === 'POST'
+      )!
+      expect(JSON.parse(String(posted[1]!.body))).toMatchObject({
+        state: 'failure',
+        context: 'Sonar fork analysis'
+      })
+      expect(core.setFailed).toHaveBeenCalledWith('Input required: project-key')
+    })
+
     it('reports a build that left nothing to analyse, before checking out', async () => {
       triggeredBy('pull_request', 'forker/repo')
 
