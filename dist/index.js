@@ -131441,6 +131441,49 @@ async function installScanner(platform = process.platform, arch = process.arch) 
     return join(directory, 'bin', script);
 }
 
+// A workflow_run run does not show among a pull request's checks, so a failed analysis would go
+// unnoticed; a status on the analysed commit does show. A token without statuses: write is the way to
+// turn it off, so that is not a problem, and nothing here ever fails the analysis.
+function statusReporter(target) {
+    let enabled = true;
+    return async (state, description) => {
+        if (!enabled)
+            return;
+        const url = `${target.apiUrl}/repos/${target.repository}/statuses/${target.sha}`;
+        let response;
+        try {
+            response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/vnd.github+json',
+                    Authorization: `Bearer ${target.token}`
+                },
+                body: JSON.stringify({
+                    state,
+                    // GitHub rejects longer descriptions.
+                    description: description.length > 140
+                        ? `${description.slice(0, 139)}…`
+                        : description,
+                    context: target.name,
+                    target_url: target.url
+                })
+            });
+        }
+        catch (error) {
+            warning(`Could not post the ${target.name} status: ${error instanceof Error ? error.message : String(error)}`);
+            return;
+        }
+        if (response.status === 401 || response.status === 403) {
+            enabled = false;
+            info(`Not posting the ${target.name} status: the token lacks statuses: write`);
+        }
+        else if (!response.ok) {
+            warning(`Could not post the ${target.name} status: GitHub answered ${response.status}`);
+        }
+    };
+}
+const noReporter = async () => { };
+
 async function direct(inputs) {
     if (!inputs.projectKey)
         throw new Error('Input required: project-key');
@@ -131555,7 +131598,6 @@ async function analyze(inputs) {
     if (!inputs.token) {
         throw new Error('No Sonar token available, set the sonar-token input.');
     }
-    const name = artifactName(inputs.id);
     const workspace = resolve$1(process.env.GITHUB_WORKSPACE ?? process.cwd());
     const eventPath = process.env.GITHUB_EVENT_PATH;
     const context = {
@@ -131572,6 +131614,28 @@ async function analyze(inputs) {
         notice(origin.skip);
         return;
     }
+    const report = context.eventName === 'workflow_run'
+        ? statusReporter({
+            apiUrl: context.apiUrl,
+            repository: context.repository,
+            sha: origin.headSha,
+            token: inputs.githubToken,
+            name: `Sonar fork analysis${inputs.id ? ` (${inputs.id})` : ''}`,
+            url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
+        })
+        : noReporter;
+    await report('pending', 'Analysing');
+    try {
+        const [state, description] = await analyzeCommit(inputs, context, origin, workspace);
+        await report(state, description);
+    }
+    catch (error) {
+        await report('failure', error instanceof Error ? error.message : String(error));
+        throw error;
+    }
+}
+async function analyzeCommit(inputs, context, origin, workspace) {
+    const name = artifactName(inputs.id);
     if (inputs.checkout) {
         await checkoutCommit(workspace, {
             serverUrl: process.env.GITHUB_SERVER_URL ?? 'https://github.com',
@@ -131585,8 +131649,14 @@ async function analyze(inputs) {
     const temp = tempDirectory();
     const artifact = await downloadAnalysis(name, origin, context, temp);
     if (!artifact) {
+        // A fork's build never has the token, so it always prepares; without an artifact, a fork could
+        // otherwise skip its analysis and still pass.
+        if (origin.repository.toLowerCase() !== context.repository.toLowerCase()) {
+            notice(`No ${name} artifact: the build prepared no analysis.`);
+            return ['failure', 'The build prepared no analysis'];
+        }
         notice(`No ${name} artifact to analyse; the build may have analysed directly.`);
-        return;
+        return ['success', 'Analysed by the build'];
     }
     checkNoLinks(artifact);
     const manifest = JSON.parse(readFileSync$1(join(artifact, 'settings.json'), 'utf8'));
@@ -131641,6 +131711,7 @@ async function analyze(inputs) {
     }
     if (exitCode !== 0)
         throw new Error(`The Sonar scanner failed with exit code ${exitCode}`);
+    return ['success', 'Analysed'];
 }
 async function dispatch(inputs) {
     const resolution = resolveMode(inputs.mode, process.env.GITHUB_EVENT_NAME ?? '', inputs.token);
