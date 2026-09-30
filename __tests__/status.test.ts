@@ -3,7 +3,8 @@ import * as core from '../__fixtures__/core.js'
 
 jest.unstable_mockModule('@actions/core', () => core)
 
-const { statusReporter } = await import('../src/status.js')
+const { rememberPending, reportInterrupted, statusReporter } =
+  await import('../src/status.js')
 
 const target = {
   apiUrl: 'https://api.github.com',
@@ -87,5 +88,43 @@ describe('statusReporter', () => {
     expect(core.warning).toHaveBeenCalledWith(
       expect.stringContaining('network down')
     )
+  })
+})
+
+describe('the post step', () => {
+  it('remembers a pending status without the token', () => {
+    rememberPending(target)
+
+    const [key, value] = core.saveState.mock.calls[0]
+    expect(key).toBe('pending-status')
+    expect(value).not.toContain('gh-token')
+    expect(JSON.parse(value as string)).toMatchObject({ sha: 'head-sha' })
+  })
+
+  it('fails a status the analysis left pending', async () => {
+    fetch.mockResolvedValue(new Response('{}', { status: 201 }))
+    core.getState.mockReturnValue(
+      JSON.stringify({ ...target, token: undefined })
+    )
+    core.getInput.mockReturnValue('input-token')
+
+    await reportInterrupted()
+
+    expect(sent()).toMatchObject({
+      state: 'failure',
+      description: 'The analysis ended without reporting its result',
+      context: 'Sonar fork analysis (maven)'
+    })
+    expect(fetch.mock.calls[0][1]!.headers).toMatchObject({
+      Authorization: 'Bearer input-token'
+    })
+  })
+
+  it('does nothing when no status is pending', async () => {
+    core.getState.mockReturnValue('')
+
+    await reportInterrupted()
+
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

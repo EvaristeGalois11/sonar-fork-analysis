@@ -5,11 +5,12 @@ import json from '@rollup/plugin-json'
 import nodeResolve from '@rollup/plugin-node-resolve'
 import typescript from '@rollup/plugin-typescript'
 
-const config = {
-  input: 'src/index.ts',
+// The action's main step, and its post step, which runs even when the job is cancelled.
+const config = ['index', 'post'].map((entry) => ({
+  input: `src/${entry}.ts`,
   output: {
     esModule: true,
-    file: 'dist/index.js',
+    file: `dist/${entry}.js`,
     format: 'es',
     sourcemap: true
   },
@@ -20,6 +21,6 @@ const config = {
     // @actions/artifact imports its own package.json.
     json()
   ]
-}
+}))
 
 export default config

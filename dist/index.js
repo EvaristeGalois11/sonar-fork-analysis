@@ -175,6 +175,36 @@ function escapeProperty(s) {
         .replace(/,/g, '%2C');
 }
 
+// For internal use, subject to change.
+// We use any as a valid input type
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function issueFileCommand(command, message) {
+    const filePath = process.env[`GITHUB_${command}`];
+    if (!filePath) {
+        throw new Error(`Unable to find environment variable for file command ${command}`);
+    }
+    if (!fs.existsSync(filePath)) {
+        throw new Error(`Missing file at path: ${filePath}`);
+    }
+    fs.appendFileSync(filePath, `${toCommandValue(message)}${os.EOL}`, {
+        encoding: 'utf8'
+    });
+}
+function prepareKeyValueMessage(key, value) {
+    const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
+    const convertedValue = toCommandValue(value);
+    // These should realistically never happen, but just in case someone finds a
+    // way to exploit uuid generation let's not allow keys or values that contain
+    // the delimiter.
+    if (key.includes(delimiter)) {
+        throw new Error(`Unexpected input: name should not contain the delimiter "${delimiter}"`);
+    }
+    if (convertedValue.includes(delimiter)) {
+        throw new Error(`Unexpected input: value should not contain the delimiter "${delimiter}"`);
+    }
+    return `${key}<<${delimiter}${os.EOL}${convertedValue}${os.EOL}${delimiter}`;
+}
+
 function getProxyUrl(reqUrl) {
     const usingSsl = reqUrl.protocol === 'https:';
     if (checkBypass(reqUrl)) {
@@ -30508,6 +30538,23 @@ function notice(message, properties = {}) {
  */
 function info(message) {
     process.stdout.write(message + os.EOL);
+}
+//-----------------------------------------------------------------------
+// Wrapper action state
+//-----------------------------------------------------------------------
+/**
+ * Saves state for current action, the state can only be retrieved by this action's post job execution.
+ *
+ * @param     name     name of the state to store
+ * @param     value    value to store. Non-string values will be converted to a string via JSON.stringify
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function saveState(name, value) {
+    const filePath = process.env['GITHUB_STATE'] || '';
+    if (filePath) {
+        return issueFileCommand('STATE', prepareKeyValueMessage(name, value));
+    }
+    issueCommand('save-state', { name }, toCommandValue(value));
 }
 
 // Used for controlling the highWaterMark value of the zip that is being streamed
@@ -131448,7 +131495,7 @@ function statusReporter(target) {
     let enabled = true;
     return async (state, description) => {
         if (!enabled)
-            return;
+            return false;
         const url = `${target.apiUrl}/repos/${target.repository}/statuses/${target.sha}`;
         let response;
         try {
@@ -131471,7 +131518,7 @@ function statusReporter(target) {
         }
         catch (error) {
             warning(`Could not post the ${target.name} status: ${error instanceof Error ? error.message : String(error)}`);
-            return;
+            return false;
         }
         if (response.status === 401 || response.status === 403) {
             enabled = false;
@@ -131480,9 +131527,19 @@ function statusReporter(target) {
         else if (!response.ok) {
             warning(`Could not post the ${target.name} status: GitHub answered ${response.status}`);
         }
+        return response.ok;
     };
 }
-const noReporter = async () => { };
+const noReporter = async () => false;
+const PENDING = 'pending-status';
+// Remembered for the post step, which runs even when the job is cancelled or times out. The token
+// stays out of the saved state: the post step reads it from the inputs again.
+function rememberPending(target) {
+    saveState(PENDING, JSON.stringify({ ...target, token: undefined }));
+}
+function forgetPending() {
+    saveState(PENDING, '');
+}
 
 async function direct(inputs) {
     if (!inputs.projectKey)
@@ -131614,24 +131671,30 @@ async function analyze(inputs) {
         notice(origin.skip);
         return;
     }
-    const report = context.eventName === 'workflow_run'
-        ? statusReporter({
-            apiUrl: context.apiUrl,
-            repository: context.repository,
-            sha: origin.headSha,
-            token: inputs.githubToken,
-            name: `Sonar fork analysis${inputs.id ? ` (${inputs.id})` : ''}`,
-            url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
-        })
-        : noReporter;
-    await report('pending', 'Analysing');
+    const target = {
+        apiUrl: context.apiUrl,
+        repository: context.repository,
+        sha: origin.headSha,
+        token: inputs.githubToken,
+        name: `Sonar fork analysis${inputs.id ? ` (${inputs.id})` : ''}`,
+        url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
+    };
+    const report = context.eventName === 'workflow_run' ? statusReporter(target) : noReporter;
+    if (await report('pending', 'Analysing'))
+        rememberPending(target);
+    let reported = false;
     try {
         const [state, description] = await analyzeCommit(inputs, context, origin, workspace);
-        await report(state, description);
+        reported = await report(state, description);
     }
     catch (error) {
-        await report('failure', error instanceof Error ? error.message : String(error));
+        reported = await report('failure', error instanceof Error ? error.message : String(error));
         throw error;
+    }
+    finally {
+        // Otherwise the post step closes the status.
+        if (reported)
+            forgetPending();
     }
 }
 async function analyzeCommit(inputs, context, origin, workspace) {

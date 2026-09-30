@@ -13,7 +13,8 @@ export type StatusTarget = {
   url: string
 }
 
-export type Reporter = (state: State, description: string) => Promise<void>
+// Resolves to whether GitHub took the status.
+export type Reporter = (state: State, description: string) => Promise<boolean>
 
 // A workflow_run run does not show among a pull request's checks, so a failed analysis would go
 // unnoticed; a status on the analysed commit does show. A token without statuses: write is the way to
@@ -21,7 +22,7 @@ export type Reporter = (state: State, description: string) => Promise<void>
 export function statusReporter(target: StatusTarget): Reporter {
   let enabled = true
   return async (state, description) => {
-    if (!enabled) return
+    if (!enabled) return false
     const url = `${target.apiUrl}/repos/${target.repository}/statuses/${target.sha}`
     let response: Response
     try {
@@ -46,7 +47,7 @@ export function statusReporter(target: StatusTarget): Reporter {
       core.warning(
         `Could not post the ${target.name} status: ${error instanceof Error ? error.message : String(error)}`
       )
-      return
+      return false
     }
     if (response.status === 401 || response.status === 403) {
       enabled = false
@@ -58,7 +59,31 @@ export function statusReporter(target: StatusTarget): Reporter {
         `Could not post the ${target.name} status: GitHub answered ${response.status}`
       )
     }
+    return response.ok
   }
 }
 
-export const noReporter: Reporter = async () => {}
+export const noReporter: Reporter = async () => false
+
+const PENDING = 'pending-status'
+
+// Remembered for the post step, which runs even when the job is cancelled or times out. The token
+// stays out of the saved state: the post step reads it from the inputs again.
+export function rememberPending(target: StatusTarget): void {
+  core.saveState(PENDING, JSON.stringify({ ...target, token: undefined }))
+}
+
+export function forgetPending(): void {
+  core.saveState(PENDING, '')
+}
+
+// The post step: a status still pending means the analysis was interrupted, or could not report.
+export async function reportInterrupted(): Promise<void> {
+  const saved = core.getState(PENDING)
+  if (!saved) return
+  const target = { ...JSON.parse(saved), token: core.getInput('github-token') }
+  await statusReporter(target)(
+    'failure',
+    'The analysis ended without reporting its result'
+  )
+}

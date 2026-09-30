@@ -47,7 +47,14 @@ import {
 import { parseProperties } from './properties.js'
 import { findNewReport, snapshotReports } from './report.js'
 import { installScanner } from './scanner.js'
-import { noReporter, statusReporter, type State } from './status.js'
+import {
+  forgetPending,
+  noReporter,
+  rememberPending,
+  statusReporter,
+  type State,
+  type StatusTarget
+} from './status.js'
 import { filterSettings } from './settings.js'
 
 async function direct(inputs: Inputs): Promise<void> {
@@ -215,18 +222,18 @@ async function analyze(inputs: Inputs): Promise<void> {
     return
   }
 
+  const target: StatusTarget = {
+    apiUrl: context.apiUrl,
+    repository: context.repository,
+    sha: origin.headSha,
+    token: inputs.githubToken,
+    name: `Sonar fork analysis${inputs.id ? ` (${inputs.id})` : ''}`,
+    url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
+  }
   const report =
-    context.eventName === 'workflow_run'
-      ? statusReporter({
-          apiUrl: context.apiUrl,
-          repository: context.repository,
-          sha: origin.headSha,
-          token: inputs.githubToken,
-          name: `Sonar fork analysis${inputs.id ? ` (${inputs.id})` : ''}`,
-          url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
-        })
-      : noReporter
-  await report('pending', 'Analysing')
+    context.eventName === 'workflow_run' ? statusReporter(target) : noReporter
+  if (await report('pending', 'Analysing')) rememberPending(target)
+  let reported = false
   try {
     const [state, description] = await analyzeCommit(
       inputs,
@@ -234,13 +241,16 @@ async function analyze(inputs: Inputs): Promise<void> {
       origin,
       workspace
     )
-    await report(state, description)
+    reported = await report(state, description)
   } catch (error) {
-    await report(
+    reported = await report(
       'failure',
       error instanceof Error ? error.message : String(error)
     )
     throw error
+  } finally {
+    // Otherwise the post step closes the status.
+    if (reported) forgetPending()
   }
 }
 

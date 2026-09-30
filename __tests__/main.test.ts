@@ -436,6 +436,24 @@ describe('run in analyze mode', () => {
       await run()
 
       expect(statuses()).toEqual(['pending: Analysing', 'success: Analysed'])
+      // Reported to the end, so nothing is left for the post step.
+      expect(core.saveState.mock.calls.at(-1)).toEqual(['pending-status', ''])
+    })
+
+    it('leaves the status to the post step when its end cannot be reported', async () => {
+      triggeredBy('push', 'owner/repo')
+      prepared({})
+      fetch.mockImplementation(
+        async (_url, init) =>
+          new Response('{}', {
+            status: statuses().length > 1 && init?.method === 'POST' ? 502 : 201
+          })
+      )
+
+      await run()
+
+      expect(core.saveState).toHaveBeenCalledTimes(1)
+      expect(core.saveState.mock.calls[0][0]).toBe('pending-status')
     })
 
     it('reports a failed analysis, and still fails', async () => {
