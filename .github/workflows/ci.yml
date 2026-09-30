@@ -61,3 +61,27 @@ jobs:
       # gradle-wrapper.jar is a binary nobody can review, and Gradle has no script-only wrapper.
       - name: 'Validate wrapper jar'
         uses: gradle/actions/wrapper-validation@v6
+
+  workflows:
+    name: 'Lint workflows'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Pinned by checksum. Dependabot cannot see this version: update both together.
+      - name: 'Install actionlint'
+        env:
+          VERSION: 1.7.12
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl -sSfL -o "$archive" "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz"
+          echo "${SHA256}  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+
+      # Also runs shellcheck, preinstalled on the runner, on every run: script.
+      - name: 'Run actionlint'
+        run: '"$RUNNER_TEMP/actionlint" -color'
