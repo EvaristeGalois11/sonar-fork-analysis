@@ -65,27 +65,49 @@ export function statusReporter(target: StatusTarget): Reporter {
 
 export const noReporter: Reporter = async () => false
 
-const PENDING = 'pending-status'
+const NOTE = 'pending-status'
+const INTERRUPTED = 'The analysis ended without reporting its result'
 
-// A note from the main step to the post step, which runs even when the job is cancelled or times out:
-// where the pending status is, until the main step posts the final one. The token stays out of it;
-// the post step reads it from the inputs again.
-export function rememberPending(target: StatusTarget): void {
-  core.saveState(PENDING, JSON.stringify({ ...target, token: undefined }))
+// The note is from the main step to the post step, which runs even when the job is cancelled or
+// times out: where the status is and what it should end as, until GitHub has taken the final one.
+// The token stays out of it; the post step reads it from the inputs again.
+function leaveNote(target: StatusTarget, state: State, description: string) {
+  core.saveState(
+    NOTE,
+    JSON.stringify({ ...target, token: undefined, state, description })
+  )
 }
 
-export function forgetPending(): void {
-  core.saveState(PENDING, '')
+function clearNote(): void {
+  core.saveState(NOTE, '')
 }
 
-// The post step: a note left means the main step never posted the final status, because the job was
-// interrupted or GitHub refused it, so the status would stay pending.
+// A reporter whose last word reaches GitHub: the note is left before each post, so a job interrupted
+// mid-way, or a final status GitHub refused, is still closed by the post step.
+export function trackedReporter(target: StatusTarget): Reporter {
+  const report = statusReporter(target)
+  let open = false
+  return async (state, description) => {
+    if (state === 'pending') {
+      leaveNote(target, 'failure', INTERRUPTED)
+      open = await report(state, description)
+      if (!open) clearNote()
+      return open
+    }
+    if (open) leaveNote(target, state, description)
+    const taken = await report(state, description)
+    if (taken) clearNote()
+    return taken
+  }
+}
+
+// The post step: a note left means GitHub never took the final status.
 export async function reportInterrupted(): Promise<void> {
-  const saved = core.getState(PENDING)
+  const saved = core.getState(NOTE)
   if (!saved) return
-  const target = { ...JSON.parse(saved), token: core.getInput('github-token') }
-  await statusReporter(target)(
-    'failure',
-    'The analysis ended without reporting its result'
+  const { state, description, ...target } = JSON.parse(saved)
+  await statusReporter({ ...target, token: core.getInput('github-token') })(
+    state,
+    description
   )
 }

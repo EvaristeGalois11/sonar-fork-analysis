@@ -131536,15 +131536,37 @@ function statusReporter(target) {
     };
 }
 const noReporter = async () => false;
-const PENDING = 'pending-status';
-// A note from the main step to the post step, which runs even when the job is cancelled or times out:
-// where the pending status is, until the main step posts the final one. The token stays out of it;
-// the post step reads it from the inputs again.
-function rememberPending(target) {
-    saveState(PENDING, JSON.stringify({ ...target, token: undefined }));
+const NOTE = 'pending-status';
+const INTERRUPTED = 'The analysis ended without reporting its result';
+// The note is from the main step to the post step, which runs even when the job is cancelled or
+// times out: where the status is and what it should end as, until GitHub has taken the final one.
+// The token stays out of it; the post step reads it from the inputs again.
+function leaveNote(target, state, description) {
+    saveState(NOTE, JSON.stringify({ ...target, token: undefined, state, description }));
 }
-function forgetPending() {
-    saveState(PENDING, '');
+function clearNote() {
+    saveState(NOTE, '');
+}
+// A reporter whose last word reaches GitHub: the note is left before each post, so a job interrupted
+// mid-way, or a final status GitHub refused, is still closed by the post step.
+function trackedReporter(target) {
+    const report = statusReporter(target);
+    let open = false;
+    return async (state, description) => {
+        if (state === 'pending') {
+            leaveNote(target, 'failure', INTERRUPTED);
+            open = await report(state, description);
+            if (!open)
+                clearNote();
+            return open;
+        }
+        if (open)
+            leaveNote(target, state, description);
+        const taken = await report(state, description);
+        if (taken)
+            clearNote();
+        return taken;
+    };
 }
 
 async function direct(inputs) {
@@ -131582,7 +131604,14 @@ async function leaveDirectNote(projectKey) {
         await new DefaultArtifactClient().uploadArtifact(directArtifactName(projectKey), [note], dirname(note), { retentionDays: 1 });
     }
     catch (error) {
-        warning(`Could not note the direct analysis for the fork path (${error instanceof Error ? error.message : String(error)}); analyses in one workflow need distinct project keys`);
+        // No artifacts there, so no fork path to tell either.
+        if (error instanceof GHESNotSupportedError)
+            return;
+        const message = error instanceof Error ? error.message : String(error);
+        const clash = /\(409\)/.test(message)
+            ? '; analyses in one workflow need distinct project keys'
+            : '';
+        warning(`Could not note the direct analysis for the fork path: ${message}${clash}`);
     }
 }
 async function prepare(inputs) {
@@ -131707,7 +131736,7 @@ async function analyze(inputs) {
         name: `Sonar fork analysis (${inputs.projectKey})`,
         url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
     };
-    const report = context.eventName === 'workflow_run' ? statusReporter(target) : noReporter;
+    const report = context.eventName === 'workflow_run' ? trackedReporter(target) : noReporter;
     // Looked up before checking out, so a run with nothing to do takes seconds.
     const name = artifactName(inputs.projectKey);
     const found = await findArtifact(name, origin, context);
@@ -131721,22 +131750,16 @@ async function analyze(inputs) {
         await report('failure', 'The build left nothing to analyse');
         return;
     }
-    if (await report('pending', 'Analysing'))
-        rememberPending(target);
-    let reported = false;
+    await report('pending', 'Analysing');
     try {
         await analyzeCommit(inputs, context, origin, workspace, found);
-        reported = await report('success', 'Analysed');
     }
     catch (error) {
-        reported = await report('failure', error instanceof Error ? error.message : String(error));
+        // Not the message: it may quote the artifact, i.e. words of the fork's choosing. The run has it.
+        await report('failure', 'The analysis failed, see the run');
         throw error;
     }
-    finally {
-        // Otherwise the post step closes the status.
-        if (reported)
-            forgetPending();
-    }
+    await report('success', 'Analysed');
 }
 async function analyzeCommit(inputs, context, origin, workspace, found) {
     const name = artifactName(inputs.projectKey);
@@ -131787,7 +131810,9 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     writeFileSync(settingsFile, formatProperties(properties));
     const scanner = await installScanner();
     info(`Analysing ${name}`);
-    const env = { ...process.env, SONAR_TOKEN: inputs.token };
+    // The scanner reads untrusted content and needs none of the action's inputs, which hold tokens.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('INPUT_')));
+    env.SONAR_TOKEN = inputs.token;
     // The scanner prints module names and paths from the artifact and the checkout; none of it may
     // pass for a workflow command.
     const resume = randomUUID$2();

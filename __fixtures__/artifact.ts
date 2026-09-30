@@ -8,6 +8,7 @@ export const downloadArtifact =
   jest.fn<artifact.ArtifactClient['downloadArtifact']>()
 
 export class ArtifactNotFoundError extends Error {}
+export class GHESNotSupportedError extends Error {}
 
 export class DefaultArtifactClient {
   uploadArtifact = uploadArtifact

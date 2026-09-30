@@ -1,5 +1,9 @@
 import * as core from '@actions/core'
-import { ArtifactNotFoundError, DefaultArtifactClient } from '@actions/artifact'
+import {
+  ArtifactNotFoundError,
+  DefaultArtifactClient,
+  GHESNotSupportedError
+} from '@actions/artifact'
 import { exec } from '@actions/exec'
 import {
   cpSync,
@@ -48,13 +52,7 @@ import {
 import { parseProperties } from './properties.js'
 import { findNewReport, snapshotReports } from './report.js'
 import { installScanner } from './scanner.js'
-import {
-  forgetPending,
-  noReporter,
-  rememberPending,
-  statusReporter,
-  type StatusTarget
-} from './status.js'
+import { noReporter, trackedReporter, type StatusTarget } from './status.js'
 import { filterSettings } from './settings.js'
 
 async function direct(inputs: Inputs): Promise<void> {
@@ -100,8 +98,14 @@ async function leaveDirectNote(projectKey: string): Promise<void> {
       { retentionDays: 1 }
     )
   } catch (error) {
+    // No artifacts there, so no fork path to tell either.
+    if (error instanceof GHESNotSupportedError) return
+    const message = error instanceof Error ? error.message : String(error)
+    const clash = /\(409\)/.test(message)
+      ? '; analyses in one workflow need distinct project keys'
+      : ''
     core.warning(
-      `Could not note the direct analysis for the fork path (${error instanceof Error ? error.message : String(error)}); analyses in one workflow need distinct project keys`
+      `Could not note the direct analysis for the fork path: ${message}${clash}`
     )
   }
 }
@@ -272,7 +276,7 @@ async function analyze(inputs: Inputs): Promise<void> {
     url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
   }
   const report =
-    context.eventName === 'workflow_run' ? statusReporter(target) : noReporter
+    context.eventName === 'workflow_run' ? trackedReporter(target) : noReporter
 
   // Looked up before checking out, so a run with nothing to do takes seconds.
   const name = artifactName(inputs.projectKey)
@@ -290,21 +294,15 @@ async function analyze(inputs: Inputs): Promise<void> {
     return
   }
 
-  if (await report('pending', 'Analysing')) rememberPending(target)
-  let reported = false
+  await report('pending', 'Analysing')
   try {
     await analyzeCommit(inputs, context, origin, workspace, found)
-    reported = await report('success', 'Analysed')
   } catch (error) {
-    reported = await report(
-      'failure',
-      error instanceof Error ? error.message : String(error)
-    )
+    // Not the message: it may quote the artifact, i.e. words of the fork's choosing. The run has it.
+    await report('failure', 'The analysis failed, see the run')
     throw error
-  } finally {
-    // Otherwise the post step closes the status.
-    if (reported) forgetPending()
   }
+  await report('success', 'Analysed')
 }
 
 async function analyzeCommit(
@@ -375,7 +373,11 @@ async function analyzeCommit(
 
   const scanner = await installScanner()
   core.info(`Analysing ${name}`)
-  const env = { ...process.env, SONAR_TOKEN: inputs.token }
+  // The scanner reads untrusted content and needs none of the action's inputs, which hold tokens.
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !name.startsWith('INPUT_'))
+  )
+  env.SONAR_TOKEN = inputs.token
   // The scanner prints module names and paths from the artifact and the checkout; none of it may
   // pass for a workflow command.
   const resume = randomUUID()

@@ -3,7 +3,7 @@ import * as core from '../__fixtures__/core.js'
 
 jest.unstable_mockModule('@actions/core', () => core)
 
-const { rememberPending, reportInterrupted, statusReporter } =
+const { reportInterrupted, statusReporter, trackedReporter } =
   await import('../src/status.js')
 
 const target = {
@@ -91,28 +91,70 @@ describe('statusReporter', () => {
   })
 })
 
-describe('the post step', () => {
-  it('remembers a pending status without the token', () => {
-    rememberPending(target)
+describe('trackedReporter', () => {
+  function note(call = -1): Record<string, string> | '' {
+    const value = core.saveState.mock.calls.at(call)![1] as string
+    return value && JSON.parse(value)
+  }
 
-    const [key, value] = core.saveState.mock.calls[0]
-    expect(key).toBe('pending-status')
-    expect(value).not.toContain('gh-token')
-    expect(JSON.parse(value as string)).toMatchObject({ sha: 'head-sha' })
+  it('leaves the post step a failure while the analysis runs, and nothing once it ended', async () => {
+    fetch.mockImplementation(async () => new Response('{}', { status: 201 }))
+    const report = trackedReporter(target)
+
+    await report('pending', 'Analysing')
+    expect(note()).toMatchObject({
+      sha: 'head-sha',
+      state: 'failure',
+      description: 'The analysis ended without reporting its result'
+    })
+    expect(JSON.stringify(note())).not.toContain('gh-token')
+
+    await report('success', 'Analysed')
+    expect(note()).toBe('')
   })
 
-  it('fails a status the analysis left pending', async () => {
+  it('leaves the refused final status for the post step to retry', async () => {
+    fetch
+      .mockResolvedValueOnce(new Response('{}', { status: 201 }))
+      .mockResolvedValueOnce(new Response('', { status: 502 }))
+    const report = trackedReporter(target)
+
+    await report('pending', 'Analysing')
+    await report('success', 'Analysed')
+
+    expect(note()).toMatchObject({ state: 'success', description: 'Analysed' })
+  })
+
+  it('leaves nothing when no status could be opened', async () => {
+    fetch.mockResolvedValue(new Response('{}', { status: 403 }))
+    const report = trackedReporter(target)
+
+    await report('pending', 'Analysing')
+    await report('success', 'Analysed')
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(note()).toBe('')
+  })
+})
+
+describe('the post step', () => {
+  it('posts what the note says, with the token from the inputs', async () => {
     fetch.mockResolvedValue(new Response('{}', { status: 201 }))
     core.getState.mockReturnValue(
-      JSON.stringify({ ...target, token: undefined })
+      JSON.stringify({
+        ...target,
+        token: undefined,
+        state: 'success',
+        description: 'Analysed'
+      })
     )
     core.getInput.mockReturnValue('input-token')
 
     await reportInterrupted()
 
     expect(sent()).toMatchObject({
-      state: 'failure',
-      description: 'The analysis ended without reporting its result',
+      state: 'success',
+      description: 'Analysed',
       context: 'Sonar fork analysis (acme_app)'
     })
     expect(fetch.mock.calls[0][1]!.headers).toMatchObject({
@@ -120,7 +162,7 @@ describe('the post step', () => {
     })
   })
 
-  it('does nothing when no status is pending', async () => {
+  it('does nothing without a note', async () => {
     core.getState.mockReturnValue('')
 
     await reportInterrupted()

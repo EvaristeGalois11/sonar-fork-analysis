@@ -28674,15 +28674,14 @@ function statusReporter(target) {
         return response.ok;
     };
 }
-const PENDING = 'pending-status';
-// The post step: a note left means the main step never posted the final status, because the job was
-// interrupted or GitHub refused it, so the status would stay pending.
+const NOTE = 'pending-status';
+// The post step: a note left means GitHub never took the final status.
 async function reportInterrupted() {
-    const saved = getState(PENDING);
+    const saved = getState(NOTE);
     if (!saved)
         return;
-    const target = { ...JSON.parse(saved), token: getInput('github-token') };
-    await statusReporter(target)('failure', 'The analysis ended without reporting its result');
+    const { state, description, ...target } = JSON.parse(saved);
+    await statusReporter({ ...target, token: getInput('github-token') })(state, description);
 }
 
 /* istanbul ignore next */
