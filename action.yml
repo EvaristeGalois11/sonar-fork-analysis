@@ -63,3 +63,5 @@ branding:
 runs:
   using: node24
   main: dist/index.js
+  # Runs at the end of the job, even a cancelled one, to close a status left pending.
+  post: dist/post.js
