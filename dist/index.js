@@ -131537,8 +131537,9 @@ function statusReporter(target) {
 }
 const noReporter = async () => false;
 const PENDING = 'pending-status';
-// Remembered for the post step, which runs even when the job is cancelled or times out. The token
-// stays out of the saved state: the post step reads it from the inputs again.
+// A note from the main step to the post step, which runs even when the job is cancelled or times out:
+// where the pending status is, until the main step posts the final one. The token stays out of it;
+// the post step reads it from the inputs again.
 function rememberPending(target) {
     saveState(PENDING, JSON.stringify({ ...target, token: undefined }));
 }

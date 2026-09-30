@@ -67,8 +67,9 @@ export const noReporter: Reporter = async () => false
 
 const PENDING = 'pending-status'
 
-// Remembered for the post step, which runs even when the job is cancelled or times out. The token
-// stays out of the saved state: the post step reads it from the inputs again.
+// A note from the main step to the post step, which runs even when the job is cancelled or times out:
+// where the pending status is, until the main step posts the final one. The token stays out of it;
+// the post step reads it from the inputs again.
 export function rememberPending(target: StatusTarget): void {
   core.saveState(PENDING, JSON.stringify({ ...target, token: undefined }))
 }
@@ -77,7 +78,8 @@ export function forgetPending(): void {
   core.saveState(PENDING, '')
 }
 
-// The post step: a status still pending means the analysis was interrupted, or could not report.
+// The post step: a note left means the main step never posted the final status, because the job was
+// interrupted or GitHub refused it, so the status would stay pending.
 export async function reportInterrupted(): Promise<void> {
   const saved = core.getState(PENDING)
   if (!saved) return
