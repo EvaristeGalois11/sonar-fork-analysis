@@ -11,7 +11,7 @@ import {
 } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { homedir, tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import {
   checkNoLinks,
   formatProperties,
@@ -40,6 +40,7 @@ import {
 import {
   ARTIFACT_FORMAT,
   artifactName,
+  directArtifactName,
   missingDump,
   simulationProperties,
   stageAnalysis
@@ -52,7 +53,6 @@ import {
   noReporter,
   rememberPending,
   statusReporter,
-  type State,
   type StatusTarget
 } from './status.js'
 import { filterSettings } from './settings.js'
@@ -84,6 +84,26 @@ async function direct(inputs: Inputs): Promise<void> {
   // guarantee: the build can write any report it likes.
   if (!findNewReport(workingDirectory, reportsBefore))
     throw new Error(missingAnalysis(tool))
+  await leaveDirectNote(inputs.id)
+}
+
+// Tells a fork path's analysis, which runs after every build, that this one already analysed.
+async function leaveDirectNote(id: string): Promise<void> {
+  if (!process.env.ACTIONS_RUNTIME_TOKEN) return
+  const note = join(tempDirectory(), 'analysed-directly.json')
+  writeFileSync(note, JSON.stringify({ format: ARTIFACT_FORMAT }))
+  try {
+    await new DefaultArtifactClient().uploadArtifact(
+      directArtifactName(id),
+      [note],
+      dirname(note),
+      { retentionDays: 1 }
+    )
+  } catch (error) {
+    core.warning(
+      `Could not note the direct analysis for the fork path (${error instanceof Error ? error.message : String(error)}); analyses in one workflow need distinct ids`
+    )
+  }
 }
 
 async function prepare(inputs: Inputs): Promise<void> {
@@ -164,20 +184,30 @@ function tempDirectory(): string {
   )
 }
 
-async function downloadAnalysis(
+type FindOptions = {
+  findBy?: {
+    token: string
+    workflowRunId: number
+    repositoryOwner: string
+    repositoryName: string
+  }
+}
+
+// An artifact of the build: in its run, or in this one when analysing within the same run.
+type Found = { id: number; options: FindOptions } | { local: string }
+
+async function findArtifact(
   name: string,
   origin: Origin,
-  context: Context,
-  temp: string
-): Promise<string | undefined> {
+  context: Context
+): Promise<Found | undefined> {
   if (!process.env.ACTIONS_RUNTIME_TOKEN) {
     const local = process.env.SONAR_FORK_ANALYSIS_ARTIFACT
     if (local) core.warning(`Not running in GitHub Actions, analysing ${local}`)
-    return local
+    return local ? { local } : undefined
   }
-  const client = new DefaultArtifactClient()
   const [owner, repo] = context.repository.split('/')
-  const options =
+  const options: FindOptions =
     origin.runId === undefined
       ? {}
       : {
@@ -188,15 +218,25 @@ async function downloadAnalysis(
             repositoryName: repo
           }
         }
-  let id: number
   try {
-    id = (await client.getArtifact(name, options)).artifact.id
+    const { artifact } = await new DefaultArtifactClient().getArtifact(
+      name,
+      options
+    )
+    return { id: artifact.id, options }
   } catch (error) {
     if (error instanceof ArtifactNotFoundError) return undefined
     throw error
   }
+}
+
+async function downloadArtifact(found: Found, temp: string): Promise<string> {
+  if ('local' in found) return found.local
   const path = join(temp, 'artifact')
-  await client.downloadArtifact(id, { ...options, path })
+  await new DefaultArtifactClient().downloadArtifact(found.id, {
+    ...found.options,
+    path
+  })
   return path
 }
 
@@ -232,16 +272,26 @@ async function analyze(inputs: Inputs): Promise<void> {
   }
   const report =
     context.eventName === 'workflow_run' ? statusReporter(target) : noReporter
+
+  // Looked up before checking out, so a run with nothing to do takes seconds.
+  const name = artifactName(inputs.id)
+  const found = await findArtifact(name, origin, context)
+  if (!found) {
+    if (await findArtifact(directArtifactName(inputs.id), origin, context)) {
+      core.info('The build analysed directly, so there is nothing to analyse.')
+      return
+    }
+    // Without the artifact the Sonar check never comes; this status says why.
+    core.notice(`No ${name} artifact: the build left nothing to analyse.`)
+    await report('failure', 'The build left nothing to analyse')
+    return
+  }
+
   if (await report('pending', 'Analysing')) rememberPending(target)
   let reported = false
   try {
-    const [state, description] = await analyzeCommit(
-      inputs,
-      context,
-      origin,
-      workspace
-    )
-    reported = await report(state, description)
+    await analyzeCommit(inputs, context, origin, workspace, found)
+    reported = await report('success', 'Analysed')
   } catch (error) {
     reported = await report(
       'failure',
@@ -258,8 +308,9 @@ async function analyzeCommit(
   inputs: Inputs,
   context: Context,
   origin: Origin,
-  workspace: string
-): Promise<[State, string]> {
+  workspace: string,
+  found: Found
+): Promise<void> {
   const name = artifactName(inputs.id)
   if (inputs.checkout) {
     await checkoutCommit(workspace, {
@@ -273,19 +324,7 @@ async function analyzeCommit(
   await verifyCheckout(workspace, origin.headSha)
 
   const temp = tempDirectory()
-  const artifact = await downloadAnalysis(name, origin, context, temp)
-  if (!artifact) {
-    // A fork's build never has the token, so it always prepares; without an artifact, a fork could
-    // otherwise skip its analysis and still pass.
-    if (origin.repository.toLowerCase() !== context.repository.toLowerCase()) {
-      core.notice(`No ${name} artifact: the build prepared no analysis.`)
-      return ['failure', 'The build prepared no analysis']
-    }
-    core.notice(
-      `No ${name} artifact to analyse; the build may have analysed directly.`
-    )
-    return ['success', 'Analysed by the build']
-  }
+  const artifact = await downloadArtifact(found, temp)
   checkNoLinks(artifact)
   const manifest = JSON.parse(
     readFileSync(join(artifact, 'settings.json'), 'utf8')
@@ -354,7 +393,6 @@ async function analyzeCommit(
   }
   if (exitCode !== 0)
     throw new Error(`The Sonar scanner failed with exit code ${exitCode}`)
-  return ['success', 'Analysed']
 }
 
 async function dispatch(inputs: Inputs): Promise<void> {

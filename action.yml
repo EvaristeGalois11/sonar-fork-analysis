@@ -9,8 +9,8 @@ inputs:
     default: auto
   id:
     description: >
-      Names the analysis when a workflow prepares more than one, e.g. one per
-      project in a monorepo. Use the same id when analysing.
+      Names the analysis when a workflow has more than one, e.g. one per project
+      in a monorepo. Use the same id in the build and when analysing.
     default: ''
   working-directory:
     description: 'Directory containing the Maven or Gradle build.'

@@ -128032,6 +128032,10 @@ function artifactName(id) {
     }
     return id ? `sonar-fork-analysis-${id}` : 'sonar-fork-analysis';
 }
+// '+' cannot occur in an id, so no id's prepared artifact can take this name.
+function directArtifactName(id) {
+    return `${artifactName(id)}+direct`;
+}
 function missingDump(tool) {
     return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the plugin may be too old to support simulation mode`;
 }
@@ -131564,6 +131568,20 @@ async function direct(inputs) {
     // guarantee: the build can write any report it likes.
     if (!findNewReport(workingDirectory, reportsBefore))
         throw new Error(missingAnalysis(tool));
+    await leaveDirectNote(inputs.id);
+}
+// Tells a fork path's analysis, which runs after every build, that this one already analysed.
+async function leaveDirectNote(id) {
+    if (!process.env.ACTIONS_RUNTIME_TOKEN)
+        return;
+    const note = join(tempDirectory(), 'analysed-directly.json');
+    writeFileSync(note, JSON.stringify({ format: ARTIFACT_FORMAT }));
+    try {
+        await new DefaultArtifactClient().uploadArtifact(directArtifactName(id), [note], dirname(note), { retentionDays: 1 });
+    }
+    catch (error) {
+        warning(`Could not note the direct analysis for the fork path (${error instanceof Error ? error.message : String(error)}); analyses in one workflow need distinct ids`);
+    }
 }
 async function prepare(inputs) {
     const name = artifactName(inputs.id);
@@ -131617,14 +131635,13 @@ function pullRequestNumber() {
 function tempDirectory() {
     return mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-fork-analysis-'));
 }
-async function downloadAnalysis(name, origin, context, temp) {
+async function findArtifact(name, origin, context) {
     if (!process.env.ACTIONS_RUNTIME_TOKEN) {
         const local = process.env.SONAR_FORK_ANALYSIS_ARTIFACT;
         if (local)
             warning(`Not running in GitHub Actions, analysing ${local}`);
-        return local;
+        return local ? { local } : undefined;
     }
-    const client = new DefaultArtifactClient();
     const [owner, repo] = context.repository.split('/');
     const options = origin.runId === undefined
         ? {}
@@ -131636,17 +131653,24 @@ async function downloadAnalysis(name, origin, context, temp) {
                 repositoryName: repo
             }
         };
-    let id;
     try {
-        id = (await client.getArtifact(name, options)).artifact.id;
+        const { artifact } = await new DefaultArtifactClient().getArtifact(name, options);
+        return { id: artifact.id, options };
     }
     catch (error) {
         if (error instanceof ArtifactNotFoundError)
             return undefined;
         throw error;
     }
+}
+async function downloadArtifact(found, temp) {
+    if ('local' in found)
+        return found.local;
     const path = join(temp, 'artifact');
-    await client.downloadArtifact(id, { ...options, path });
+    await new DefaultArtifactClient().downloadArtifact(found.id, {
+        ...found.options,
+        path
+    });
     return path;
 }
 async function analyze(inputs) {
@@ -131680,12 +131704,25 @@ async function analyze(inputs) {
         url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
     };
     const report = context.eventName === 'workflow_run' ? statusReporter(target) : noReporter;
+    // Looked up before checking out, so a run with nothing to do takes seconds.
+    const name = artifactName(inputs.id);
+    const found = await findArtifact(name, origin, context);
+    if (!found) {
+        if (await findArtifact(directArtifactName(inputs.id), origin, context)) {
+            info('The build analysed directly, so there is nothing to analyse.');
+            return;
+        }
+        // Without the artifact the Sonar check never comes; this status says why.
+        notice(`No ${name} artifact: the build left nothing to analyse.`);
+        await report('failure', 'The build left nothing to analyse');
+        return;
+    }
     if (await report('pending', 'Analysing'))
         rememberPending(target);
     let reported = false;
     try {
-        const [state, description] = await analyzeCommit(inputs, context, origin, workspace);
-        reported = await report(state, description);
+        await analyzeCommit(inputs, context, origin, workspace, found);
+        reported = await report('success', 'Analysed');
     }
     catch (error) {
         reported = await report('failure', error instanceof Error ? error.message : String(error));
@@ -131697,7 +131734,7 @@ async function analyze(inputs) {
             forgetPending();
     }
 }
-async function analyzeCommit(inputs, context, origin, workspace) {
+async function analyzeCommit(inputs, context, origin, workspace, found) {
     const name = artifactName(inputs.id);
     if (inputs.checkout) {
         await checkoutCommit(workspace, {
@@ -131710,17 +131747,7 @@ async function analyzeCommit(inputs, context, origin, workspace) {
     }
     await verifyCheckout(workspace, origin.headSha);
     const temp = tempDirectory();
-    const artifact = await downloadAnalysis(name, origin, context, temp);
-    if (!artifact) {
-        // A fork's build never has the token, so it always prepares; without an artifact, a fork could
-        // otherwise skip its analysis and still pass.
-        if (origin.repository.toLowerCase() !== context.repository.toLowerCase()) {
-            notice(`No ${name} artifact: the build prepared no analysis.`);
-            return ['failure', 'The build prepared no analysis'];
-        }
-        notice(`No ${name} artifact to analyse; the build may have analysed directly.`);
-        return ['success', 'Analysed by the build'];
-    }
+    const artifact = await downloadArtifact(found, temp);
     checkNoLinks(artifact);
     const manifest = JSON.parse(readFileSync$1(join(artifact, 'settings.json'), 'utf8'));
     if (manifest.format !== ARTIFACT_FORMAT) {
@@ -131774,7 +131801,6 @@ async function analyzeCommit(inputs, context, origin, workspace) {
     }
     if (exitCode !== 0)
         throw new Error(`The Sonar scanner failed with exit code ${exitCode}`);
-    return ['success', 'Analysed'];
 }
 async function dispatch(inputs) {
     const resolution = resolveMode(inputs.mode, process.env.GITHUB_EVENT_NAME ?? '', inputs.token);
