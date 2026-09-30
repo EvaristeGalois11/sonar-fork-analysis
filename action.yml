@@ -7,11 +7,6 @@ inputs:
       artifact; on workflow_run, analyse the prepared artifact. direct, prepare
       and analyze force one of those steps.
     default: auto
-  id:
-    description: >
-      Names the analysis when a workflow has more than one, e.g. one per project
-      in a monorepo. Use the same id in the build and when analysing.
-    default: ''
   working-directory:
     description: 'Directory containing the Maven or Gradle build.'
     default: .
@@ -29,7 +24,9 @@ inputs:
       go to the Sonar scanner instead, e.g. -Dsonar.projectName=App.
     default: ''
   project-key:
-    description: 'The project key assigned by Sonar.'
+    description: >
+      The project key assigned by Sonar. The build and the analysis must use the
+      same one: it also names the artifact that passes between them.
   sonar-organization:
     description: 'The Sonar organization, required by SonarQube Cloud.'
     default: ''

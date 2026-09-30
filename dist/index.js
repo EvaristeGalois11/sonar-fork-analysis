@@ -127865,7 +127865,6 @@ function lines(name) {
 function readInputs() {
     return {
         mode: input('mode'),
-        id: input('id'),
         workingDirectory: input('working-directory'),
         buildTool: input('build-tool'),
         buildGoals: lines('build-goals'),
@@ -128026,15 +128025,17 @@ function simulationProperties(dumpFile) {
         `-Dsonar.scanner.internal.dumpToFile=${dumpFile}`
     ];
 }
-function artifactName(id) {
-    if (id && !/^[A-Za-z0-9._-]+$/.test(id)) {
-        throw new Error(`Invalid id '${id}': use letters, digits, dots, dashes or underscores`);
+// Named after the project, so the build and the analysis agree without further settings, and every
+// project of a monorepo gets its own. Artifact names cannot hold ':', which project keys may.
+function artifactName(projectKey) {
+    if (!/^[A-Za-z0-9._:-]+$/.test(projectKey)) {
+        throw new Error(`Invalid project key '${projectKey}'`);
     }
-    return id ? `sonar-fork-analysis-${id}` : 'sonar-fork-analysis';
+    return `sonar-fork-analysis-${projectKey.replaceAll(':', '_')}`;
 }
-// '+' cannot occur in an id, so no id's prepared artifact can take this name.
-function directArtifactName(id) {
-    return `${artifactName(id)}+direct`;
+// '+' cannot occur in a project key, so no prepared artifact can take this name.
+function directArtifactName(projectKey) {
+    return `${artifactName(projectKey)}+direct`;
 }
 function missingDump(tool) {
     return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the plugin may be too old to support simulation mode`;
@@ -131568,23 +131569,25 @@ async function direct(inputs) {
     // guarantee: the build can write any report it likes.
     if (!findNewReport(workingDirectory, reportsBefore))
         throw new Error(missingAnalysis(tool));
-    await leaveDirectNote(inputs.id);
+    await leaveDirectNote(inputs.projectKey);
 }
 // Tells a fork path's analysis, which runs after every build, that this one already analysed.
-async function leaveDirectNote(id) {
+async function leaveDirectNote(projectKey) {
     if (!process.env.ACTIONS_RUNTIME_TOKEN)
         return;
     const note = join(tempDirectory(), 'analysed-directly.json');
     writeFileSync(note, JSON.stringify({ format: ARTIFACT_FORMAT }));
     try {
-        await new DefaultArtifactClient().uploadArtifact(directArtifactName(id), [note], dirname(note), { retentionDays: 1 });
+        await new DefaultArtifactClient().uploadArtifact(directArtifactName(projectKey), [note], dirname(note), { retentionDays: 1 });
     }
     catch (error) {
-        warning(`Could not note the direct analysis for the fork path (${error instanceof Error ? error.message : String(error)}); analyses in one workflow need distinct ids`);
+        warning(`Could not note the direct analysis for the fork path (${error instanceof Error ? error.message : String(error)}); analyses in one workflow need distinct project keys`);
     }
 }
 async function prepare(inputs) {
-    const name = artifactName(inputs.id);
+    if (!inputs.projectKey)
+        throw new Error('Input required: project-key');
+    const name = artifactName(inputs.projectKey);
     const workingDirectory = resolve$1(inputs.workingDirectory);
     const tool = detectBuildTool(workingDirectory, inputs.buildTool);
     const temp = tempDirectory();
@@ -131700,15 +131703,15 @@ async function analyze(inputs) {
         repository: context.repository,
         sha: origin.headSha,
         token: inputs.githubToken,
-        name: `Sonar fork analysis${inputs.id ? ` (${inputs.id})` : ''}`,
+        name: `Sonar fork analysis (${inputs.projectKey})`,
         url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
     };
     const report = context.eventName === 'workflow_run' ? statusReporter(target) : noReporter;
     // Looked up before checking out, so a run with nothing to do takes seconds.
-    const name = artifactName(inputs.id);
+    const name = artifactName(inputs.projectKey);
     const found = await findArtifact(name, origin, context);
     if (!found) {
-        if (await findArtifact(directArtifactName(inputs.id), origin, context)) {
+        if (await findArtifact(directArtifactName(inputs.projectKey), origin, context)) {
             info('The build analysed directly, so there is nothing to analyse.');
             return;
         }
@@ -131735,7 +131738,7 @@ async function analyze(inputs) {
     }
 }
 async function analyzeCommit(inputs, context, origin, workspace, found) {
-    const name = artifactName(inputs.id);
+    const name = artifactName(inputs.projectKey);
     if (inputs.checkout) {
         await checkoutCommit(workspace, {
             serverUrl: process.env.GITHUB_SERVER_URL ?? 'https://github.com',
