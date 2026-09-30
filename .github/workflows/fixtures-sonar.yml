@@ -28,8 +28,8 @@ jobs:
             name: Gradle
     steps:
       - name: 'Analyse with Sonar'
-        # main is the trusted copy, like the workflow itself: workflow_run runs main's workflow.
-        uses: evaristegalois11/sonar-fork-analysis@main # zizmor: ignore[unpinned-uses]
+        # This repository at the commit the workflow runs from, which for workflow_run is main's.
+        uses: $/
         with:
           id: ${{ matrix.fixture }}
           project-key:

@@ -104,21 +104,13 @@ jobs:
             name: Gradle
     env:
       HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
+    # No checkout step: the action checks out the analysed commit itself, as it does for users.
     steps:
-      - name: 'Checkout project'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: 'Analyse with Sonar'
         if: env.HAS_SONAR_TOKEN == 'true'
         uses: $/
         with:
           mode: analyze
-          # Uses the checkout above instead of its own.
-          checkout: false
           id: ${{ matrix.fixture }}
           project-key:
             evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
