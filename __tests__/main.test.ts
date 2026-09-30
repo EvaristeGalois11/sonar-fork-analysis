@@ -123,6 +123,42 @@ describe('run', () => {
     )
   })
 
+  it('notes the direct analysis for the fork path', async () => {
+    process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+    inputs.id = 'app'
+    artifact.uploadArtifact.mockResolvedValue({ id: 1, size: 1 })
+    exec.mockImplementation(async (_tool, _args, options) => {
+      writeReport(options!.cwd!)
+      return 0
+    })
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    const [name, files, , options] = artifact.uploadArtifact.mock.calls[0]
+    expect(name).toBe('sonar-fork-analysis-app+direct')
+    expect(files).toHaveLength(1)
+    expect(options).toEqual({ retentionDays: 1 })
+    delete process.env.ACTIONS_RUNTIME_TOKEN
+  })
+
+  it('still succeeds when the note cannot be left', async () => {
+    process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+    artifact.uploadArtifact.mockRejectedValue(new Error('name already taken'))
+    exec.mockImplementation(async (_tool, _args, options) => {
+      writeReport(options!.cwd!)
+      return 0
+    })
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('need distinct ids')
+    )
+    delete process.env.ACTIONS_RUNTIME_TOKEN
+  })
+
   it('fails a forced direct analysis without a token before building', async () => {
     inputs.mode = 'direct'
     inputs['sonar-token'] = ''
@@ -470,26 +506,29 @@ describe('run in analyze mode', () => {
       expect(core.setFailed).toHaveBeenCalled()
     })
 
-    it('accepts no artifact from its own repository, which analysed directly', async () => {
+    it('stays silent when the build analysed directly', async () => {
       triggeredBy('push', 'owner/repo')
+      process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+      artifact.getArtifact.mockImplementation(async (name) => {
+        if (name === 'sonar-fork-analysis+direct')
+          return { artifact: { id: 1, name, size: 1 } }
+        throw new artifact.ArtifactNotFoundError(name)
+      })
 
       await run()
 
-      expect(statuses()).toEqual([
-        'pending: Analysing',
-        'success: Analysed by the build'
-      ])
+      expect(statuses()).toEqual([])
+      expect(getExecOutput).not.toHaveBeenCalled()
+      expect(core.setFailed).not.toHaveBeenCalled()
     })
 
-    it('does not let a fork pass by preparing nothing', async () => {
+    it('reports a build that left nothing to analyse, before checking out', async () => {
       triggeredBy('pull_request', 'forker/repo')
 
       await run()
 
-      expect(statuses()).toEqual([
-        'pending: Analysing',
-        'failure: The build prepared no analysis'
-      ])
+      expect(statuses()).toEqual(['failure: The build left nothing to analyse'])
+      expect(getExecOutput).not.toHaveBeenCalled()
       expect(core.setFailed).not.toHaveBeenCalled()
     })
   })

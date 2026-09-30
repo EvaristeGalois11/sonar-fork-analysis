@@ -49,6 +49,11 @@ export function artifactName(id: string): string {
   return id ? `sonar-fork-analysis-${id}` : 'sonar-fork-analysis'
 }
 
+// '+' cannot occur in an id, so no id's prepared artifact can take this name.
+export function directArtifactName(id: string): string {
+  return `${artifactName(id)}+direct`
+}
+
 export function missingDump(tool: BuildTool): string {
   return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the plugin may be too old to support simulation mode`
 }
