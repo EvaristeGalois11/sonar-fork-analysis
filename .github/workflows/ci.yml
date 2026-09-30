@@ -31,6 +31,9 @@ jobs:
       - name: 'Lint'
         run: npm run lint
 
+      - name: 'Validate workflows against the GitHub schema'
+        run: npm run lint:workflows
+
       - name: 'Type-check scripts'
         run: npm run typecheck
 
