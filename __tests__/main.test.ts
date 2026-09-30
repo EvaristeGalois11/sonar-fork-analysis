@@ -59,6 +59,12 @@ afterEach(() => {
 })
 
 describe('run', () => {
+  const saved = { ...process.env }
+
+  afterEach(() => {
+    process.env = { ...saved }
+  })
+
   it('passes the token only through the environment', async () => {
     exec.mockImplementation(async (_tool, _args, options) => {
       writeReport(options!.cwd!)
@@ -138,12 +144,13 @@ describe('run', () => {
     expect(name).toBe('sonar-fork-analysis-key+direct')
     expect(files).toHaveLength(1)
     expect(options).toEqual({ retentionDays: 1 })
-    delete process.env.ACTIONS_RUNTIME_TOKEN
   })
 
-  it('still succeeds when the note cannot be left', async () => {
+  it('still succeeds when the note cannot be left, explaining a name clash', async () => {
     process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
-    artifact.uploadArtifact.mockRejectedValue(new Error('name already taken'))
+    artifact.uploadArtifact.mockRejectedValue(
+      new Error('Received non-retryable error: Failed request: (409) Conflict')
+    )
     exec.mockImplementation(async (_tool, _args, options) => {
       writeReport(options!.cwd!)
       return 0
@@ -155,7 +162,22 @@ describe('run', () => {
     expect(core.warning).toHaveBeenCalledWith(
       expect.stringContaining('need distinct project keys')
     )
-    delete process.env.ACTIONS_RUNTIME_TOKEN
+  })
+
+  it('leaves no note where artifacts are not supported', async () => {
+    process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+    artifact.uploadArtifact.mockRejectedValue(
+      new artifact.GHESNotSupportedError('GHES')
+    )
+    exec.mockImplementation(async (_tool, _args, options) => {
+      writeReport(options!.cwd!)
+      return 0
+    })
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.warning).not.toHaveBeenCalled()
   })
 
   it('fails a forced direct analysis without a token before building', async () => {
@@ -327,6 +349,7 @@ describe('run in analyze mode', () => {
   })
 
   it('scans with trusted settings and the token only in the environment', async () => {
+    process.env['INPUT_GITHUB-TOKEN'] = 'gh-token'
     prepared({
       'sonar.projectBaseDir': '{workspace}',
       'sonar.sources': '',
@@ -341,6 +364,10 @@ describe('run in analyze mode', () => {
     expect(tool).toBe('/opt/sonar-scanner/bin/sonar-scanner')
     expect(args!.join(' ')).not.toContain(TOKEN)
     expect(options!.env!.SONAR_TOKEN).toBe(TOKEN)
+    // The inputs hold tokens the scanner, which reads untrusted content, has no use for.
+    expect(
+      Object.keys(options!.env!).filter((name) => name.startsWith('INPUT_'))
+    ).toEqual([])
     const settingsFile = args![0].replace('-Dproject.settings=', '')
     const settings = readFileSync(settingsFile, 'utf8')
     expect(settings).toContain('sonar.projectKey=key')
@@ -496,8 +523,9 @@ describe('run in analyze mode', () => {
 
       await run()
 
-      expect(core.saveState).toHaveBeenCalledTimes(1)
-      expect(core.saveState.mock.calls[0][0]).toBe('pending-status')
+      const [key, note] = core.saveState.mock.calls.at(-1)!
+      expect(key).toBe('pending-status')
+      expect(JSON.parse(note as string)).toMatchObject({ state: 'success' })
     })
 
     it('reports a failed analysis, and still fails', async () => {
@@ -507,9 +535,10 @@ describe('run in analyze mode', () => {
 
       await run()
 
+      // Not the error itself: messages may quote the artifact, i.e. the fork.
       expect(statuses()).toEqual([
         'pending: Analysing',
-        'failure: The Sonar scanner failed with exit code 1'
+        'failure: The analysis failed, see the run'
       ])
       expect(core.setFailed).toHaveBeenCalled()
     })
@@ -528,6 +557,10 @@ describe('run in analyze mode', () => {
       expect(statuses()).toEqual([])
       expect(getExecOutput).not.toHaveBeenCalled()
       expect(core.setFailed).not.toHaveBeenCalled()
+      // Looked up in the build's run, not this one.
+      expect(artifact.getArtifact.mock.calls[0][1]).toMatchObject({
+        findBy: { workflowRunId: 42 }
+      })
     })
 
     it('reports a build that left nothing to analyse, before checking out', async () => {
