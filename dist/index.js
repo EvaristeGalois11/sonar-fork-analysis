@@ -131707,11 +131707,6 @@ async function downloadArtifact(found, temp) {
     return path;
 }
 async function analyze(inputs) {
-    if (!inputs.projectKey)
-        throw new Error('Input required: project-key');
-    if (!inputs.token) {
-        throw new Error('No Sonar token available, set the sonar-token input.');
-    }
     const workspace = resolve$1(process.env.GITHUB_WORKSPACE ?? process.cwd());
     const eventPath = process.env.GITHUB_EVENT_PATH;
     const context = {
@@ -131723,20 +131718,39 @@ async function analyze(inputs) {
         apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
         token: inputs.githubToken
     };
+    // GitHub names the commit the triggering run built, so the status has somewhere to go before
+    // anything here can fail.
+    const report = context.eventName === 'workflow_run'
+        ? trackedReporter({
+            apiUrl: context.apiUrl,
+            repository: context.repository,
+            sha: context.event.workflow_run.head_sha,
+            token: inputs.githubToken,
+            name: inputs.projectKey
+                ? `Sonar fork analysis (${inputs.projectKey})`
+                : 'Sonar fork analysis',
+            url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
+        })
+        : noReporter;
+    try {
+        await analyzeRun(inputs, context, workspace, report);
+    }
+    catch (error) {
+        // Not the message: it may quote the artifact, i.e. words of the fork's choosing. The run has it.
+        await report('failure', 'The analysis failed, see the run');
+        throw error;
+    }
+}
+// Posts nothing until there is something to analyse, so a build that analysed directly stays quiet;
+// any error, however early, still ends in a failure status.
+async function analyzeRun(inputs, context, workspace, report) {
+    if (!inputs.projectKey)
+        throw new Error('Input required: project-key');
     const origin = await resolveOrigin(context);
     if ('skip' in origin) {
         notice(origin.skip);
         return;
     }
-    const target = {
-        apiUrl: context.apiUrl,
-        repository: context.repository,
-        sha: origin.headSha,
-        token: inputs.githubToken,
-        name: `Sonar fork analysis (${inputs.projectKey})`,
-        url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
-    };
-    const report = context.eventName === 'workflow_run' ? trackedReporter(target) : noReporter;
     // Looked up before checking out, so a run with nothing to do takes seconds.
     const name = artifactName(inputs.projectKey);
     const found = await findArtifact(name, origin, context);
@@ -131750,15 +131764,12 @@ async function analyze(inputs) {
         await report('failure', 'The build left nothing to analyse');
         return;
     }
+    // Only needed from here: a missing token does not matter when there is nothing to analyse.
+    if (!inputs.token) {
+        throw new Error('No Sonar token available, set the sonar-token input.');
+    }
     await report('pending', 'Analysing');
-    try {
-        await analyzeCommit(inputs, context, origin, workspace, found);
-    }
-    catch (error) {
-        // Not the message: it may quote the artifact, i.e. words of the fork's choosing. The run has it.
-        await report('failure', 'The analysis failed, see the run');
-        throw error;
-    }
+    await analyzeCommit(inputs, context, origin, workspace, found);
     await report('success', 'Analysed');
 }
 async function analyzeCommit(inputs, context, origin, workspace, found) {
