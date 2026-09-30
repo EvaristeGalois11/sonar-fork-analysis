@@ -2,32 +2,49 @@ version: 2
 updates:
   - package-ecosystem: 'github-actions'
     directory: '/'
+    # Version updates in a weekly batch, majors on their own; security updates don't wait for either.
     schedule:
-      interval: 'daily'
+      interval: 'weekly'
     # A compromised release is usually caught within days; security updates are not delayed.
     cooldown:
       default-days: 7
+    groups:
+      github-actions:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
 
   - package-ecosystem: 'maven'
     directory: '/fixtures/maven'
     schedule:
-      interval: 'daily'
+      interval: 'weekly'
     cooldown:
       default-days: 7
+    groups:
+      maven:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
 
   - package-ecosystem: 'gradle'
     directory: '/fixtures/gradle'
     schedule:
-      interval: 'daily'
+      interval: 'weekly'
     cooldown:
       default-days: 7
+    groups:
+      gradle:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
 
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
-      interval: 'daily'
+      interval: 'weekly'
     cooldown:
       default-days: 7
+    groups:
+      npm:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
     ignore:
       # Types must match the runtime in action.yml (node24), not the newest Node.
       - dependency-name: '@types/node'
@@ -39,6 +56,6 @@ updates:
   - package-ecosystem: 'docker'
     directory: '/.github/actions/actionlint'
     schedule:
-      interval: 'daily'
+      interval: 'weekly'
     cooldown:
       default-days: 7
