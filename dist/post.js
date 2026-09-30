@@ -28675,7 +28675,8 @@ function statusReporter(target) {
     };
 }
 const PENDING = 'pending-status';
-// The post step: a status still pending means the analysis was interrupted, or could not report.
+// The post step: a note left means the main step never posted the final status, because the job was
+// interrupted or GitHub refused it, so the status would stay pending.
 async function reportInterrupted() {
     const saved = getState(PENDING);
     if (!saved)
