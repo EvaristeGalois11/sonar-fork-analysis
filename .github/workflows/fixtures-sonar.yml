@@ -13,6 +13,8 @@ permissions:
   actions: read
   contents: read
   pull-requests: read
+  # Lets the action report the analysis on the analysed commit, where the pull request shows it.
+  statuses: write
 jobs:
   analyze:
     name: 'Analyse ${{ matrix.fixture }} on the fork path'

@@ -47,6 +47,7 @@ import {
 import { parseProperties } from './properties.js'
 import { findNewReport, snapshotReports } from './report.js'
 import { installScanner } from './scanner.js'
+import { noReporter, statusReporter, type State } from './status.js'
 import { filterSettings } from './settings.js'
 
 async function direct(inputs: Inputs): Promise<void> {
@@ -197,7 +198,6 @@ async function analyze(inputs: Inputs): Promise<void> {
   if (!inputs.token) {
     throw new Error('No Sonar token available, set the sonar-token input.')
   }
-  const name = artifactName(inputs.id)
   const workspace = resolve(process.env.GITHUB_WORKSPACE ?? process.cwd())
   const eventPath = process.env.GITHUB_EVENT_PATH
   const context: Context = {
@@ -215,6 +215,42 @@ async function analyze(inputs: Inputs): Promise<void> {
     return
   }
 
+  const report =
+    context.eventName === 'workflow_run'
+      ? statusReporter({
+          apiUrl: context.apiUrl,
+          repository: context.repository,
+          sha: origin.headSha,
+          token: inputs.githubToken,
+          name: `Sonar fork analysis${inputs.id ? ` (${inputs.id})` : ''}`,
+          url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
+        })
+      : noReporter
+  await report('pending', 'Analysing')
+  try {
+    const [state, description] = await analyzeCommit(
+      inputs,
+      context,
+      origin,
+      workspace
+    )
+    await report(state, description)
+  } catch (error) {
+    await report(
+      'failure',
+      error instanceof Error ? error.message : String(error)
+    )
+    throw error
+  }
+}
+
+async function analyzeCommit(
+  inputs: Inputs,
+  context: Context,
+  origin: Origin,
+  workspace: string
+): Promise<[State, string]> {
+  const name = artifactName(inputs.id)
   if (inputs.checkout) {
     await checkoutCommit(workspace, {
       serverUrl: process.env.GITHUB_SERVER_URL ?? 'https://github.com',
@@ -229,10 +265,16 @@ async function analyze(inputs: Inputs): Promise<void> {
   const temp = tempDirectory()
   const artifact = await downloadAnalysis(name, origin, context, temp)
   if (!artifact) {
+    // A fork's build never has the token, so it always prepares; without an artifact, a fork could
+    // otherwise skip its analysis and still pass.
+    if (origin.repository.toLowerCase() !== context.repository.toLowerCase()) {
+      core.notice(`No ${name} artifact: the build prepared no analysis.`)
+      return ['failure', 'The build prepared no analysis']
+    }
     core.notice(
       `No ${name} artifact to analyse; the build may have analysed directly.`
     )
-    return
+    return ['success', 'Analysed by the build']
   }
   checkNoLinks(artifact)
   const manifest = JSON.parse(
@@ -302,6 +344,7 @@ async function analyze(inputs: Inputs): Promise<void> {
   }
   if (exitCode !== 0)
     throw new Error(`The Sonar scanner failed with exit code ${exitCode}`)
+  return ['success', 'Analysed']
 }
 
 async function dispatch(inputs: Inputs): Promise<void> {

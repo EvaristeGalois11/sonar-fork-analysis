@@ -373,6 +373,119 @@ describe('run in analyze mode', () => {
     fetch.mockRestore()
   })
 
+  describe('on workflow_run', () => {
+    let fetch: jest.SpiedFunction<typeof globalThis.fetch>
+
+    // Starts the analysis the way Fixtures Sonar does: after a build of owner/repo or of a fork.
+    function triggeredBy(event: string, repository: string): void {
+      process.env.GITHUB_EVENT_NAME = 'workflow_run'
+      process.env.GITHUB_REPOSITORY = 'owner/repo'
+      writeFileSync(
+        process.env.GITHUB_EVENT_PATH!,
+        JSON.stringify({
+          repository: { default_branch: 'main' },
+          workflow_run: {
+            id: 42,
+            event,
+            head_sha: 'head-sha',
+            head_branch: 'main',
+            head_repository: {
+              full_name: repository,
+              owner: { login: repository.split('/')[0] }
+            }
+          }
+        })
+      )
+    }
+
+    function statuses(): string[] {
+      return fetch.mock.calls
+        .filter(([, init]) => init?.method === 'POST')
+        .map(([, init]) => {
+          const { state, description } = JSON.parse(String(init!.body))
+          return `${state}: ${description}`
+        })
+    }
+
+    beforeEach(() => {
+      fetch = jest
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (_url, init) =>
+          init?.method === 'POST'
+            ? new Response('{}', { status: 201 })
+            : new Response(
+                JSON.stringify([
+                  {
+                    number: 7,
+                    head: { sha: 'head-sha', ref: 'main' },
+                    base: { ref: 'main' }
+                  }
+                ])
+              )
+        )
+    })
+
+    afterEach(() => {
+      fetch.mockRestore()
+    })
+
+    it('reports the analysis on the analysed commit', async () => {
+      triggeredBy('push', 'owner/repo')
+      prepared({})
+
+      await run()
+
+      expect(statuses()).toEqual(['pending: Analysing', 'success: Analysed'])
+    })
+
+    it('reports a failed analysis, and still fails', async () => {
+      triggeredBy('push', 'owner/repo')
+      prepared({})
+      exec.mockResolvedValue(1)
+
+      await run()
+
+      expect(statuses()).toEqual([
+        'pending: Analysing',
+        'failure: The Sonar scanner failed with exit code 1'
+      ])
+      expect(core.setFailed).toHaveBeenCalled()
+    })
+
+    it('accepts no artifact from its own repository, which analysed directly', async () => {
+      triggeredBy('push', 'owner/repo')
+
+      await run()
+
+      expect(statuses()).toEqual([
+        'pending: Analysing',
+        'success: Analysed by the build'
+      ])
+    })
+
+    it('does not let a fork pass by preparing nothing', async () => {
+      triggeredBy('pull_request', 'forker/repo')
+
+      await run()
+
+      expect(statuses()).toEqual([
+        'pending: Analysing',
+        'failure: The build prepared no analysis'
+      ])
+      expect(core.setFailed).not.toHaveBeenCalled()
+    })
+  })
+
+  it('posts no status where the job itself shows on the pull request', async () => {
+    const fetch = jest.spyOn(globalThis, 'fetch')
+    prepared({})
+
+    await run()
+
+    expect(fetch).not.toHaveBeenCalled()
+    fetch.mockRestore()
+  })
+
   it('refuses a pull request whose branch name would expand into the token', async () => {
     process.env.GITHUB_EVENT_NAME = 'pull_request'
     writeFileSync(
