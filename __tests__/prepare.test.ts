@@ -124,6 +124,26 @@ describe('stageAnalysis', () => {
     expect(existsSync(join(staging, 'workspace/reports/jacoco.xml'))).toBe(true)
   })
 
+  it('ships an aggregate coverage report, as Sonar advises for multi-module builds', () => {
+    const report = join(workspace, 'report/build/jacoco.xml')
+    file(report)
+    const staged = stageAnalysis(
+      new Map([
+        ['sonar.projectBaseDir', workspace],
+        ['sonar.coverage.jacoco.aggregateXmlReportPaths', report]
+      ]),
+      { workspace, home },
+      staging,
+      'gradle'
+    )
+    expect(
+      staged.settings['sonar.coverage.jacoco.aggregateXmlReportPaths']
+    ).toBe('{workspace}/report/build/jacoco.xml')
+    expect(existsSync(join(staging, 'workspace/report/build/jacoco.xml'))).toBe(
+      true
+    )
+  })
+
   it('drops paths outside the workspace and home with a warning', () => {
     const staged = stageAnalysis(
       new Map([['sonar.sources', '/etc/passwd']]),
