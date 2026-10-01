@@ -21,8 +21,9 @@ import type { PullRequest } from './origin.js'
 import {
   CHECKOUT_PATH_KEYS,
   OUTPUT_PATH_KEYS,
-  SHIPPED_PATH_KEYS,
+  WILDCARD,
   filterSettings,
+  isShippedPath,
   modulePrefixes,
   splitKey
 } from './settings.js'
@@ -82,7 +83,13 @@ export function resolveSettings(
       )
     else expandable.set(key, value)
   }
-  const { kept } = filterSettings(expandable)
+  const { kept, dropped, replaced, ignored } = filterSettings(expandable)
+  // The build only ships what the allowlist keeps, so anything else was added to the artifact.
+  const unexpected = [...dropped, ...replaced, ...ignored]
+  if (unexpected.length > 0)
+    warnings.push(
+      `Dropped settings a build never ships: ${unexpected.join(', ')}`
+    )
   const prefixes = modulePrefixes(kept)
   const sourceRoots: string[] = []
   const properties = new Map<string, string>()
@@ -111,7 +118,7 @@ export function resolveSettings(
   const withSources = new Set<string>()
   for (const [key, value] of kept) {
     const { prefix, bareKey } = splitKey(key, prefixes)
-    const shipped = SHIPPED_PATH_KEYS.has(bareKey)
+    const shipped = isShippedPath(bareKey)
     const output = OUTPUT_PATH_KEYS.has(bareKey)
     if (!shipped && !output && !CHECKOUT_PATH_KEYS.has(bareKey)) {
       properties.set(key, value)
@@ -122,11 +129,15 @@ export function resolveSettings(
       withSources.add(prefix)
     const entries: string[] = []
     for (const entry of value.split(',').filter((path) => path !== '')) {
-      const path = entry.startsWith('{')
-        ? mapPlaceholder(entry, workspace, home)
-        : isAbsolute(entry)
+      // The build expands patterns into the files it ships.
+      const path =
+        WILDCARD.test(entry) && shipped
           ? undefined
-          : inside(workspace, resolve(base, entry))
+          : entry.startsWith('{')
+            ? mapPlaceholder(entry, workspace, home)
+            : isAbsolute(entry)
+              ? undefined
+              : inside(workspace, resolve(base, entry))
       // Shipped paths may live in the private home; output directories appear when unpacking;
       // checkout paths must already be in the checkout.
       let accepted = false

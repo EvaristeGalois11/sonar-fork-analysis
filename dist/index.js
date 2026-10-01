@@ -46,7 +46,7 @@ import https$1 from 'node:https';
 import { createHmac, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
-import fs$1, { lstatSync, realpathSync, existsSync as existsSync$1, readdirSync, rmSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
+import fs$1, { lstatSync, realpathSync, existsSync as existsSync$1, readdirSync, rmSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, globSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
 import require$$1$7, { relative, isAbsolute, resolve as resolve$1, join, sep as sep$2, basename, dirname } from 'node:path';
@@ -127311,21 +127311,24 @@ const SHIPPED_PATH_KEYS = new Set([
     'sonar.java.libraries',
     'sonar.java.test.binaries',
     'sonar.java.test.libraries',
-    'sonar.groovy.binaries',
-    'sonar.junit.reportPaths',
-    'sonar.junit.reportsPath',
-    'sonar.surefire.reportsPath',
-    'sonar.jacoco.reportPath',
-    'sonar.jacoco.reportPaths',
-    'sonar.coverage.jacoco.xmlReportPaths',
-    'sonar.coverage.jacoco.aggregateXmlReportPaths'
+    'sonar.groovy.binaries'
 ]);
+// Reports only feed the analysis data, so any key named like one is shipped, including those of
+// tools Sonar adds later: sonar.coverageReportPaths, sonar.python.ruff.reportPaths, ...
+const REPORT_KEY = /reports?paths?$/i;
+// Sonar's path patterns: * and ? within a directory, ** across directories.
+const WILDCARD = /[*?]/;
+function isShippedPath(bareKey) {
+    return SHIPPED_PATH_KEYS.has(bareKey) || REPORT_KEY.test(bareKey);
+}
 // Paths into the checked-out sources; never shipped, the analysis has its own checkout.
 const CHECKOUT_PATH_KEYS = new Set([
     'sonar.sources',
     'sonar.tests',
     'sonar.projectBaseDir',
-    'sonar.kotlin.gradleProjectRoot'
+    'sonar.kotlin.gradleProjectRoot',
+    'sonar.typescript.tsconfigPaths',
+    'sonar.dre.mulesoft.muleArtifactPath'
 ]);
 // Build output directories: rewritten but never shipped whole, and not in the checkout.
 const OUTPUT_PATH_KEYS = new Set(['sonar.projectBuildDir']);
@@ -127344,19 +127347,75 @@ const PLAIN_KEYS = new Set([
     'sonar.test.inclusions',
     'sonar.test.exclusions',
     'sonar.coverage.exclusions',
-    'sonar.cpd.exclusions'
+    'sonar.cpd.exclusions',
+    'sonar.java.ignoreUnnamedModuleForSplitPackage',
+    'sonar.kotlin.source.version',
+    'sonar.python.version',
+    'sonar.python.xunit.skipDetails',
+    'sonar.javascript.environments',
+    'sonar.javascript.globals',
+    'sonar.javascript.ecmaScriptVersion',
+    'sonar.javascript.disableTypeChecking',
+    'sonar.javascript.createTSProgramForOrphanFiles',
+    'sonar.javascript.detectBundles',
+    'sonar.php.frameworkDetection',
+    'sonar.terraform.provider.aws.version',
+    'sonar.terraform.provider.azure.version',
+    'sonar.text.inclusions',
+    'sonar.secrets.disableEntropyFilter',
+    'sonar.secrets.disableKnownFakeSecretFilter',
+    'sonar.secrets.disableTestFileDetection'
 ]);
 const PLAIN_PREFIXES = [
     'sonar.issue.ignore.',
     'sonar.issue.enforce.',
-    'sonar.links.'
+    'sonar.links.',
+    'sonar.lang.patterns.'
 ];
+// Settings every language has its own copy of, so new languages need no release.
+const PLAIN_SUFFIXES = [
+    '.file.suffixes',
+    '.file.patterns',
+    '.file.identifier',
+    '.activate',
+    '.exclusions',
+    '.ignoreHeaderComments'
+];
+// Never carried, whatever the patterns above match: these run programs (dependency analysis, JDBC
+// drivers), point the scanner elsewhere, or describe the analysis rather than the project.
+const DENIED_PREFIXES = [
+    'sonar.sca.',
+    'sonar.scanner.',
+    'sonar.scm.',
+    'sonar.branch.',
+    'sonar.pullrequest.',
+    'sonar.qualitygate.',
+    'sonar.analysis.',
+    'sonar.plsql.jdbc.',
+    'sonar.featureflag.'
+];
+// Every build sets these, and the analysis sets its own: dropping them is no news.
+const REPLACED_KEYS = new Set([
+    'sonar.host.url',
+    'sonar.token',
+    'sonar.login',
+    'sonar.organization',
+    'sonar.region',
+    'sonar.projectKey',
+    'sonar.working.directory',
+    'sonar.userHome',
+    'sonar.java.jdkHome'
+]);
 function isAllowed(bareKey) {
-    return (SHIPPED_PATH_KEYS.has(bareKey) ||
+    if (!bareKey.startsWith('sonar.') ||
+        DENIED_PREFIXES.some((prefix) => bareKey.startsWith(prefix)))
+        return false;
+    return (isShippedPath(bareKey) ||
         CHECKOUT_PATH_KEYS.has(bareKey) ||
         OUTPUT_PATH_KEYS.has(bareKey) ||
         PLAIN_KEYS.has(bareKey) ||
-        PLAIN_PREFIXES.some((prefix) => bareKey.startsWith(prefix)));
+        PLAIN_PREFIXES.some((prefix) => bareKey.startsWith(prefix)) ||
+        PLAIN_SUFFIXES.some((suffix) => bareKey.endsWith(suffix)));
 }
 // Every module prefix, nested ones included: '', 'a.', 'a.b.'. Module ids may contain dots
 // (groupId:artifactId), so prefixes come from each level's sonar.modules, never from splitting keys.
@@ -127397,16 +127456,24 @@ function splitKey(key, prefixes) {
 }
 function filterSettings(settings) {
     const prefixes = modulePrefixes(settings);
-    const kept = new Map();
-    const dropped = [];
+    const filtered = {
+        kept: new Map(),
+        dropped: [],
+        replaced: [],
+        ignored: []
+    };
     for (const [key, value] of settings) {
         const { bareKey } = splitKey(key, prefixes);
         if (isAllowed(bareKey))
-            kept.set(key, value);
-        else if (bareKey.startsWith('sonar.'))
-            dropped.push(key);
+            filtered.kept.set(key, value);
+        else if (!bareKey.startsWith('sonar.'))
+            filtered.ignored.push(key);
+        else if (REPLACED_KEYS.has(bareKey) || bareKey.startsWith('sonar.scanner.'))
+            filtered.replaced.push(key);
+        else
+            filtered.dropped.push(key);
     }
-    return { kept, dropped };
+    return filtered;
 }
 
 // Everything here handles an artifact built by code from a pull request, possibly a fork's, in a job
@@ -127445,7 +127512,11 @@ function resolveSettings(settings, workspace, home) {
         else
             expandable.set(key, value);
     }
-    const { kept } = filterSettings(expandable);
+    const { kept, dropped, replaced, ignored } = filterSettings(expandable);
+    // The build only ships what the allowlist keeps, so anything else was added to the artifact.
+    const unexpected = [...dropped, ...replaced, ...ignored];
+    if (unexpected.length > 0)
+        warnings.push(`Dropped settings a build never ships: ${unexpected.join(', ')}`);
     const prefixes = modulePrefixes(kept);
     const sourceRoots = [];
     const properties = new Map();
@@ -127468,7 +127539,7 @@ function resolveSettings(settings, workspace, home) {
     const withSources = new Set();
     for (const [key, value] of kept) {
         const { prefix, bareKey } = splitKey(key, prefixes);
-        const shipped = SHIPPED_PATH_KEYS.has(bareKey);
+        const shipped = isShippedPath(bareKey);
         const output = OUTPUT_PATH_KEYS.has(bareKey);
         if (!shipped && !output && !CHECKOUT_PATH_KEYS.has(bareKey)) {
             properties.set(key, value);
@@ -127479,11 +127550,14 @@ function resolveSettings(settings, workspace, home) {
             withSources.add(prefix);
         const entries = [];
         for (const entry of value.split(',').filter((path) => path !== '')) {
-            const path = entry.startsWith('{')
-                ? mapPlaceholder(entry, workspace, home)
-                : isAbsolute(entry)
-                    ? undefined
-                    : inside(workspace, resolve$1(base, entry));
+            // The build expands patterns into the files it ships.
+            const path = WILDCARD.test(entry) && shipped
+                ? undefined
+                : entry.startsWith('{')
+                    ? mapPlaceholder(entry, workspace, home)
+                    : isAbsolute(entry)
+                        ? undefined
+                        : inside(workspace, resolve$1(base, entry));
             // Shipped paths may live in the private home; output directories appear when unpacking;
             // checkout paths must already be in the checkout.
             let accepted = false;
@@ -128078,7 +128152,7 @@ function stageAnalysis(settings, roots, staging, buildTool, pullRequest) {
     };
     for (const [key, value] of settings) {
         const { prefix, bareKey } = splitKey(key, prefixes);
-        const isShipped = SHIPPED_PATH_KEYS.has(bareKey);
+        const isShipped = isShippedPath(bareKey);
         if (!isShipped &&
             !CHECKOUT_PATH_KEYS.has(bareKey) &&
             !OUTPUT_PATH_KEYS.has(bareKey)) {
@@ -128087,9 +128161,17 @@ function stageAnalysis(settings, roots, staging, buildTool, pullRequest) {
         }
         const base = settings.get(`${prefix}sonar.projectBaseDir`) ?? roots.workspace;
         const entries = [];
-        for (const entry of value.split(',').map((path) => path.trim())) {
-            if (entry === '')
-                continue;
+        const listed = value
+            .split(',')
+            .map((path) => path.trim())
+            .filter((path) => path !== '');
+        // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
+        const expanded = listed.flatMap((entry) => isShipped && WILDCARD.test(entry)
+            ? globSync(entry, { cwd: base })
+                .map((match) => match.split(sep$2).join('/'))
+                .sort()
+            : [entry]);
+        for (const entry of expanded) {
             const path = resolve$1(base, entry);
             if (isShipped && !existsSync$1(path))
                 continue;
@@ -131670,8 +131752,11 @@ async function prepare(inputs) {
     // The dump holds the build's whole environment, so it never leaves this machine.
     const settings = parseProperties(readFileSync$1(dump, 'utf8'));
     rmSync(dump);
-    const { kept, dropped } = filterSettings(settings);
-    debug(`Settings the analysis decides itself: ${dropped.join(', ')}`);
+    const { kept, dropped, replaced, ignored } = filterSettings(settings);
+    debug(`Settings the analysis sets itself: ${replaced.join(', ')}`);
+    info(`Ignored ${ignored.length} environment variables and JVM properties`);
+    if (dropped.length > 0)
+        warning(`The analysis of pull requests leaves out these settings: ${dropped.join(', ')}. Pass them to the analysis job's build-arguments if it needs them.`);
     const staging = join(temp, 'artifact');
     const staged = stageAnalysis(kept, {
         workspace: process.env.GITHUB_WORKSPACE ?? process.cwd(),

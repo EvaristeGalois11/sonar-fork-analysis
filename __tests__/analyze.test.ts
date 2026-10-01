@@ -83,6 +83,26 @@ describe('resolveSettings', () => {
       home
     )
     expect(resolved.properties.size).toBe(0)
+    expect(resolved.warnings).toEqual([
+      'Dropped settings a build never ships: sonar.sca.enabled, sonar.sca.mavenOptions, sonar.host.url, sonar.scanner.javaOpts, sonar.projectKey'
+    ])
+  })
+
+  it('leaves patterns to the build, which ships what they match', () => {
+    const resolved = resolveSettings(
+      {
+        'sonar.coverage.jacoco.xmlReportPaths':
+          '**/jacoco.xml,{workspace}/target/jacoco.xml'
+      },
+      workspace,
+      home
+    )
+    expect(
+      resolved.properties.get('sonar.coverage.jacoco.xmlReportPaths')
+    ).toBe(join(workspace, 'target/jacoco.xml'))
+    expect(resolved.warnings).toEqual([
+      'Dropped sonar.coverage.jacoco.xmlReportPaths entry: **/jacoco.xml'
+    ])
   })
 
   it('drops paths escaping the workspace or home', () => {

@@ -144,6 +144,52 @@ describe('stageAnalysis', () => {
     )
   })
 
+  it('ships the reports a pattern matches, listed', () => {
+    file(join(workspace, 'a/target/site/jacoco/jacoco.xml'))
+    file(join(workspace, 'b/c/target/site/jacoco/jacoco.xml'))
+    file(join(workspace, 'b/target/other.xml'))
+    const staged = stageAnalysis(
+      new Map([
+        ['sonar.projectBaseDir', workspace],
+        [
+          'sonar.coverage.jacoco.xmlReportPaths',
+          '**/target/site/jacoco/jacoco.xml'
+        ],
+        ['sonar.java.libraries', `${workspace}/missing/*.jar`]
+      ]),
+      { workspace, home },
+      staging,
+      'maven'
+    )
+    expect(staged.settings).toEqual({
+      'sonar.projectBaseDir': '{workspace}',
+      'sonar.coverage.jacoco.xmlReportPaths':
+        'a/target/site/jacoco/jacoco.xml,b/c/target/site/jacoco/jacoco.xml'
+    })
+    expect(
+      existsSync(join(staging, 'workspace/b/c/target/site/jacoco/jacoco.xml'))
+    ).toBe(true)
+    expect(existsSync(join(staging, 'workspace/b/target/other.xml'))).toBe(
+      false
+    )
+  })
+
+  it('ships the reports of any tool', () => {
+    file(join(workspace, 'ruff.json'))
+    const staged = stageAnalysis(
+      new Map([
+        ['sonar.python.ruff.reportPaths', join(workspace, 'ruff.json')]
+      ]),
+      { workspace, home },
+      staging,
+      'gradle'
+    )
+    expect(staged.settings['sonar.python.ruff.reportPaths']).toBe(
+      '{workspace}/ruff.json'
+    )
+    expect(existsSync(join(staging, 'workspace/ruff.json'))).toBe(true)
+  })
+
   it('drops paths outside the workspace and home with a warning', () => {
     const staged = stageAnalysis(
       new Map([['sonar.sources', '/etc/passwd']]),
