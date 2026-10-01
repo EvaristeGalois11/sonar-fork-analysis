@@ -127376,12 +127376,23 @@ function mapPlaceholder(entry, workspace, home) {
         return inside(home, `.${entry.slice('{home}'.length)}`);
     return undefined;
 }
+// The scanner replaces ${env.NAME} in a setting with that environment variable, where the Sonar token
+// is, and ${name} with another setting, before using it; there is no way to escape either.
+const PLACEHOLDER = /\$\{[\w.]+\}/;
 // Must run on the pristine checkout: sources and tests are only accepted if the checkout has them.
 // Paths are compared by their real location, since the checkout may contain links.
 function resolveSettings(settings, workspace, home) {
-    const { kept } = filterSettings(new Map(Object.entries(settings)));
-    const prefixes = modulePrefixes(kept);
     const warnings = [];
+    // Before anything reads them, the module ids included: a value could quote the token.
+    const kept = new Map();
+    for (const [key, value] of filterSettings(new Map(Object.entries(settings)))
+        .kept) {
+        if (PLACEHOLDER.test(value))
+            warnings.push(`Dropped ${key}: it holds a placeholder the scanner would expand`);
+        else
+            kept.set(key, value);
+    }
+    const prefixes = modulePrefixes(kept);
     const sourceRoots = [];
     const properties = new Map();
     const realWorkspace = realpathSync(workspace);
@@ -127544,7 +127555,13 @@ function escape(text, isKey) {
         escaped = escaped.replace(/^ /, '\\ ');
     return escaped;
 }
+// Refuses a placeholder from any source, e.g. a pull request's branch name, which its author chooses.
 function formatProperties(properties) {
+    for (const [key, value] of properties) {
+        if (PLACEHOLDER.test(value)) {
+            throw new Error(`${key} holds a placeholder the Sonar scanner would expand: ${value}`);
+        }
+    }
     return [...properties]
         .map(([key, value]) => `${escape(key, true)}=${escape(value, false)}`)
         .join('\n')

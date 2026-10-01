@@ -373,6 +373,34 @@ describe('run in analyze mode', () => {
     fetch.mockRestore()
   })
 
+  it('refuses a pull request whose branch name would expand into the token', async () => {
+    process.env.GITHUB_EVENT_NAME = 'pull_request'
+    writeFileSync(
+      process.env.GITHUB_EVENT_PATH!,
+      JSON.stringify({
+        pull_request: {
+          number: 7,
+          head: {
+            sha: 'head-sha',
+            ref: '${env.SONAR_TOKEN}',
+            repo: { full_name: 'forker/repo' }
+          },
+          base: { ref: 'main' }
+        }
+      })
+    )
+    prepared({})
+
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'holds a placeholder the Sonar scanner would expand'
+      )
+    )
+    expect(exec).not.toHaveBeenCalled()
+  })
+
   it('refuses a checkout of another commit', async () => {
     prepared({})
     head = 'other'
