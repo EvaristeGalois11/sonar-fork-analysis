@@ -205,6 +205,16 @@ describe('resolveSettings', () => {
     expect(resolved.warnings).toHaveLength(3)
   })
 
+  it('reads the module tree only after dropping placeholders', () => {
+    // Otherwise b's keys would pass the allowlist as a module's and be written unchecked.
+    const resolved = resolveSettings(
+      { 'sonar.modules': 'b,${env.SONAR_TOKEN}', 'b.sonar.sources': '/etc' },
+      workspace,
+      home
+    )
+    expect(resolved.properties.has('b.sonar.sources')).toBe(false)
+  })
+
   it('drops a placeholder before reading modules from it', () => {
     const resolved = resolveSettings(
       { 'sonar.modules': '${env.SONAR_TOKEN}' },
@@ -316,6 +326,22 @@ describe('removeProjectSettings', () => {
     expect(existsSync(rootSettings)).toBe(false)
     expect(existsSync(moduleSettings)).toBe(false)
     expect(lstatSync(workspace).isDirectory()).toBe(true)
+  })
+
+  it('removes a directory taking the name too, and leaves .git alone', () => {
+    const named = join(workspace, 'app/sonar-project.properties')
+    file(join(named, 'inside'))
+    const inGit = file(join(workspace, '.git/sonar-project.properties'))
+    removeProjectSettings(workspace)
+    expect(existsSync(named)).toBe(false)
+    expect(existsSync(inGit)).toBe(true)
+  })
+
+  it('runs again after unpacking', () => {
+    const settings = file(join(workspace, 'app/sonar-project.properties'))
+    file(join(artifact, 'app/target/App.class'))
+    unpackWorkspace(artifact, workspace, [])
+    expect(existsSync(settings)).toBe(false)
   })
 })
 
