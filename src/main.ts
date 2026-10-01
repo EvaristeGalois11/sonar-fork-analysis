@@ -1,9 +1,5 @@
 import * as core from '@actions/core'
-import {
-  ArtifactNotFoundError,
-  DefaultArtifactClient,
-  GHESNotSupportedError
-} from '@actions/artifact'
+import { DefaultArtifactClient, GHESNotSupportedError } from '@actions/artifact'
 import { exec } from '@actions/exec'
 import {
   cpSync,
@@ -43,6 +39,7 @@ import {
 } from './origin.js'
 import {
   ARTIFACT_FORMAT,
+  ARTIFACT_PREFIX,
   artifactName,
   directArtifactName,
   missingDump,
@@ -95,7 +92,8 @@ async function leaveDirectNote(projectKey: string): Promise<void> {
       directArtifactName(projectKey),
       [note],
       dirname(note),
-      { retentionDays: 1 }
+      // A few bytes, so kept long: a build may complete days later, e.g. after a deployment approval.
+      { retentionDays: 30 }
     )
   } catch (error) {
     // No artifacts there, so no fork path to tell either.
@@ -201,15 +199,19 @@ type FindOptions = {
 // An artifact of the build: in its run, or in this one when analysing within the same run.
 type Found = { id: number; options: FindOptions } | { local: string }
 
-async function findArtifact(
-  name: string,
+// What the build left: its artifacts by name, or a local directory outside GitHub Actions.
+type Listed =
+  { ids: Map<string, number>; options: FindOptions } | { local: string }
+
+async function listArtifacts(
   origin: Origin,
   context: Context
-): Promise<Found | undefined> {
+): Promise<Listed> {
   if (!process.env.ACTIONS_RUNTIME_TOKEN) {
     const local = process.env.SONAR_FORK_ANALYSIS_ARTIFACT
-    if (local) core.warning(`Not running in GitHub Actions, analysing ${local}`)
-    return local ? { local } : undefined
+    if (!local) return { ids: new Map(), options: {} }
+    core.warning(`Not running in GitHub Actions, analysing ${local}`)
+    return { local }
   }
   const [owner, repo] = context.repository.split('/')
   const options: FindOptions =
@@ -223,15 +225,14 @@ async function findArtifact(
             repositoryName: repo
           }
         }
-  try {
-    const { artifact } = await new DefaultArtifactClient().getArtifact(
-      name,
-      options
-    )
-    return { id: artifact.id, options }
-  } catch (error) {
-    if (error instanceof ArtifactNotFoundError) return undefined
-    throw error
+  const { artifacts } = await new DefaultArtifactClient().listArtifacts({
+    ...options,
+    // A re-run build may have uploaded the same name again.
+    latest: true
+  })
+  return {
+    ids: new Map(artifacts.map((artifact) => [artifact.name, artifact.id])),
+    options
   }
 }
 
@@ -296,16 +297,24 @@ async function analyzeRun(
     return
   }
 
-  // Looked up before checking out, so a run with nothing to do takes seconds.
+  // Listed before checking out, so a run with nothing to do takes seconds.
   const name = artifactName(inputs.projectKey)
-  const found = await findArtifact(name, origin, context)
-  if (!found) {
-    if (
-      await findArtifact(directArtifactName(inputs.projectKey), origin, context)
-    ) {
-      core.info('The build analysed directly, so there is nothing to analyse.')
-      return
-    }
+  const listed = await listArtifacts(origin, context)
+  let found: Found
+  if ('local' in listed) {
+    found = listed
+  } else if (listed.ids.has(name)) {
+    found = { id: listed.ids.get(name) as number, options: listed.options }
+  } else if (listed.ids.has(directArtifactName(inputs.projectKey))) {
+    core.info('The build analysed directly, so there is nothing to analyse.')
+    return
+  } else if (
+    [...listed.ids.keys()].some((n) => n.startsWith(ARTIFACT_PREFIX))
+  ) {
+    // E.g. a monorepo build that skipped this project because none of its files changed.
+    core.info(`The build prepared other projects, not ${inputs.projectKey}.`)
+    return
+  } else {
     // Without the artifact the Sonar check never comes; this status says why.
     core.notice(`No ${name} artifact: the build left nothing to analyse.`)
     await report('failure', 'The build left nothing to analyse')

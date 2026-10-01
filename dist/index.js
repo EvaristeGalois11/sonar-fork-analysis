@@ -128027,11 +128027,12 @@ function simulationProperties(dumpFile) {
 }
 // Named after the project, so the build and the analysis agree without further settings, and every
 // project of a monorepo gets its own. Artifact names cannot hold ':', which project keys may.
+const ARTIFACT_PREFIX = 'sonar-fork-analysis-';
 function artifactName(projectKey) {
     if (!/^[A-Za-z0-9._:-]+$/.test(projectKey)) {
         throw new Error(`Invalid project key '${projectKey}'`);
     }
-    return `sonar-fork-analysis-${projectKey.replaceAll(':', '_')}`;
+    return `${ARTIFACT_PREFIX}${projectKey.replaceAll(':', '_')}`;
 }
 // '+' cannot occur in a project key, so no prepared artifact can take this name.
 function directArtifactName(projectKey) {
@@ -131601,7 +131602,9 @@ async function leaveDirectNote(projectKey) {
     const note = join(tempDirectory(), 'analysed-directly.json');
     writeFileSync(note, JSON.stringify({ format: ARTIFACT_FORMAT }));
     try {
-        await new DefaultArtifactClient().uploadArtifact(directArtifactName(projectKey), [note], dirname(note), { retentionDays: 1 });
+        await new DefaultArtifactClient().uploadArtifact(directArtifactName(projectKey), [note], dirname(note), 
+        // A few bytes, so kept long: a build may complete days later, e.g. after a deployment approval.
+        { retentionDays: 30 });
     }
     catch (error) {
         // No artifacts there, so no fork path to tell either.
@@ -131668,12 +131671,13 @@ function pullRequestNumber() {
 function tempDirectory() {
     return mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-fork-analysis-'));
 }
-async function findArtifact(name, origin, context) {
+async function listArtifacts(origin, context) {
     if (!process.env.ACTIONS_RUNTIME_TOKEN) {
         const local = process.env.SONAR_FORK_ANALYSIS_ARTIFACT;
-        if (local)
-            warning(`Not running in GitHub Actions, analysing ${local}`);
-        return local ? { local } : undefined;
+        if (!local)
+            return { ids: new Map(), options: {} };
+        warning(`Not running in GitHub Actions, analysing ${local}`);
+        return { local };
     }
     const [owner, repo] = context.repository.split('/');
     const options = origin.runId === undefined
@@ -131686,15 +131690,15 @@ async function findArtifact(name, origin, context) {
                 repositoryName: repo
             }
         };
-    try {
-        const { artifact } = await new DefaultArtifactClient().getArtifact(name, options);
-        return { id: artifact.id, options };
-    }
-    catch (error) {
-        if (error instanceof ArtifactNotFoundError)
-            return undefined;
-        throw error;
-    }
+    const { artifacts } = await new DefaultArtifactClient().listArtifacts({
+        ...options,
+        // A re-run build may have uploaded the same name again.
+        latest: true
+    });
+    return {
+        ids: new Map(artifacts.map((artifact) => [artifact.name, artifact.id])),
+        options
+    };
 }
 async function downloadArtifact(found, temp) {
     if ('local' in found)
@@ -131751,14 +131755,26 @@ async function analyzeRun(inputs, context, workspace, report) {
         notice(origin.skip);
         return;
     }
-    // Looked up before checking out, so a run with nothing to do takes seconds.
+    // Listed before checking out, so a run with nothing to do takes seconds.
     const name = artifactName(inputs.projectKey);
-    const found = await findArtifact(name, origin, context);
-    if (!found) {
-        if (await findArtifact(directArtifactName(inputs.projectKey), origin, context)) {
-            info('The build analysed directly, so there is nothing to analyse.');
-            return;
-        }
+    const listed = await listArtifacts(origin, context);
+    let found;
+    if ('local' in listed) {
+        found = listed;
+    }
+    else if (listed.ids.has(name)) {
+        found = { id: listed.ids.get(name), options: listed.options };
+    }
+    else if (listed.ids.has(directArtifactName(inputs.projectKey))) {
+        info('The build analysed directly, so there is nothing to analyse.');
+        return;
+    }
+    else if ([...listed.ids.keys()].some((n) => n.startsWith(ARTIFACT_PREFIX))) {
+        // E.g. a monorepo build that skipped this project because none of its files changed.
+        info(`The build prepared other projects, not ${inputs.projectKey}.`);
+        return;
+    }
+    else {
         // Without the artifact the Sonar check never comes; this status says why.
         notice(`No ${name} artifact: the build left nothing to analyse.`);
         await report('failure', 'The build left nothing to analyse');

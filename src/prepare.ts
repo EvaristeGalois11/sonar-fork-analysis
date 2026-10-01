@@ -42,11 +42,13 @@ export function simulationProperties(dumpFile: string): string[] {
 
 // Named after the project, so the build and the analysis agree without further settings, and every
 // project of a monorepo gets its own. Artifact names cannot hold ':', which project keys may.
+export const ARTIFACT_PREFIX = 'sonar-fork-analysis-'
+
 export function artifactName(projectKey: string): string {
   if (!/^[A-Za-z0-9._:-]+$/.test(projectKey)) {
     throw new Error(`Invalid project key '${projectKey}'`)
   }
-  return `sonar-fork-analysis-${projectKey.replaceAll(':', '_')}`
+  return `${ARTIFACT_PREFIX}${projectKey.replaceAll(':', '_')}`
 }
 
 // '+' cannot occur in a project key, so no prepared artifact can take this name.
