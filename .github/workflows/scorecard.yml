@@ -1,0 +1,43 @@
+# Rates the repository's supply-chain security with OpenSSF Scorecard: branch protection, pinned
+# dependencies, token permissions, and more. Findings go to code scanning; the score is published
+# for the README badge.
+#
+# Publishing restricts what this workflow may contain: no top-level env or defaults, and only the
+# steps below in the job.
+name: 'Scorecard'
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '23 4 * * 1'
+  # Re-rates as soon as the branch rules change.
+  branch_protection_rule:
+permissions: {}
+jobs:
+  analysis:
+    name: 'Rate supply-chain security'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+      # Proves to the Scorecard API that the results come from this repository's workflow.
+      id-token: write
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 'Run Scorecard'
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: 'Upload to code scanning'
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: results.sarif
