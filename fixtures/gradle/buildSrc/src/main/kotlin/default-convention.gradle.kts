@@ -14,8 +14,15 @@ tasks.compileJava {
     options.release = 21
 }
 
+// Each module's own report, where the Sonar plugin finds it without configuration.
+tasks.test {
+    finalizedBy(tasks.jacocoTestReport)
+}
+
 tasks.jacocoTestReport {
-    enabled = false
+    reports {
+        xml.required = true
+    }
 }
 
 testing {
