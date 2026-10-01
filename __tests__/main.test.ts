@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals'
 import {
+  cpSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -143,7 +144,7 @@ describe('run', () => {
     const [name, files, , options] = artifact.uploadArtifact.mock.calls[0]
     expect(name).toBe('sonar-fork-analysis-key+direct')
     expect(files).toHaveLength(1)
-    expect(options).toEqual({ retentionDays: 1 })
+    expect(options).toEqual({ retentionDays: 30 })
   })
 
   it('still succeeds when the note cannot be left, explaining a name clash', async () => {
@@ -543,24 +544,66 @@ describe('run in analyze mode', () => {
       expect(core.setFailed).toHaveBeenCalled()
     })
 
+    function built(...names: string[]): void {
+      process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+      artifact.listArtifacts.mockResolvedValue({
+        artifacts: names.map((name, id) => ({ name, id, size: 1 }))
+      })
+    }
+
     it('stays silent when the build analysed directly', async () => {
       triggeredBy('push', 'owner/repo')
-      process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
-      artifact.getArtifact.mockImplementation(async (name) => {
-        if (name === 'sonar-fork-analysis-key+direct')
-          return { artifact: { id: 1, name, size: 1 } }
-        throw new artifact.ArtifactNotFoundError(name)
-      })
+      built('sonar-fork-analysis-key+direct')
 
       await run()
 
       expect(statuses()).toEqual([])
       expect(getExecOutput).not.toHaveBeenCalled()
       expect(core.setFailed).not.toHaveBeenCalled()
-      // Looked up in the build's run, not this one.
-      expect(artifact.getArtifact.mock.calls[0][1]).toMatchObject({
-        findBy: { workflowRunId: 42 }
+      // Listed in the build's run, not this one.
+      expect(artifact.listArtifacts.mock.calls[0][0]).toMatchObject({
+        findBy: { workflowRunId: 42 },
+        latest: true
       })
+    })
+
+    it("downloads this project's artifact from the build's run", async () => {
+      triggeredBy('push', 'owner/repo')
+      prepared({})
+      built('sonar-fork-analysis-other_project', 'sonar-fork-analysis-key')
+      artifact.downloadArtifact.mockImplementation(async (_id, options) => {
+        cpSync(artifactDir, options!.path!, { recursive: true })
+        return { downloadPath: options!.path }
+      })
+
+      await run()
+
+      expect(core.setFailed).not.toHaveBeenCalled()
+      const [id, options] = artifact.downloadArtifact.mock.calls[0]
+      expect(id).toBe(1)
+      expect(options).toMatchObject({ findBy: { workflowRunId: 42 } })
+      expect(statuses()).toEqual(['pending: Analysing', 'success: Analysed'])
+    })
+
+    it('stays silent for a project the build did not prepare', async () => {
+      // A monorepo build that skipped this project because none of its files changed.
+      triggeredBy('pull_request', 'forker/repo')
+      built('sonar-fork-analysis-other_project', 'test-reports')
+
+      await run()
+
+      expect(statuses()).toEqual([])
+      expect(getExecOutput).not.toHaveBeenCalled()
+      expect(core.setFailed).not.toHaveBeenCalled()
+    })
+
+    it('does not count artifacts that are not ours', async () => {
+      triggeredBy('pull_request', 'forker/repo')
+      built('test-reports')
+
+      await run()
+
+      expect(statuses()).toEqual(['failure: The build left nothing to analyse'])
     })
 
     it('reports a missing token as a failure, without a pending status', async () => {
@@ -579,12 +622,7 @@ describe('run in analyze mode', () => {
     it('does not need the token when the build analysed directly', async () => {
       triggeredBy('push', 'owner/repo')
       delete inputs['sonar-token']
-      process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
-      artifact.getArtifact.mockImplementation(async (name) => {
-        if (name.endsWith('+direct'))
-          return { artifact: { id: 1, name, size: 1 } }
-        throw new artifact.ArtifactNotFoundError(name)
-      })
+      built('sonar-fork-analysis-key+direct')
 
       await run()
 
@@ -614,7 +652,7 @@ describe('run in analyze mode', () => {
     it('reports a failed artifact lookup', async () => {
       triggeredBy('push', 'owner/repo')
       process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
-      artifact.getArtifact.mockRejectedValue(new Error('artifacts API down'))
+      artifact.listArtifacts.mockRejectedValue(new Error('artifacts API down'))
 
       await run()
 
