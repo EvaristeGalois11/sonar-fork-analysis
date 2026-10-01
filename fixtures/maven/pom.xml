@@ -13,7 +13,6 @@
         <module>fizzbuzz</module>
         <module>swap-case</module>
         <module>composite</module>
-        <module>report-aggregate</module>
     </modules>
 
     <properties>
