@@ -318,7 +318,10 @@ export function trustedProperties(
     ['sonar.projectKey', target.projectKey],
     ['sonar.scm.revision', analysed.headSha],
     // The scanner empties its working directory, which by default is a name the checkout could link.
-    ['sonar.working.directory', workingDirectory]
+    ['sonar.working.directory', workingDirectory],
+    // Sonar's dependency analysis lists dependencies by running the project's own build tools
+    // (mvnw, gradlew, npm), i.e. the pull request's code, with the token in the environment.
+    ['sonar.sca.enabled', 'false']
   ])
   if (target.organization)
     properties.set('sonar.organization', target.organization)
