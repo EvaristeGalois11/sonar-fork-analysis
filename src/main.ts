@@ -160,8 +160,15 @@ async function prepare(inputs: Inputs): Promise<void> {
   // The dump holds the build's whole environment, so it never leaves this machine.
   const settings = parseProperties(readFileSync(dump, 'utf8'))
   rmSync(dump)
-  const { kept, dropped } = filterSettings(settings)
-  core.debug(`Settings the analysis decides itself: ${dropped.join(', ')}`)
+  const { kept, dropped, replaced, ignored } = filterSettings(settings)
+  core.debug(`Settings the analysis sets itself: ${replaced.join(', ')}`)
+  core.info(
+    `Ignored ${ignored.length} environment variables and JVM properties`
+  )
+  if (dropped.length > 0)
+    core.warning(
+      `The analysis of pull requests leaves out these settings: ${dropped.join(', ')}. Pass them to the analysis job's build-arguments if it needs them.`
+    )
 
   const staging = join(temp, 'artifact')
   const staged = stageAnalysis(

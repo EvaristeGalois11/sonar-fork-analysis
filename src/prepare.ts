@@ -1,6 +1,7 @@
 import {
   cpSync,
   existsSync,
+  globSync,
   mkdirSync,
   readdirSync,
   writeFileSync
@@ -10,7 +11,8 @@ import type { BuildTool } from './build-tool.js'
 import {
   CHECKOUT_PATH_KEYS,
   OUTPUT_PATH_KEYS,
-  SHIPPED_PATH_KEYS,
+  WILDCARD,
+  isShippedPath,
   modulePrefixes,
   splitKey
 } from './settings.js'
@@ -105,7 +107,7 @@ export function stageAnalysis(
 
   for (const [key, value] of settings) {
     const { prefix, bareKey } = splitKey(key, prefixes)
-    const isShipped = SHIPPED_PATH_KEYS.has(bareKey)
+    const isShipped = isShippedPath(bareKey)
     if (
       !isShipped &&
       !CHECKOUT_PATH_KEYS.has(bareKey) &&
@@ -117,8 +119,19 @@ export function stageAnalysis(
     const base =
       settings.get(`${prefix}sonar.projectBaseDir`) ?? roots.workspace
     const entries: string[] = []
-    for (const entry of value.split(',').map((path) => path.trim())) {
-      if (entry === '') continue
+    const listed = value
+      .split(',')
+      .map((path) => path.trim())
+      .filter((path) => path !== '')
+    // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
+    const expanded = listed.flatMap((entry) =>
+      isShipped && WILDCARD.test(entry)
+        ? globSync(entry, { cwd: base })
+            .map((match) => match.split(sep).join('/'))
+            .sort()
+        : [entry]
+    )
+    for (const entry of expanded) {
       const path = resolve(base, entry)
       if (isShipped && !existsSync(path)) continue
       const located = locate(path, roots)

@@ -301,6 +301,30 @@ describe('run in prepare mode', () => {
     ).toEqual([])
   })
 
+  it('warns about the settings the analysis of pull requests leaves out', async () => {
+    simulate(
+      [
+        `sonar.projectBaseDir=${project}`,
+        'sonar.host.url=http\\://127.0.0.1\\:9',
+        'sonar.nodejs.executable=/usr/bin/node',
+        'env.SECRET=leaked'
+      ].join('\n')
+    )
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.warning).toHaveBeenCalledTimes(1)
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'leaves out these settings: sonar.nodejs.executable.'
+      )
+    )
+    expect(core.info).toHaveBeenCalledWith(
+      'Ignored 1 environment variables and JVM properties'
+    )
+  })
+
   it('needs the project key, which names the artifact', async () => {
     delete inputs['project-key']
 
