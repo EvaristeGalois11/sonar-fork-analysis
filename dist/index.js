@@ -46,10 +46,10 @@ import https$1 from 'node:https';
 import { createHmac, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
-import fs$1, { lstatSync, realpathSync, existsSync as existsSync$1, rmSync, readdirSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
+import fs$1, { lstatSync, realpathSync, existsSync as existsSync$1, readdirSync, rmSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
-import require$$1$7, { relative, isAbsolute, resolve as resolve$1, sep as sep$2, join, basename, dirname } from 'node:path';
+import require$$1$7, { relative, isAbsolute, resolve as resolve$1, join, sep as sep$2, basename, dirname } from 'node:path';
 import require$$5$6 from 'node:fs/promises';
 import require$$2$1 from 'node:string_decoder';
 import require$$0$e from 'zlib';
@@ -127383,15 +127383,16 @@ const PLACEHOLDER = /\$\{[\w.]+\}/;
 // Paths are compared by their real location, since the checkout may contain links.
 function resolveSettings(settings, workspace, home) {
     const warnings = [];
-    // Before anything reads them, the module ids included: a value could quote the token.
-    const kept = new Map();
-    for (const [key, value] of filterSettings(new Map(Object.entries(settings)))
-        .kept) {
+    // First of all, so the allowlist and everything after it read the same module tree: a value
+    // could quote the token, and sonar.modules decides how every other key is read.
+    const expandable = new Map();
+    for (const [key, value] of Object.entries(settings)) {
         if (PLACEHOLDER.test(value))
             warnings.push(`Dropped ${key}: it holds a placeholder the scanner would expand`);
         else
-            kept.set(key, value);
+            expandable.set(key, value);
     }
+    const { kept } = filterSettings(expandable);
     const prefixes = modulePrefixes(kept);
     const sourceRoots = [];
     const properties = new Map();
@@ -127530,15 +127531,26 @@ function unpackWorkspace(from, workspace, protectedRoots) {
         if (reason)
             warnings.push(`Skipped ${rel}: ${reason}`);
     }
+    removeProjectSettings(workspace);
     return warnings;
 }
-// The scanner would otherwise read these from the checkout, i.e. from the pull request.
+// The scanner reads one from every module directory, unchecked, so none may come from the pull
+// request or the artifact. Deleting by name lets the file system match it the way the scanner's
+// lookup will, e.g. SONAR-PROJECT.PROPERTIES on the case-insensitive file systems of macOS and
+// Windows, which a comparison of names would miss.
 function removeProjectSettings(workspace) {
-    for (const path of walk(workspace)) {
-        if (path.endsWith(`${sep$2}sonar-project.properties`) &&
-            !path.includes(`${sep$2}.git${sep$2}`))
-            rmSync(path, { force: true });
-    }
+    const directories = readdirSync(workspace, {
+        recursive: true,
+        withFileTypes: true
+    })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(entry.parentPath, entry.name))
+        .filter((directory) => !relative(workspace, directory).split(sep$2).some(isGitDirectory));
+    for (const directory of [workspace, ...directories])
+        rmSync(join(directory, 'sonar-project.properties'), {
+            force: true,
+            recursive: true
+        });
 }
 function escape(text, isKey) {
     let escaped = text

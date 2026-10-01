@@ -72,16 +72,17 @@ export function resolveSettings(
   home: string
 ): Resolved {
   const warnings: string[] = []
-  // Before anything reads them, the module ids included: a value could quote the token.
-  const kept = new Map<string, string>()
-  for (const [key, value] of filterSettings(new Map(Object.entries(settings)))
-    .kept) {
+  // First of all, so the allowlist and everything after it read the same module tree: a value
+  // could quote the token, and sonar.modules decides how every other key is read.
+  const expandable = new Map<string, string>()
+  for (const [key, value] of Object.entries(settings)) {
     if (PLACEHOLDER.test(value))
       warnings.push(
         `Dropped ${key}: it holds a placeholder the scanner would expand`
       )
-    else kept.set(key, value)
+    else expandable.set(key, value)
   }
+  const { kept } = filterSettings(expandable)
   const prefixes = modulePrefixes(kept)
   const sourceRoots: string[] = []
   const properties = new Map<string, string>()
@@ -237,18 +238,30 @@ export function unpackWorkspace(
     const reason = unpackFile(source, rel, workspace, protectedRoots)
     if (reason) warnings.push(`Skipped ${rel}: ${reason}`)
   }
+  removeProjectSettings(workspace)
   return warnings
 }
 
-// The scanner would otherwise read these from the checkout, i.e. from the pull request.
+// The scanner reads one from every module directory, unchecked, so none may come from the pull
+// request or the artifact. Deleting by name lets the file system match it the way the scanner's
+// lookup will, e.g. SONAR-PROJECT.PROPERTIES on the case-insensitive file systems of macOS and
+// Windows, which a comparison of names would miss.
 export function removeProjectSettings(workspace: string): void {
-  for (const path of walk(workspace)) {
-    if (
-      path.endsWith(`${sep}sonar-project.properties`) &&
-      !path.includes(`${sep}.git${sep}`)
+  const directories = readdirSync(workspace, {
+    recursive: true,
+    withFileTypes: true
+  })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(entry.parentPath, entry.name))
+    .filter(
+      (directory) =>
+        !relative(workspace, directory).split(sep).some(isGitDirectory)
     )
-      rmSync(path, { force: true })
-  }
+  for (const directory of [workspace, ...directories])
+    rmSync(join(directory, 'sonar-project.properties'), {
+      force: true,
+      recursive: true
+    })
 }
 
 function escape(text: string, isKey: boolean): string {
