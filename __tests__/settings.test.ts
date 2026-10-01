@@ -17,6 +17,8 @@ const settings = new Map([
   ['org.acme:parent-tests.sonar.scanner.javaOpts', '-javaagent:/x.jar'],
   ['sonar.working.directory', '/'],
   ['sonar.nodejs.executable', '/tmp/evil'],
+  ['sonar.region', 'us'],
+  ['sonar.gradle.scanAll', 'true'],
   ['org.acme:parent-tests.sonar.sca.enabled', 'true'],
   ['env.GITHUB_TOKEN', 'ghs_secret'],
   ['java.home', '/usr/lib/jvm']
@@ -85,7 +87,8 @@ describe('isAllowed', () => {
     'sonar.go.exclusions',
     'sonar.lang.patterns.docker',
     'sonar.typescript.tsconfigPaths',
-    'sonar.python.version'
+    'sonar.python.version',
+    'sonar.android.minsdkversion.min'
   ])('allows %s', (key) => {
     expect(isAllowed(key)).toBe(true)
   })
@@ -128,6 +131,7 @@ describe('filterSettings', () => {
   it('tells the settings the fork path leaves out, in modules too', () => {
     expect(dropped).toEqual([
       'sonar.nodejs.executable',
+      'sonar.region',
       'org.acme:parent-tests.sonar.sca.enabled'
     ])
   })
@@ -137,7 +141,8 @@ describe('filterSettings', () => {
       'sonar.host.url',
       'sonar.token',
       'org.acme:parent-tests.sonar.scanner.javaOpts',
-      'sonar.working.directory'
+      'sonar.working.directory',
+      'sonar.gradle.scanAll'
     ])
   })
 

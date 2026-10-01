@@ -305,8 +305,11 @@ describe('run in prepare mode', () => {
     simulate(
       [
         `sonar.projectBaseDir=${project}`,
+        'sonar.modules=app',
+        `app.sonar.projectBaseDir=${project}`,
         'sonar.host.url=http\\://127.0.0.1\\:9',
         'sonar.nodejs.executable=/usr/bin/node',
+        'app.sonar.nodejs.executable=/usr/bin/node',
         'env.SECRET=leaked'
       ].join('\n')
     )

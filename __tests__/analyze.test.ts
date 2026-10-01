@@ -105,6 +105,39 @@ describe('resolveSettings', () => {
     ])
   })
 
+  it('refuses patterns behind placeholders and in checkout paths', () => {
+    mkdirSync(join(workspace, '**'))
+    file(join(workspace, '**/tsconfig.json'))
+    const resolved = resolveSettings(
+      {
+        'sonar.javascript.lcov.reportPaths':
+          '{workspace}/**/lcov.info,{home}/*.info',
+        'sonar.typescript.tsconfigPaths': '**/tsconfig.json'
+      },
+      workspace,
+      home
+    )
+    expect(resolved.properties.get('sonar.javascript.lcov.reportPaths')).toBe(
+      ''
+    )
+    expect(resolved.properties.get('sonar.typescript.tsconfigPaths')).toBe('')
+    expect(resolved.warnings).toHaveLength(3)
+  })
+
+  it('refuses a base directory the scanner would read as a pattern', () => {
+    mkdirSync(join(workspace, '**'))
+    expect(() =>
+      resolveSettings(
+        {
+          'sonar.projectBaseDir': '{workspace}/**',
+          'sonar.coverage.jacoco.xmlReportPaths': 'jacoco.xml'
+        },
+        workspace,
+        home
+      )
+    ).toThrow('no base directory in the checkout')
+  })
+
   it('drops paths escaping the workspace or home', () => {
     const resolved = resolveSettings(
       {
