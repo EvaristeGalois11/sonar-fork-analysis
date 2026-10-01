@@ -131595,16 +131595,23 @@ async function direct(inputs) {
         throw new Error(missingAnalysis(tool));
     await leaveDirectNote(inputs.projectKey);
 }
+const NOTE_DAYS = 35;
 // Tells a fork path's analysis, which runs after every build, that this one already analysed.
 async function leaveDirectNote(projectKey) {
     if (!process.env.ACTIONS_RUNTIME_TOKEN)
         return;
+    // GitHub cancels a run after 35 days, approval waits included, so a note kept that long outlives
+    // any build that still completes. The repository may keep artifacts for less, and an expired
+    // artifact is no longer listed.
+    const limit = Number.parseInt(process.env.GITHUB_RETENTION_DAYS ?? '', 10);
+    const days = Number.isNaN(limit) ? NOTE_DAYS : Math.min(NOTE_DAYS, limit);
+    if (days < NOTE_DAYS) {
+        notice(`This repository keeps artifacts ${days} days: if this build completes more than ${days} days after its analysis, e.g. after a deployment approval, the fork path will report that it left nothing to analyse.`);
+    }
     const note = join(tempDirectory(), 'analysed-directly.json');
     writeFileSync(note, JSON.stringify({ format: ARTIFACT_FORMAT }));
     try {
-        await new DefaultArtifactClient().uploadArtifact(directArtifactName(projectKey), [note], dirname(note), 
-        // A few bytes, so kept long: a build may complete days later, e.g. after a deployment approval.
-        { retentionDays: 30 });
+        await new DefaultArtifactClient().uploadArtifact(directArtifactName(projectKey), [note], dirname(note), { retentionDays: days });
     }
     catch (error) {
         // No artifacts there, so no fork path to tell either.
