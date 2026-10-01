@@ -50,7 +50,7 @@ import { parseProperties } from './properties.js'
 import { findNewReport, snapshotReports } from './report.js'
 import { installScanner } from './scanner.js'
 import { noReporter, trackedReporter, type Reporter } from './status.js'
-import { filterSettings } from './settings.js'
+import { filterSettings, modulePrefixes, splitKey } from './settings.js'
 
 async function direct(inputs: Inputs): Promise<void> {
   if (!inputs.projectKey) throw new Error('Input required: project-key')
@@ -165,9 +165,12 @@ async function prepare(inputs: Inputs): Promise<void> {
   core.info(
     `Ignored ${ignored.length} environment variables and JVM properties`
   )
-  if (dropped.length > 0)
+  // Maven repeats command-line and parent settings in every module.
+  const prefixes = modulePrefixes(settings)
+  const left = new Set(dropped.map((key) => splitKey(key, prefixes).bareKey))
+  if (left.size > 0)
     core.warning(
-      `The analysis of pull requests leaves out these settings: ${dropped.join(', ')}. Pass them to the analysis job's build-arguments if it needs them.`
+      `The analysis of pull requests leaves out these settings: ${[...left].join(', ')}. Pass them to the analysis job's build-arguments if it needs them.`
     )
 
   const staging = join(temp, 'artifact')

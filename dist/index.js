@@ -127349,6 +127349,10 @@ const PLAIN_KEYS = new Set([
     'sonar.coverage.exclusions',
     'sonar.cpd.exclusions',
     'sonar.java.ignoreUnnamedModuleForSplitPackage',
+    // Emitted by the Gradle plugin for Android projects.
+    'sonar.android.detected',
+    'sonar.android.minsdkversion.min',
+    'sonar.android.minsdkversion.max',
     'sonar.kotlin.source.version',
     'sonar.python.version',
     'sonar.python.xunit.skipDetails',
@@ -127394,17 +127398,20 @@ const DENIED_PREFIXES = [
     'sonar.plsql.jdbc.',
     'sonar.featureflag.'
 ];
-// Every build sets these, and the analysis sets its own: dropping them is no news.
+// Dropped without a warning: what every build emits for its own scanner, which the analysis
+// replaces, and switches the build plugin has already applied.
 const REPLACED_KEYS = new Set([
     'sonar.host.url',
     'sonar.token',
     'sonar.login',
     'sonar.organization',
-    'sonar.region',
     'sonar.projectKey',
     'sonar.working.directory',
     'sonar.userHome',
-    'sonar.java.jdkHome'
+    'sonar.java.jdkHome',
+    'sonar.skip',
+    'sonar.maven.scanAll',
+    'sonar.gradle.scanAll'
 ]);
 function isAllowed(bareKey) {
     if (!bareKey.startsWith('sonar.') ||
@@ -127531,7 +127538,8 @@ function resolveSettings(settings, workspace, home) {
         const mapped = base === undefined && prefix === ''
             ? workspace
             : base && mapPlaceholder(base, workspace, home);
-        if (!mapped || !inCheckout(mapped)) {
+        // The scanner reads patterns in report paths, and a checkout may hold a directory named **.
+        if (!mapped || WILDCARD.test(mapped) || !inCheckout(mapped)) {
             throw new Error(`The artifact gives ${prefix ? `module ${prefix.slice(0, -1)}` : 'the project'} no base directory in the checkout`);
         }
         bases.set(prefix, mapped);
@@ -127550,14 +127558,14 @@ function resolveSettings(settings, workspace, home) {
             withSources.add(prefix);
         const entries = [];
         for (const entry of value.split(',').filter((path) => path !== '')) {
-            // The build expands patterns into the files it ships.
-            const path = WILDCARD.test(entry) && shipped
-                ? undefined
-                : entry.startsWith('{')
-                    ? mapPlaceholder(entry, workspace, home)
-                    : isAbsolute(entry)
-                        ? undefined
-                        : inside(workspace, resolve$1(base, entry));
+            const mapped = entry.startsWith('{')
+                ? mapPlaceholder(entry, workspace, home)
+                : isAbsolute(entry)
+                    ? undefined
+                    : inside(workspace, resolve$1(base, entry));
+            // The build expands patterns into the files it ships; the scanner would expand what is left
+            // over files no check here has seen.
+            const path = mapped && WILDCARD.test(mapped) ? undefined : mapped;
             // Shipped paths may live in the private home; output directories appear when unpacking;
             // checkout paths must already be in the checkout.
             let accepted = false;
@@ -131755,8 +131763,11 @@ async function prepare(inputs) {
     const { kept, dropped, replaced, ignored } = filterSettings(settings);
     debug(`Settings the analysis sets itself: ${replaced.join(', ')}`);
     info(`Ignored ${ignored.length} environment variables and JVM properties`);
-    if (dropped.length > 0)
-        warning(`The analysis of pull requests leaves out these settings: ${dropped.join(', ')}. Pass them to the analysis job's build-arguments if it needs them.`);
+    // Maven repeats command-line and parent settings in every module.
+    const prefixes = modulePrefixes(settings);
+    const left = new Set(dropped.map((key) => splitKey(key, prefixes).bareKey));
+    if (left.size > 0)
+        warning(`The analysis of pull requests leaves out these settings: ${[...left].join(', ')}. Pass them to the analysis job's build-arguments if it needs them.`);
     const staging = join(temp, 'artifact');
     const staged = stageAnalysis(kept, {
         workspace: process.env.GITHUB_WORKSPACE ?? process.cwd(),

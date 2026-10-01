@@ -54,6 +54,10 @@ const PLAIN_KEYS = new Set([
   'sonar.coverage.exclusions',
   'sonar.cpd.exclusions',
   'sonar.java.ignoreUnnamedModuleForSplitPackage',
+  // Emitted by the Gradle plugin for Android projects.
+  'sonar.android.detected',
+  'sonar.android.minsdkversion.min',
+  'sonar.android.minsdkversion.max',
   'sonar.kotlin.source.version',
   'sonar.python.version',
   'sonar.python.xunit.skipDetails',
@@ -103,17 +107,20 @@ const DENIED_PREFIXES = [
   'sonar.featureflag.'
 ]
 
-// Every build sets these, and the analysis sets its own: dropping them is no news.
+// Dropped without a warning: what every build emits for its own scanner, which the analysis
+// replaces, and switches the build plugin has already applied.
 const REPLACED_KEYS = new Set([
   'sonar.host.url',
   'sonar.token',
   'sonar.login',
   'sonar.organization',
-  'sonar.region',
   'sonar.projectKey',
   'sonar.working.directory',
   'sonar.userHome',
-  'sonar.java.jdkHome'
+  'sonar.java.jdkHome',
+  'sonar.skip',
+  'sonar.maven.scanAll',
+  'sonar.gradle.scanAll'
 ])
 
 export function isAllowed(bareKey: string): boolean {

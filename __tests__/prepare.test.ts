@@ -174,6 +174,52 @@ describe('stageAnalysis', () => {
     )
   })
 
+  it('expands patterns against the module, absolute ones into placeholders', () => {
+    const app = join(workspace, 'app')
+    file(join(app, 'build/test-results/a.xml'))
+    file(join(app, 'build/test-results/b.xml'))
+    file(join(home, 'reports/lint.xml'))
+    const staged = stageAnalysis(
+      new Map([
+        ['sonar.modules', 'app'],
+        ['app.sonar.projectBaseDir', app],
+        ['app.sonar.junit.reportPaths', 'build/test-results/*.xml'],
+        ['app.sonar.androidLint.reportPaths', `${home}/reports/*.xml`]
+      ]),
+      { workspace, home },
+      staging,
+      'gradle'
+    )
+    expect(staged.settings['app.sonar.junit.reportPaths']).toBe(
+      'build/test-results/a.xml,build/test-results/b.xml'
+    )
+    expect(staged.settings['app.sonar.androidLint.reportPaths']).toBe(
+      '{home}/reports/lint.xml'
+    )
+    expect(
+      existsSync(join(staging, 'workspace/app/build/test-results/b.xml'))
+    ).toBe(true)
+    expect(existsSync(join(staging, 'home/reports/lint.xml'))).toBe(true)
+  })
+
+  it('drops the matches of a pattern leaving the workspace', () => {
+    file(join(root, 'secrets/a.xml'))
+    const staged = stageAnalysis(
+      new Map([
+        ['sonar.projectBaseDir', workspace],
+        ['sonar.coverageReportPaths', '../secrets/*.xml']
+      ]),
+      { workspace, home },
+      staging,
+      'maven'
+    )
+    expect(staged.settings['sonar.coverageReportPaths']).toBeUndefined()
+    expect(staged.warnings).toEqual([
+      'Dropped sonar.coverageReportPaths entry outside the workspace: ../secrets/a.xml'
+    ])
+    expect(existsSync(join(staging, 'workspace'))).toBe(false)
+  })
+
   it('ships the reports of any tool', () => {
     file(join(workspace, 'ruff.json'))
     const staged = stageAnalysis(

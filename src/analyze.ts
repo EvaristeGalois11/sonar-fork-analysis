@@ -107,7 +107,8 @@ export function resolveSettings(
       base === undefined && prefix === ''
         ? workspace
         : base && mapPlaceholder(base, workspace, home)
-    if (!mapped || !inCheckout(mapped)) {
+    // The scanner reads patterns in report paths, and a checkout may hold a directory named **.
+    if (!mapped || WILDCARD.test(mapped) || !inCheckout(mapped)) {
       throw new Error(
         `The artifact gives ${prefix ? `module ${prefix.slice(0, -1)}` : 'the project'} no base directory in the checkout`
       )
@@ -129,15 +130,14 @@ export function resolveSettings(
       withSources.add(prefix)
     const entries: string[] = []
     for (const entry of value.split(',').filter((path) => path !== '')) {
-      // The build expands patterns into the files it ships.
-      const path =
-        WILDCARD.test(entry) && shipped
+      const mapped = entry.startsWith('{')
+        ? mapPlaceholder(entry, workspace, home)
+        : isAbsolute(entry)
           ? undefined
-          : entry.startsWith('{')
-            ? mapPlaceholder(entry, workspace, home)
-            : isAbsolute(entry)
-              ? undefined
-              : inside(workspace, resolve(base, entry))
+          : inside(workspace, resolve(base, entry))
+      // The build expands patterns into the files it ships; the scanner would expand what is left
+      // over files no check here has seen.
+      const path = mapped && WILDCARD.test(mapped) ? undefined : mapped
       // Shipped paths may live in the private home; output directories appear when unpacking;
       // checkout paths must already be in the checkout.
       let accepted = false
