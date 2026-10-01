@@ -185,6 +185,35 @@ describe('resolveSettings', () => {
     ])
   })
 
+  it('drops values the scanner would expand, e.g. into the Sonar token', () => {
+    file(join(workspace, 'src/App.java'))
+    const resolved = resolveSettings(
+      {
+        'sonar.sources': '{workspace}/src',
+        'sonar.projectDescription': '${env.SONAR_TOKEN}',
+        'sonar.exclusions': '**/${sonar.login}/**',
+        'sonar.links.homepage': 'https://x.example/${env.HOME}',
+        'sonar.projectVersion': 'costs $5 {or more}'
+      },
+      workspace,
+      home
+    )
+    expect(Object.fromEntries(resolved.properties)).toEqual({
+      'sonar.sources': join(workspace, 'src'),
+      'sonar.projectVersion': 'costs $5 {or more}'
+    })
+    expect(resolved.warnings).toHaveLength(3)
+  })
+
+  it('drops a placeholder before reading modules from it', () => {
+    const resolved = resolveSettings(
+      { 'sonar.modules': '${env.SONAR_TOKEN}' },
+      workspace,
+      home
+    )
+    expect(resolved.properties.has('sonar.modules')).toBe(false)
+  })
+
   it('only accepts sources the checkout already has', () => {
     file(join(workspace, 'src/App.java'))
     const resolved = resolveSettings(
@@ -301,6 +330,23 @@ describe('formatProperties', () => {
     const formatted = formatProperties(properties)
     expect(formatted).toMatch(/^[\x20-\x7e\n]*$/)
     expect(parseProperties(formatted)).toEqual(properties)
+  })
+})
+
+describe('formatProperties with placeholders', () => {
+  it('refuses a placeholder from any source', () => {
+    expect(() =>
+      formatProperties(
+        new Map([['sonar.pullrequest.branch', '${env.SONAR_TOKEN}']])
+      )
+    ).toThrow(/sonar.pullrequest.branch holds a placeholder/)
+  })
+
+  it('keeps dollar signs and braces that are no placeholder', () => {
+    for (const branch of ['feature/$money', 'a/${unclosed', 'b/$ {x}', 'c/${}'])
+      expect(() =>
+        formatProperties(new Map([['sonar.pullrequest.branch', branch]]))
+      ).not.toThrow()
   })
 })
 

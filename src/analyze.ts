@@ -54,6 +54,10 @@ function mapPlaceholder(
   return undefined
 }
 
+// The scanner replaces ${env.NAME} in a setting with that environment variable, where the Sonar token
+// is, and ${name} with another setting, before using it; there is no way to escape either.
+const PLACEHOLDER = /\$\{[\w.]+\}/
+
 export type Resolved = {
   properties: Map<string, string>
   sourceRoots: string[]
@@ -67,9 +71,18 @@ export function resolveSettings(
   workspace: string,
   home: string
 ): Resolved {
-  const { kept } = filterSettings(new Map(Object.entries(settings)))
-  const prefixes = modulePrefixes(kept)
   const warnings: string[] = []
+  // Before anything reads them, the module ids included: a value could quote the token.
+  const kept = new Map<string, string>()
+  for (const [key, value] of filterSettings(new Map(Object.entries(settings)))
+    .kept) {
+    if (PLACEHOLDER.test(value))
+      warnings.push(
+        `Dropped ${key}: it holds a placeholder the scanner would expand`
+      )
+    else kept.set(key, value)
+  }
+  const prefixes = modulePrefixes(kept)
   const sourceRoots: string[] = []
   const properties = new Map<string, string>()
   const realWorkspace = realpathSync(workspace)
@@ -255,7 +268,15 @@ function escape(text: string, isKey: boolean): string {
   return escaped
 }
 
+// Refuses a placeholder from any source, e.g. a pull request's branch name, which its author chooses.
 export function formatProperties(properties: Map<string, string>): string {
+  for (const [key, value] of properties) {
+    if (PLACEHOLDER.test(value)) {
+      throw new Error(
+        `${key} holds a placeholder the Sonar scanner would expand: ${value}`
+      )
+    }
+  }
   return [...properties]
     .map(([key, value]) => `${escape(key, true)}=${escape(value, false)}`)
     .join('\n')
