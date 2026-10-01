@@ -397,7 +397,8 @@ describe('run in analyze mode', () => {
       'sonar.projectBaseDir': '{workspace}',
       'sonar.sources': '',
       'sonar.java.binaries': '{workspace}/target/classes',
-      'sonar.host.url': 'https://evil.example.com'
+      'sonar.host.url': 'https://evil.example.com',
+      'sonar.sca.enabled': 'true'
     })
 
     await run()
@@ -421,6 +422,9 @@ describe('run in analyze mode', () => {
     expect(settings).toContain('sonar.projectKey=key')
     expect(settings).toContain('sonar.scm.revision=head-sha')
     expect(settings).not.toContain('evil.example.com')
+    // The scanner would otherwise run the checkout's build tools to list its dependencies.
+    expect(settings).toContain('sonar.sca.enabled=false')
+    expect(settings).not.toContain('sonar.sca.enabled=true')
     expect(
       readFileSync(join(project, 'target', 'classes', 'App.class'), 'utf8')
     ).toBe('bytes')

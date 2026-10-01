@@ -73,6 +73,8 @@ describe('resolveSettings', () => {
   it('drops settings the analysis decides itself', () => {
     const resolved = resolveSettings(
       {
+        'sonar.sca.enabled': 'true',
+        'sonar.sca.mavenOptions': '-Dexec=evil',
         'sonar.host.url': 'https://evil.example.com',
         'sonar.scanner.javaOpts': '-javaagent:x.jar',
         'sonar.projectKey': 'someone-else'
@@ -395,11 +397,22 @@ describe('trustedProperties', () => {
       'sonar.projectKey': 'key',
       'sonar.scm.revision': 'abc',
       'sonar.working.directory': '/tmp/scannerwork',
+      'sonar.sca.enabled': 'false',
       'sonar.organization': 'org',
       'sonar.pullrequest.key': '7',
       'sonar.pullrequest.branch': 'feature',
       'sonar.pullrequest.base': 'main'
     })
+  })
+
+  it('never lets the analysis run the build tools', () => {
+    expect(
+      trustedProperties(
+        target,
+        { headSha: 'abc', branch: 'release' },
+        '/tmp/scannerwork'
+      ).get('sonar.sca.enabled')
+    ).toBe('false')
   })
 
   it('names branches other than the default one', () => {
