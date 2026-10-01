@@ -16,12 +16,14 @@ const target = {
 }
 
 let fetch: jest.SpiedFunction<typeof globalThis.fetch>
+const saved = { ...process.env }
 
 beforeEach(() => {
   fetch = jest.spyOn(globalThis, 'fetch')
 })
 
 afterEach(() => {
+  process.env = { ...saved }
   jest.restoreAllMocks()
   jest.clearAllMocks()
 })
@@ -71,6 +73,23 @@ describe('statusReporter', () => {
       expect.stringContaining('lacks statuses: write')
     )
     expect(core.warning).not.toHaveBeenCalled()
+  })
+
+  it('keeps posting through a rate limit, which also answers 403', async () => {
+    fetch
+      .mockResolvedValueOnce(
+        new Response('', { status: 403, headers: { 'retry-after': '60' } })
+      )
+      .mockResolvedValueOnce(new Response('{}', { status: 201 }))
+    const report = statusReporter(target)
+
+    await report('pending', 'Analysing')
+    await report('success', 'Analysed')
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('GitHub answered 403')
+    )
   })
 
   it('warns, without failing, when GitHub cannot take the status', async () => {
@@ -125,6 +144,21 @@ describe('trackedReporter', () => {
     expect(note()).toMatchObject({ state: 'success', description: 'Analysed' })
   })
 
+  it('leaves nothing once a pending status was refused', async () => {
+    fetch
+      .mockResolvedValueOnce(new Response('', { status: 502 }))
+      .mockResolvedValueOnce(new Response('', { status: 502 }))
+    const report = trackedReporter(target)
+
+    await report('pending', 'Analysing')
+    expect(note()).toBe('')
+    await report('success', 'Analysed')
+
+    // The final status was still tried, but there is no pending one to close.
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(note()).toBe('')
+  })
+
   it('leaves nothing when no status could be opened', async () => {
     fetch.mockResolvedValue(new Response('{}', { status: 403 }))
     const report = trackedReporter(target)
@@ -138,11 +172,16 @@ describe('trackedReporter', () => {
 })
 
 describe('the post step', () => {
-  it('posts what the note says, with the token from the inputs', async () => {
+  it('posts what the note says, to GitHub, with the token from the inputs', async () => {
     fetch.mockResolvedValue(new Response('{}', { status: 201 }))
+    process.env.GITHUB_API_URL = 'https://api.github.com'
+    process.env.GITHUB_REPOSITORY = 'owner/repo'
     core.getState.mockReturnValue(
       JSON.stringify({
         ...target,
+        // Never where the token goes: that comes from the runner.
+        apiUrl: 'https://attacker.example',
+        repository: 'attacker/repo',
         token: undefined,
         state: 'success',
         description: 'Analysed'
@@ -152,6 +191,9 @@ describe('the post step', () => {
 
     await reportInterrupted()
 
+    expect(String(fetch.mock.calls[0][0])).toBe(
+      'https://api.github.com/repos/owner/repo/statuses/head-sha'
+    )
     expect(sent()).toMatchObject({
       state: 'success',
       description: 'Analysed',
