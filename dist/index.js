@@ -131526,7 +131526,10 @@ function statusReporter(target) {
             warning(`Could not post the ${target.name} status: ${error instanceof Error ? error.message : String(error)}`);
             return false;
         }
-        if (response.status === 401 || response.status === 403) {
+        // GitHub's rate limits answer 403 as well, but say when to retry.
+        const limited = response.headers.has('retry-after') ||
+            response.headers.get('x-ratelimit-remaining') === '0';
+        if ((response.status === 401 || response.status === 403) && !limited) {
             enabled = false;
             info(`Not posting the ${target.name} status: the token lacks statuses: write`);
         }
@@ -131596,6 +131599,14 @@ async function direct(inputs) {
     await leaveDirectNote(inputs.projectKey);
 }
 const NOTE_DAYS = 35;
+const RUNNER_FILES = [
+    'GITHUB_ENV',
+    'GITHUB_OUTPUT',
+    'GITHUB_PATH',
+    'GITHUB_STATE',
+    'GITHUB_STEP_SUMMARY',
+    'GITHUB_TOKEN'
+];
 // Tells a fork path's analysis, which runs after every build, that this one already analysed.
 async function leaveDirectNote(projectKey) {
     if (!process.env.ACTIONS_RUNTIME_TOKEN)
@@ -131717,7 +131728,7 @@ async function downloadArtifact(found, temp) {
     });
     return path;
 }
-async function analyze(inputs) {
+async function analyze(inputs, report) {
     const workspace = resolve$1(process.env.GITHUB_WORKSPACE ?? process.cwd());
     const eventPath = process.env.GITHUB_EVENT_PATH;
     const context = {
@@ -131729,31 +131740,10 @@ async function analyze(inputs) {
         apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
         token: inputs.githubToken
     };
-    // GitHub names the commit the triggering run built, so the status has somewhere to go before
-    // anything here can fail.
-    const report = context.eventName === 'workflow_run'
-        ? trackedReporter({
-            apiUrl: context.apiUrl,
-            repository: context.repository,
-            sha: context.event.workflow_run.head_sha,
-            token: inputs.githubToken,
-            name: inputs.projectKey
-                ? `Sonar fork analysis (${inputs.projectKey})`
-                : 'Sonar fork analysis',
-            url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
-        })
-        : noReporter;
-    try {
-        await analyzeRun(inputs, context, workspace, report);
-    }
-    catch (error) {
-        // Not the message: it may quote the artifact, i.e. words of the fork's choosing. The run has it.
-        await report('failure', 'The analysis failed, see the run');
-        throw error;
-    }
+    await analyzeRun(inputs, context, workspace, report);
 }
-// Posts nothing until there is something to analyse, so a build that analysed directly stays quiet;
-// any error, however early, still ends in a failure status.
+// Posts pending only once there is something to analyse, so a build that analysed directly, or did
+// not concern this project, stays quiet.
 async function analyzeRun(inputs, context, workspace, report) {
     if (!inputs.projectKey)
         throw new Error('Input required: project-key');
@@ -131844,8 +131834,11 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     writeFileSync(settingsFile, formatProperties(properties));
     const scanner = await installScanner();
     info(`Analysing ${name}`);
-    // The scanner reads untrusted content and needs none of the action's inputs, which hold tokens.
-    const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('INPUT_')));
+    // The scanner reads untrusted content, and needs none of the action's inputs, the runner's own
+    // tokens, nor the files through which a step talks to the runner.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('INPUT_') &&
+        !name.startsWith('ACTIONS_') &&
+        !RUNNER_FILES.includes(name)));
     env.SONAR_TOKEN = inputs.token;
     // The scanner prints module names and paths from the artifact and the checkout; none of it may
     // pass for a workflow command.
@@ -131865,7 +131858,7 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     if (exitCode !== 0)
         throw new Error(`The Sonar scanner failed with exit code ${exitCode}`);
 }
-async function dispatch(inputs) {
+async function dispatch(inputs, report) {
     const resolution = resolveMode(inputs.mode, process.env.GITHUB_EVENT_NAME ?? '', inputs.token);
     if (resolution.warning)
         warning(resolution.warning);
@@ -131876,17 +131869,41 @@ async function dispatch(inputs) {
         case 'prepare':
             return prepare(inputs);
         case 'analyze':
-            return analyze(inputs);
+            return analyze(inputs, report);
     }
 }
+// Under workflow_run the job does not show on the pull request, so a status reports its failures.
+// GitHub names the commit the triggering run built, so the status has somewhere to go before anything
+// can fail, the reading of the inputs included.
+function workflowRunReporter() {
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    if (process.env.GITHUB_EVENT_NAME !== 'workflow_run' || !eventPath)
+        return noReporter;
+    const repository = process.env.GITHUB_REPOSITORY ?? '';
+    const projectKey = getInput('project-key');
+    return trackedReporter({
+        apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
+        repository,
+        sha: JSON.parse(readFileSync$1(eventPath, 'utf8')).workflow_run.head_sha,
+        token: getInput('github-token'),
+        name: projectKey
+            ? `Sonar fork analysis (${projectKey})`
+            : 'Sonar fork analysis',
+        url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
+    });
+}
 async function run() {
+    let report = noReporter;
     try {
+        report = workflowRunReporter();
         const inputs = readInputs();
         if (inputs.token)
             setSecret(inputs.token);
-        await dispatch(inputs);
+        await dispatch(inputs, report);
     }
     catch (error) {
+        // Not the message: it may quote the artifact, i.e. words of the fork's choosing. The run has it.
+        await report('failure', 'The analysis failed, see the run');
         setFailed(error instanceof Error ? error.message : String(error));
     }
 }

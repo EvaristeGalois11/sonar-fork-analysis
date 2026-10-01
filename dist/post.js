@@ -28664,7 +28664,10 @@ function statusReporter(target) {
             warning(`Could not post the ${target.name} status: ${error instanceof Error ? error.message : String(error)}`);
             return false;
         }
-        if (response.status === 401 || response.status === 403) {
+        // GitHub's rate limits answer 403 as well, but say when to retry.
+        const limited = response.headers.has('retry-after') ||
+            response.headers.get('x-ratelimit-remaining') === '0';
+        if ((response.status === 401 || response.status === 403) && !limited) {
             enabled = false;
             info(`Not posting the ${target.name} status: the token lacks statuses: write`);
         }
@@ -28675,13 +28678,19 @@ function statusReporter(target) {
     };
 }
 const NOTE = 'pending-status';
-// The post step: a note left means GitHub never took the final status.
+// The post step: a note left means GitHub never took the final status. Where to send the token comes
+// from the runner, not from the note, which a compromised analysis could have rewritten.
 async function reportInterrupted() {
     const saved = getState(NOTE);
     if (!saved)
         return;
     const { state, description, ...target } = JSON.parse(saved);
-    await statusReporter({ ...target, token: getInput('github-token') })(state, description);
+    await statusReporter({
+        ...target,
+        apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
+        repository: process.env.GITHUB_REPOSITORY ?? '',
+        token: getInput('github-token')
+    })(state, description);
 }
 
 /* istanbul ignore next */

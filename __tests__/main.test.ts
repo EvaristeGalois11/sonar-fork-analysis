@@ -132,6 +132,8 @@ describe('run', () => {
 
   it('notes the direct analysis for the fork path', async () => {
     process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+    // Set by GitHub in CI, where this test runs too.
+    delete process.env.GITHUB_RETENTION_DAYS
     artifact.uploadArtifact.mockResolvedValue({ id: 1, size: 1 })
     exec.mockImplementation(async (_tool, _args, options) => {
       writeReport(options!.cwd!)
@@ -145,6 +147,23 @@ describe('run', () => {
     expect(name).toBe('sonar-fork-analysis-key+direct')
     expect(files).toHaveLength(1)
     expect(options).toEqual({ retentionDays: 35 })
+    expect(core.notice).not.toHaveBeenCalled()
+  })
+
+  it('keeps the note no longer than a build can last', async () => {
+    process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+    process.env.GITHUB_RETENTION_DAYS = '90'
+    artifact.uploadArtifact.mockResolvedValue({ id: 1, size: 1 })
+    exec.mockImplementation(async (_tool, _args, options) => {
+      writeReport(options!.cwd!)
+      return 0
+    })
+
+    await run()
+
+    expect(artifact.uploadArtifact.mock.calls[0][3]).toEqual({
+      retentionDays: 35
+    })
     expect(core.notice).not.toHaveBeenCalled()
   })
 
@@ -372,6 +391,8 @@ describe('run in analyze mode', () => {
 
   it('scans with trusted settings and the token only in the environment', async () => {
     process.env['INPUT_GITHUB-TOKEN'] = 'gh-token'
+    process.env.ACTIONS_RUNTIME_TOKEN_FOR_TEST = 'runtime'
+    process.env.GITHUB_STATE = '/runner/state'
     prepared({
       'sonar.projectBaseDir': '{workspace}',
       'sonar.sources': '',
@@ -386,9 +407,14 @@ describe('run in analyze mode', () => {
     expect(tool).toBe('/opt/sonar-scanner/bin/sonar-scanner')
     expect(args!.join(' ')).not.toContain(TOKEN)
     expect(options!.env!.SONAR_TOKEN).toBe(TOKEN)
-    // The inputs hold tokens the scanner, which reads untrusted content, has no use for.
+    // Tokens and runner files the scanner, which reads untrusted content, has no use for.
     expect(
-      Object.keys(options!.env!).filter((name) => name.startsWith('INPUT_'))
+      Object.keys(options!.env!).filter(
+        (name) =>
+          name.startsWith('INPUT_') ||
+          name.startsWith('ACTIONS_') ||
+          name === 'GITHUB_STATE'
+      )
     ).toEqual([])
     const settingsFile = args![0].replace('-Dproject.settings=', '')
     const settings = readFileSync(settingsFile, 'utf8')
@@ -638,6 +664,48 @@ describe('run in analyze mode', () => {
       expect(core.setFailed).toHaveBeenCalledWith(
         expect.stringContaining('No Sonar token')
       )
+      // Nothing was left open for the post step.
+      expect(core.saveState.mock.calls.every(([, note]) => note === '')).toBe(
+        true
+      )
+    })
+
+    it('reports inputs it cannot read', async () => {
+      triggeredBy('push', 'owner/repo')
+      inputs.mode = 'analyse'
+
+      await run()
+
+      expect(statuses()).toEqual(['failure: The analysis failed, see the run'])
+      expect(core.setFailed).toHaveBeenCalledWith(
+        expect.stringContaining('analyse')
+      )
+    })
+
+    it('posts nothing for a pull request that has moved on', async () => {
+      triggeredBy('pull_request', 'forker/repo')
+      fetch.mockImplementation(async () => new Response('[]'))
+
+      await run()
+
+      expect(statuses()).toEqual([])
+      expect(core.notice).toHaveBeenCalledWith(
+        expect.stringContaining('No open pull request')
+      )
+    })
+
+    it('prefers the prepared artifact to its own direct note', async () => {
+      triggeredBy('push', 'owner/repo')
+      prepared({})
+      built('sonar-fork-analysis-key+direct', 'sonar-fork-analysis-key')
+      artifact.downloadArtifact.mockImplementation(async (_id, options) => {
+        cpSync(artifactDir, options!.path!, { recursive: true })
+        return { downloadPath: options!.path }
+      })
+
+      await run()
+
+      expect(statuses()).toEqual(['pending: Analysing', 'success: Analysed'])
     })
 
     it('does not need the token when the build analysed directly', async () => {
@@ -706,6 +774,26 @@ describe('run in analyze mode', () => {
       expect(getExecOutput).not.toHaveBeenCalled()
       expect(core.setFailed).not.toHaveBeenCalled()
     })
+  })
+
+  it("lists and downloads the same run's artifact without looking elsewhere", async () => {
+    process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+    prepared({})
+    artifact.listArtifacts.mockResolvedValue({
+      artifacts: [{ name: 'sonar-fork-analysis-key', id: 3, size: 1 }]
+    })
+    artifact.downloadArtifact.mockImplementation(async (_id, options) => {
+      cpSync(artifactDir, options!.path!, { recursive: true })
+      return { downloadPath: options!.path }
+    })
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(artifact.listArtifacts.mock.calls[0][0]).not.toHaveProperty('findBy')
+    const [id, options] = artifact.downloadArtifact.mock.calls[0]
+    expect(id).toBe(3)
+    expect(options).not.toHaveProperty('findBy')
   })
 
   it('posts no status where the job itself shows on the pull request', async () => {
