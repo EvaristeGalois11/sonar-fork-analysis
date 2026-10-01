@@ -127317,7 +127317,8 @@ const SHIPPED_PATH_KEYS = new Set([
     'sonar.surefire.reportsPath',
     'sonar.jacoco.reportPath',
     'sonar.jacoco.reportPaths',
-    'sonar.coverage.jacoco.xmlReportPaths'
+    'sonar.coverage.jacoco.xmlReportPaths',
+    'sonar.coverage.jacoco.aggregateXmlReportPaths'
 ]);
 // Paths into the checked-out sources; never shipped, the analysis has its own checkout.
 const CHECKOUT_PATH_KEYS = new Set([
