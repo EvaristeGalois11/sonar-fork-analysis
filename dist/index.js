@@ -127371,8 +127371,13 @@ function modulePrefixes(settings) {
             .map((module) => module.trim())
             .filter((module) => module.length > 0);
         for (const module of modules) {
-            // The scanner turns a module id into a directory under its parent's.
-            if (module === '.' || module === '..' || /[/\\]/.test(module))
+            // The scanner turns a module id into a directory under its parent's, and moves every key
+            // starting with the id out of the parent: 'sonar.sca' would take the trusted sonar.sca.enabled.
+            if (module === '.' ||
+                module === '..' ||
+                /[/\\]/.test(module) ||
+                module === 'sonar' ||
+                module.startsWith('sonar.'))
                 throw new Error(`Invalid module id: ${module}`);
             const nested = `${prefix}${module}.`;
             if (!seen.has(nested)) {

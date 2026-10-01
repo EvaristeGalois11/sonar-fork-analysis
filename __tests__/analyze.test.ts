@@ -405,7 +405,7 @@ describe('trustedProperties', () => {
     })
   })
 
-  it('never lets the analysis run the build tools', () => {
+  it('keeps dependency analysis off on branches too', () => {
     expect(
       trustedProperties(
         target,

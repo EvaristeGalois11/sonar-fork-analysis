@@ -40,6 +40,15 @@ describe('modulePrefixes', () => {
       )
     }
   )
+
+  it.each(['sonar', 'sonar.sca', 'sonar.working'])(
+    'refuses the module id %s, which would take settings from its parent',
+    (id) => {
+      expect(() => modulePrefixes(new Map([['sonar.modules', id]]))).toThrow(
+        /Invalid module id/
+      )
+    }
+  )
 })
 
 describe('splitKey', () => {
