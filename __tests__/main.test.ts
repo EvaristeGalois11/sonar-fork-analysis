@@ -144,7 +144,28 @@ describe('run', () => {
     const [name, files, , options] = artifact.uploadArtifact.mock.calls[0]
     expect(name).toBe('sonar-fork-analysis-key+direct')
     expect(files).toHaveLength(1)
-    expect(options).toEqual({ retentionDays: 30 })
+    expect(options).toEqual({ retentionDays: 35 })
+    expect(core.notice).not.toHaveBeenCalled()
+  })
+
+  it('says when the repository keeps the note too briefly', async () => {
+    process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+    process.env.GITHUB_RETENTION_DAYS = '7'
+    artifact.uploadArtifact.mockResolvedValue({ id: 1, size: 1 })
+    exec.mockImplementation(async (_tool, _args, options) => {
+      writeReport(options!.cwd!)
+      return 0
+    })
+
+    await run()
+
+    expect(artifact.uploadArtifact.mock.calls[0][3]).toEqual({
+      retentionDays: 7
+    })
+    expect(core.notice).toHaveBeenCalledWith(
+      expect.stringContaining('keeps artifacts 7 days')
+    )
+    expect(core.setFailed).not.toHaveBeenCalled()
   })
 
   it('still succeeds when the note cannot be left, explaining a name clash', async () => {
