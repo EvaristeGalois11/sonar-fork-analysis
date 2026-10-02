@@ -29,4 +29,4 @@ first.
 - Self-hosted runners shared by fork builds and the analysis: GitHub advises
   against them for public repositories, since fork code can persistently
   compromise the machine
-  ([Hardening for self-hosted runners](https://docs.github.com/en/actions/reference/security/secure-use)).
+  ([Hardening for self-hosted runners](https://docs.github.com/en/actions/reference/security/secure-use#hardening-for-self-hosted-runners)).

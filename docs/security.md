@@ -112,7 +112,7 @@ pull request, not as a review of it.
   workflow. A fork's build can tamper with what it leaves on the runner,
   including the scanner the action caches and reuses. GitHub advises against
   self-hosted runners for public repositories in its
-  [secure use reference](https://docs.github.com/en/actions/reference/security/secure-use).
+  [secure use reference](https://docs.github.com/en/actions/reference/security/secure-use#hardening-for-self-hosted-runners).
 - Pin the action to a commit SHA.
 - Give the Sonar job only the permissions shown in the
   [setup](../README.md#setup), and no secrets or steps the analysis doesn't
