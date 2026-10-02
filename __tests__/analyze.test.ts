@@ -9,8 +9,9 @@ import {
   symlinkSync,
   writeFileSync
 } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, sep } from 'node:path'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import fc from 'fast-check'
 import {
   checkNoLinks,
@@ -403,6 +404,39 @@ describe('removeProjectSettings', () => {
   })
 })
 
+describe('resolveSettings and the scanner', () => {
+  it('refuses paths the scanner would read as others', () => {
+    mkdirSync(join(workspace, 'x '))
+    symlinkSync(outside, join(workspace, 'x'))
+    mkdirSync(join(workspace, 'a\r'))
+    const resolved = resolveSettings(
+      {
+        'sonar.sources': '{workspace}/x ',
+        'sonar.java.binaries': '{workspace}/a\r,{workspace}/"b"',
+        'sonar.tests': '{workspace}/x\u3000'
+      },
+      workspace,
+      home
+    )
+    expect(resolved.properties.get('sonar.sources')).toBe('')
+    expect(resolved.properties.get('sonar.java.binaries')).toBe('')
+    expect(resolved.properties.get('sonar.tests')).toBe('')
+    expect(resolved.warnings).toHaveLength(4)
+  })
+
+  it('refuses such a base directory', () => {
+    mkdirSync(join(workspace, 'x '))
+    symlinkSync(outside, join(workspace, 'x'))
+    expect(() =>
+      resolveSettings(
+        { 'sonar.projectBaseDir': '{workspace}/x ' },
+        workspace,
+        home
+      )
+    ).toThrow('no base directory in the checkout')
+  })
+})
+
 describe('resolveSettings on any artifact', () => {
   const segment = fc.constantFrom(
     '..',
@@ -411,6 +445,13 @@ describe('resolveSettings on any artifact', () => {
     'a',
     'out',
     'secret',
+    'x',
+    'x ',
+    ' ',
+    'a\r',
+    '"',
+    '\u3000',
+    '\u00a0',
     '*',
     '**',
     '?',
@@ -438,6 +479,11 @@ describe('resolveSettings on any artifact', () => {
     file(join(outside, 'secret'))
     symlinkSync(outside, join(workspace, 'out'))
     mkdirSync(join(workspace, 'a'))
+    // Names the scanner reads as the links next to them: trimmed, and \r as \n.
+    mkdirSync(join(workspace, 'x '))
+    symlinkSync(outside, join(workspace, 'x'))
+    mkdirSync(join(workspace, 'a\r'))
+    symlinkSync(outside, join(workspace, 'a\n'))
     // Paths that do not exist are only resolved by name, against the roots as given.
     const roots = [workspace, home, realpathSync(workspace), realpathSync(home)]
     const within = (path: string, root: string): boolean =>
@@ -456,7 +502,12 @@ describe('resolveSettings on any artifact', () => {
         for (const path of paths) {
           expect(isAbsolute(path)).toBe(true)
           expect(WILDCARD.test(path)).toBe(false)
-          const real = existsSync(path) ? realpathSync(path) : path
+          // What the scanner uses: trimmed, then \r read as \n by its list parser.
+          const read = path
+            // eslint-disable-next-line no-control-regex
+            .replace(/^[\x00-\x20\s]+|[\x00-\x20\s]+$/g, '')
+            .replace(/\r/g, '\n')
+          const real = existsSync(read) ? realpathSync(read) : read
           expect(roots.some((root) => within(real, root))).toBe(true)
         }
       }),
@@ -523,6 +574,72 @@ describe('formatProperties', () => {
       { numRuns: 1000 }
     )
   })
+
+  // The scanner CLI reads the file with java.util.Properties itself, so the round trip above is
+  // checked against Java too. Without Java the check is skipped, except on CI, where it must run.
+  const hasJava = spawnSync('java', ['-version']).status === 0
+  const withJava = hasJava || process.env.CI ? it : it.skip
+
+  withJava(
+    'is read back by the scanner CLI as written, values trimmed',
+    () => {
+      const seed = Date.now()
+      const samples = fc.sample(
+        fc
+          .uniqueArray(fc.tuple(text, text), { selector: ([key]) => key })
+          .filter((entries) =>
+            entries.every(([, value]) => !placeholder.test(value))
+          ),
+        { numRuns: 1000, seed }
+      )
+      const directory = join(root, 'settings')
+      mkdirSync(directory)
+      const names = samples.map((entries, index) => {
+        const name = `${String(index).padStart(4, '0')}.properties`
+        writeFileSync(join(directory, name), formatProperties(new Map(entries)))
+        return name
+      })
+
+      const output = execFileSync(
+        'java',
+        [resolve('__tests__/java/ReadSettings.java'), directory],
+        { encoding: 'utf8', maxBuffer: 1 << 28 }
+      )
+      const unhex = (text: string): string =>
+        String.fromCharCode(
+          ...(text.slice(1).match(/.{4}/g) ?? []).map((unit) =>
+            parseInt(unit, 16)
+          )
+        )
+      const read = new Map<string, Map<string, string>>()
+      let current = new Map<string, string>()
+      for (const line of output.split('\n').filter((line) => line !== '')) {
+        if (line.startsWith('file ')) {
+          current = new Map()
+          read.set(line.slice('file '.length), current)
+        } else {
+          const [key, value] = line.split(' ').map(unhex)
+          current.set(key, value)
+        }
+      }
+
+      // Like String.trim: everything up to a space goes at both ends.
+      const trim = (text: string): string =>
+        // eslint-disable-next-line no-control-regex
+        text.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, '')
+      samples.forEach((entries, index) => {
+        const expected = new Map(
+          entries.map(([key, value]) => [key, trim(value)])
+        )
+        expect({ seed, entries, read: read.get(names[index]) }).toEqual({
+          seed,
+          entries,
+          read: expected
+        })
+      })
+    },
+    60_000
+  )
 
   it('refuses a placeholder wherever it is', () => {
     const name = fc.stringMatching(/^[\w.]+$/)

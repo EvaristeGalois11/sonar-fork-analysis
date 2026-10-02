@@ -62,6 +62,30 @@ describe('modulePrefixes', () => {
   )
 })
 
+const engineTrim = (text: string): string =>
+  text.replace(
+    // eslint-disable-next-line no-control-regex
+    /^[\x00-\x20\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+|[\x00-\x20\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+$/g,
+    ''
+  )
+
+describe('modulePrefixes and the scanner', () => {
+  it.each([
+    'app,"sonar.sca"',
+    '"sonar.working"',
+    '\u0001sonar.sca',
+    'app,\u3000sonar.sca',
+    'app,\u00a0x'
+  ])(
+    'refuses the module list %j, which the scanner reads otherwise',
+    (list) => {
+      expect(() => modulePrefixes(new Map([['sonar.modules', list]]))).toThrow(
+        /Invalid module id/
+      )
+    }
+  )
+})
+
 describe('modulePrefixes on any artifact', () => {
   const id = fc.oneof(
     fc.constantFrom(
@@ -75,7 +99,13 @@ describe('modulePrefixes on any artifact', () => {
       'org.acme:app',
       'a',
       'a.b',
-      ''
+      '',
+      '"sonar.sca"',
+      '"a,b"',
+      '\u0001sonar.sca',
+      'sonar.sca\r',
+      '\u3000sonar.sca',
+      '\u00a0x'
     ),
     fc.string({ maxLength: 8 }).filter((id) => !id.includes(','))
   )
@@ -112,6 +142,14 @@ describe('modulePrefixes on any artifact', () => {
           throw error
         }
         expect(new Set(prefixes).size).toBe(prefixes.length)
+        // The scanner splits these lists as CSV, trimming control characters and Unicode spaces but
+        // not no-break ones (verified on engine 13.7): it must find the same ids.
+        for (const prefix of prefixes) {
+          const list = settings.get(`${prefix}sonar.modules`) ?? ''
+          expect(list).not.toContain('"')
+          for (const module of list.split(','))
+            expect(module.trim()).toBe(engineTrim(module))
+        }
         for (const key of trusted)
           expect(splitKey(key, prefixes)).toEqual({ prefix: '', bareKey: key })
       }),

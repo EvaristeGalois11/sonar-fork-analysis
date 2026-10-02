@@ -21,6 +21,7 @@ import type { PullRequest } from './origin.js'
 import {
   CHECKOUT_PATH_KEYS,
   OUTPUT_PATH_KEYS,
+  REREAD_PATH,
   WILDCARD,
   filterSettings,
   isShippedPath,
@@ -108,7 +109,12 @@ export function resolveSettings(
         ? workspace
         : base && mapPlaceholder(base, workspace, home)
     // The scanner reads patterns in report paths, and a checkout may hold a directory named **.
-    if (!mapped || WILDCARD.test(mapped) || !inCheckout(mapped)) {
+    if (
+      !mapped ||
+      WILDCARD.test(mapped) ||
+      REREAD_PATH.test(mapped) ||
+      !inCheckout(mapped)
+    ) {
       throw new Error(
         `The artifact gives ${prefix ? `module ${prefix.slice(0, -1)}` : 'the project'} no base directory in the checkout`
       )
@@ -136,8 +142,11 @@ export function resolveSettings(
           ? undefined
           : inside(workspace, resolve(base, entry))
       // The build expands patterns into the files it ships; the scanner would expand what is left
-      // over files no check here has seen.
-      const path = mapped && WILDCARD.test(mapped) ? undefined : mapped
+      // over files no check here has seen. Nor may the scanner read the path differently.
+      const path =
+        mapped && (WILDCARD.test(mapped) || REREAD_PATH.test(mapped))
+          ? undefined
+          : mapped
       // Shipped paths may live in the private home; output directories appear when unpacking;
       // checkout paths must already be in the checkout.
       let accepted = false
