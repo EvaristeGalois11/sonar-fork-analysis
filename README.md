@@ -156,9 +156,12 @@ advice.
 
 On a pull request, `actions/checkout` checks out a merge of the pull request
 into the base branch, but the Sonar workflow analyses the pull request's head.
-If the base branch has moved on, binaries and coverage come from slightly
-different code than the analysed sources. To make them match, check out the head
-in the build:
+This rarely matters. It only affects files that changed both in the pull request
+and on the base branch since the pull request branched off. Their binaries and
+coverage then come from slightly different code, and the only visible sign is
+usually a scanner warning such as _Cannot import coverage information for file_.
+
+If you want the two to match exactly, check out the head in the build:
 
 ```yaml
 - uses: actions/checkout@v7
@@ -168,8 +171,8 @@ in the build:
     ref: ${{ github.event.pull_request.head.sha }}
 ```
 
-This changes what your build tests on every pull request, so decide whether you
-want it.
+This changes what your whole build tests on pull requests, so only do it if
+you're happy with that.
 
 ## Inputs
 
