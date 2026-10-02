@@ -71,6 +71,9 @@ On pushes and pull requests from your own repository, the build has the token,
 so the action analyses straight away, as Sonar's own Maven and Gradle plugins
 would. The Sonar workflow still starts after the build, but has nothing to do.
 
+Dependabot's pull requests run without your Actions secrets, like forks, so they
+take the fork path too.
+
 You don't have to pick any of this. The `mode` input defaults to `auto`, which
 chooses the right part from where the action runs and whether it has a token.
 
@@ -209,15 +212,57 @@ or pull requests from your own repository can never be merged.
 
 ### Several projects
 
-Run the action once per project key in both workflows, for example with a matrix
-over `working-directory` and `project-key`. A single Sonar workflow can analyse
-them all.
+Run the action once per project, each with its own project key and
+`working-directory`, for example with a matrix. In the build workflow:
+
+```yaml
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - project-key: my-org_service-a
+            working-directory: service-a
+          - project-key: my-org_service-b
+            working-directory: service-b
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout and Java setup as in the setup.
+      - uses: evaristegalois11/sonar-fork-analysis@v2
+        with:
+          project-key: ${{ matrix.project-key }}
+          working-directory: ${{ matrix.working-directory }}
+          sonar-organization: my-org
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
+```
+
+The Sonar workflow only needs the project keys:
+
+```yaml
+jobs:
+  sonar:
+    if: github.event.workflow_run.conclusion == 'success'
+    strategy:
+      matrix:
+        project-key: [my-org_service-a, my-org_service-b]
+    runs-on: ubuntu-latest
+    # Permissions as in the setup.
+    steps:
+      - uses: evaristegalois11/sonar-fork-analysis@v2
+        with:
+          project-key: ${{ matrix.project-key }}
+          sonar-organization: my-org
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
+```
+
+If the build skips a project, for example because none of its files changed,
+that project's Sonar job ends without doing anything.
 
 ### Skipping runs with nothing to do
 
 The Sonar workflow runs after every build, and stops straight away when the
 build analysed directly. To skip it completely, run its job only for forks and
-Dependabot, which gets no secrets either:
+Dependabot:
 
 ```yaml
 if: >
@@ -226,20 +271,47 @@ if: >
    github.event.workflow_run.actor.login == 'dependabot[bot]')
 ```
 
-The Sonar workflow should only run after builds that ran the action. Otherwise
-it reports that the build left nothing to analyse. If the build workflow ignores
-some paths, use `paths-ignore` on its trigger, so the Sonar workflow never
-starts. If the build skips the action on some events, skip them in the Sonar job
-too, for example with `github.event.workflow_run.event != 'schedule'`.
+### Builds that don't always run the action
+
+The Sonar workflow expects every build it follows to have run the action.
+Otherwise it reports that the build left nothing to analyse. If the build
+ignores some changes, ignore them in its trigger, so the Sonar workflow never
+starts:
+
+```yaml
+on:
+  pull_request:
+    paths-ignore: ['docs/**']
+```
+
+If the build skips the action on some events, skip them in the Sonar job too:
+
+```yaml
+if: >
+  github.event.workflow_run.conclusion == 'success' &&
+  github.event.workflow_run.event != 'schedule'
+```
 
 ### Only for forks, next to another Sonar setup
 
 If you already analyse your own pull requests and pushes another way, such as
-with Sonar's own action, you can use this action for forks only. Add
-`if: github.event.pull_request.head.repo.fork` to the step in the build, and
-`github.event.workflow_run.head_repository.fork` to the Sonar job's condition.
-Dependabot's pull requests aren't forks but get no secrets either. If your other
-setup needs a token, add `github.actor == 'dependabot[bot]'` to both conditions.
+with Sonar's own action, you can use this action for forks and Dependabot only.
+In the build, run it only on those pull requests, and without a token, so it
+always takes the fork path:
+
+<!-- prettier-ignore -->
+```yaml
+- uses: evaristegalois11/sonar-fork-analysis@v2
+  if: >
+    github.event.pull_request.head.repo.fork ||
+    github.actor == 'dependabot[bot]'
+  with:
+    project-key: my-org_my-project
+    sonar-organization: my-org
+```
+
+In the Sonar workflow, use the job condition from
+[skipping runs](#skipping-runs-with-nothing-to-do).
 
 ### Your own checkout
 
@@ -261,11 +333,6 @@ branch.
     checkout: false
     # …
 ```
-
-### Dependabot
-
-Dependabot's pull requests run without your Actions secrets, like forks. They
-take the same path, and the Sonar workflow analyses them.
 
 ## Used by
 

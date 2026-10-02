@@ -70,7 +70,7 @@ notices show up as annotations on the run. Errors fail the step.
   The build didn't run the action for this project key. Check that both
   workflows use the same `project-key`, and that the Sonar workflow only runs
   after builds that ran the action, see
-  [skipping runs](../README.md#skipping-runs-with-nothing-to-do).
+  [builds that don't always run the action](../README.md#builds-that-dont-always-run-the-action).
 - **No open pull request has … as its head any more; a newer run analyses it.**\
   The pull request got new commits, or was closed, before the analysis started.
   Nothing to do.
