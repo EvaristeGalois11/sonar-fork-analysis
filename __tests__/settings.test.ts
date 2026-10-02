@@ -2,11 +2,13 @@ import {
   filterSettings,
   isAllowed,
   isShippedPath,
-  modulePrefixes,
-  splitKey
+  moduleTree
 } from '../src/settings.js'
 import fc from 'fast-check'
 import { engineEntry, moduleSettings, trustedKeys } from './arbitraries.js'
+
+const modulePrefixes = (settings: Map<string, string>): string[] =>
+  moduleTree(settings).prefixes
 
 const settings = new Map([
   ['sonar.modules', 'org.acme:parent-tests'],
@@ -26,7 +28,7 @@ const settings = new Map([
   ['java.home', '/usr/lib/jvm']
 ])
 
-describe('modulePrefixes', () => {
+describe('moduleTree', () => {
   it('follows nested modules whose ids contain dots', () => {
     expect(modulePrefixes(settings)).toEqual([
       '',
@@ -35,13 +37,48 @@ describe('modulePrefixes', () => {
     ])
   })
 
-  it('visits each module once', () => {
-    const repeated = new Map([
-      ['sonar.modules', 'a,a,a.a'],
-      ['a.sonar.modules', 'a,a'],
-      ['a.a.sonar.modules', 'a,a']
-    ])
-    expect(modulePrefixes(repeated)).toEqual(['', 'a.', 'a.a.', 'a.a.a.'])
+  it.each([
+    ['the same id twice', new Map([['sonar.modules', 'a,a']])],
+    [
+      'a nested module whose path is a sibling id',
+      new Map([
+        ['sonar.modules', 'a,a.b'],
+        ['a.sonar.modules', 'b']
+      ])
+    ]
+  ])('refuses %s, as the engine does', (_, tree) => {
+    expect(() => modulePrefixes(tree)).toThrow(/Invalid module id/)
+  })
+
+  it('gives each key to the module the engine gives it to', () => {
+    // a.b takes every a.b.* key before a, so a's module b.c gets none: no base, so it is refused later.
+    const tree = moduleTree(
+      new Map([
+        ['sonar.modules', 'a,a.b'],
+        ['a.sonar.modules', 'b.c'],
+        ['a.b.c.sonar.projectBaseDir', '/work/checked']
+      ])
+    )
+    expect(tree.prefixes).toEqual(['', 'a.b.', 'a.', 'a.b.c.'])
+    expect(tree.split('a.b.c.sonar.projectBaseDir')).toEqual({
+      prefix: 'a.b.',
+      bareKey: 'c.sonar.projectBaseDir'
+    })
+    expect(tree.keyOf('a.b.c.', 'sonar.projectBaseDir')).toBeUndefined()
+  })
+
+  it('keeps ids that are prefixes of their siblings apart, like Tycho builds', () => {
+    const tree = moduleTree(
+      new Map([
+        ['sonar.modules', 'X:core,X:core.tests'],
+        ['X:core.sonar.sources', 'src'],
+        ['X:core.tests.sonar.sources', 'test']
+      ])
+    )
+    expect(tree.split('X:core.sonar.sources').prefix).toBe('X:core.')
+    expect(tree.split('X:core.tests.sonar.sources').prefix).toBe(
+      'X:core.tests.'
+    )
   })
 
   it.each(['..', '.', 'up/..', 'C:\\x'])(
@@ -63,7 +100,7 @@ describe('modulePrefixes', () => {
   )
 })
 
-describe('modulePrefixes and the scanner', () => {
+describe('moduleTree and the scanner', () => {
   it.each([
     'app,"sonar.sca"',
     '"sonar.working"',
@@ -80,40 +117,28 @@ describe('modulePrefixes and the scanner', () => {
   )
 })
 
-describe('modulePrefixes on any artifact', () => {
-  // The module ids the engine reads, walked from the root like the engine does: lists split as CSV,
-  // ids trimmed of control characters and Unicode spaces but not no-break ones (see arbitraries.ts).
-  const engineModules = (settings: Map<string, string>): string[] => {
-    const found: string[] = []
-    const walk = (prefix: string, depth: number): void => {
-      const list = settings.get(`${prefix}sonar.modules`)
-      if (list === undefined || depth > 6) return
-      // Quotes would group ids differently; the model only reads lists without them.
-      expect(list).not.toContain('"')
-      for (const module of list.split(',').map(engineEntry)) {
-        if (!module) continue
-        found.push(module)
-        walk(`${prefix}${module}.`, depth + 1)
-      }
-    }
-    walk('', 0)
-    return found
-  }
-
+describe('moduleTree on any artifact', () => {
   it('lets no module take a setting the analysis sets on the project', () => {
     fc.assert(
       fc.property(moduleSettings, (settings) => {
+        let tree
         try {
-          modulePrefixes(settings)
+          tree = moduleTree(settings)
         } catch (error) {
           // Refusing the artifact is the other safe outcome.
           if ((error as Error).message.startsWith('Invalid module id')) return
           throw error
         }
-        for (const module of engineModules(settings)) {
-          expect(module === 'sonar' || module.startsWith('sonar.')).toBe(false)
+        for (const prefix of tree.prefixes) {
+          // Stricter than the engine, where only the project's own modules take its keys.
           for (const key of trustedKeys)
-            expect(key.startsWith(`${module}.`)).toBe(false)
+            expect(prefix !== '' && key.startsWith(prefix)).toBe(false)
+          // The engine splits lists as CSV and trims ids its own way (see arbitraries.ts): with no
+          // quotes, it must read the same ids.
+          const list = settings.get(tree.keyOf(prefix, 'sonar.modules') ?? '')
+          expect(list ?? '').not.toContain('"')
+          for (const module of (list ?? '').split(','))
+            expect(module.trim()).toBe(engineEntry(module) ?? '')
         }
       }),
       { numRuns: 1000 }
@@ -121,12 +146,11 @@ describe('modulePrefixes on any artifact', () => {
   })
 })
 
-describe('splitKey', () => {
-  it('strips the longest matching module prefix', () => {
+describe('moduleTree.split', () => {
+  it('strips the prefix of the module the key belongs to', () => {
     expect(
-      splitKey(
-        'org.acme:parent-tests.org.acme:bean-tests.sonar.exclusions',
-        modulePrefixes(settings)
+      moduleTree(settings).split(
+        'org.acme:parent-tests.org.acme:bean-tests.sonar.exclusions'
       )
     ).toEqual({
       prefix: 'org.acme:parent-tests.org.acme:bean-tests.',

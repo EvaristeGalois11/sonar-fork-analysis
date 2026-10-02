@@ -26,8 +26,7 @@ import {
   filterSettings,
   isPathList,
   isShippedPath,
-  modulePrefixes,
-  splitKey
+  moduleTree
 } from './settings.js'
 
 // Everything here handles an artifact built by code from a pull request, possibly a fork's, in a job
@@ -61,6 +60,8 @@ function mapPlaceholder(
 // is, and ${name} with another setting, before using it; there is no way to escape either.
 const PLACEHOLDER = /\$\{[\w.]+\}/
 
+const LONE_SURROGATE = /\p{Cs}/u
+
 export type Resolved = {
   properties: Map<string, string>
   sourceRoots: string[]
@@ -83,6 +84,12 @@ export function resolveSettings(
       warnings.push(
         `Dropped ${key}: it holds a placeholder the scanner would expand`
       )
+    // Half of a surrogate pair: Node's file system reads it as U+FFFD, the scanner's Java as '?', so
+    // a path checked here would not be the one used.
+    else if (LONE_SURROGATE.test(key) || LONE_SURROGATE.test(value))
+      warnings.push(
+        `Dropped ${JSON.stringify(key)}: it holds half of a character`
+      )
     else expandable.set(key, value)
   }
   const { kept, dropped, replaced, ignored } = filterSettings(expandable)
@@ -92,7 +99,7 @@ export function resolveSettings(
     warnings.push(
       `Dropped settings a build never ships: ${unexpected.join(', ')}`
     )
-  const prefixes = modulePrefixes(kept)
+  const tree = moduleTree(kept)
   const sourceRoots: string[] = []
   const properties = new Map<string, string>()
   const realWorkspace = realpathSync(workspace)
@@ -103,8 +110,8 @@ export function resolveSettings(
   // The scanner resolves a module's relative paths against its base directory, and derives a missing
   // one from the module id, so every module must come with a base checked here.
   const bases = new Map<string, string>()
-  for (const prefix of prefixes) {
-    const base = kept.get(`${prefix}sonar.projectBaseDir`)
+  for (const prefix of tree.prefixes) {
+    const base = kept.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '')
     const mapped =
       base === undefined && prefix === ''
         ? workspace
@@ -126,7 +133,7 @@ export function resolveSettings(
 
   const withSources = new Set<string>()
   for (const [key, value] of kept) {
-    const { prefix, bareKey } = splitKey(key, prefixes)
+    const { prefix, bareKey } = tree.split(key)
     const shipped = isShippedPath(bareKey)
     const output = OUTPUT_PATH_KEYS.has(bareKey)
     if (!shipped && !output && !CHECKOUT_PATH_KEYS.has(bareKey)) {
@@ -349,8 +356,9 @@ export function trustedProperties(
     // Sonar's dependency analysis lists dependencies by running the project's own build tools
     // (mvnw, gradlew, npm), i.e. the pull request's code, with the token in the environment.
     ['sonar.sca.enabled', 'false'],
-    // So does the engine's build system autoconfiguration, which runs the checkout's mvnw (SonarCloud
-    // engine 13.14, behind server-side feature flags).
+    // So does the engine's build system autoconfiguration, which runs the checkout's mvnw; this turns
+    // off all of it, including the readers deriving the project's layout from its build files
+    // (SonarCloud engine 13.14, behind server-side feature flags).
     ['sonar.scanner.autoconfig.enabled', 'false']
   ])
   if (target.organization)

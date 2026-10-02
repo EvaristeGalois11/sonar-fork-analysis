@@ -23,9 +23,24 @@ export async function cliJar(): Promise<string> {
   return join(lib, jar)
 }
 
-// The engine SonarCloud hands the scanner today, checked against the digest it publishes.
+// Downloads fail rather than hang, and an error page never passes for a file.
+async function download(
+  url: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(300_000),
+    ...init
+  })
+  if (!response.ok && response.status !== 302)
+    throw new Error(`${url} answered ${response.status}`)
+  return response
+}
+
+// The engine SonarCloud hands the scanner today, checked against the digest it publishes, also when
+// an earlier run downloaded it.
 export async function sonarCloudEngine(work: string): Promise<string> {
-  const response = await fetch('https://api.sonarcloud.io/analysis/engine', {
+  const response = await download('https://api.sonarcloud.io/analysis/engine', {
     headers: { Accept: 'application/json' }
   })
   const { filename, sha256, downloadUrl } = (await response.json()) as {
@@ -34,22 +49,24 @@ export async function sonarCloudEngine(work: string): Promise<string> {
     downloadUrl: string
   }
   const path = join(work, filename)
-  if (!existsSync(path))
-    writeFileSync(
-      path,
-      Buffer.from(await (await fetch(downloadUrl)).arrayBuffer())
-    )
-  const actual = createHash('sha256').update(readFileSync(path)).digest('hex')
-  if (actual !== sha256)
-    throw new Error(`${filename} has SHA-256 ${actual}, expected ${sha256}`)
+  const digest = (data: Buffer): string =>
+    createHash('sha256').update(data).digest('hex')
+  if (!existsSync(path) || digest(readFileSync(path)) !== sha256) {
+    const jar = Buffer.from(await (await download(downloadUrl)).arrayBuffer())
+    if (digest(jar) !== sha256)
+      throw new Error(
+        `${filename} has SHA-256 ${digest(jar)}, expected ${sha256}`
+      )
+    writeFileSync(path, jar)
+  }
   return path
 }
 
 // The engine of the latest SonarQube release, which a SonarQube server hands the scanner. Only that
 // jar is read out of the distribution, nearly a gigabyte, with range requests. Sonar publishes no
-// digest for the jar alone: HTTPS and the archive's CRC are the checks.
+// digest for the jar alone: HTTPS and the archive's CRC are the checks, also of an earlier download.
 export async function sonarQubeEngine(work: string): Promise<string> {
-  const latest = await fetch(
+  const latest = await download(
     'https://github.com/SonarSource/sonarqube/releases/latest',
     { redirect: 'manual' }
   )
@@ -57,7 +74,7 @@ export async function sonarQubeEngine(work: string): Promise<string> {
   if (!version) throw new Error('No latest SonarQube release found')
   const url = `https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-${version}.zip`
   const range = async (start: number, end: number): Promise<Buffer> => {
-    const response = await fetch(url, {
+    const response = await download(url, {
       headers: { Range: `bytes=${start}-${end}` }
     })
     if (response.status !== 206)
@@ -67,10 +84,11 @@ export async function sonarQubeEngine(work: string): Promise<string> {
 
   // The central directory, found through its end record within the last 64 KiB.
   const size = Number(
-    (await fetch(url, { method: 'HEAD' })).headers.get('content-length')
+    (await download(url, { method: 'HEAD' })).headers.get('content-length')
   )
   const tail = await range(Math.max(0, size - 65_557), size - 1)
   const end = tail.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
+  if (end === -1) throw new Error(`${url} has no zip directory at its end`)
   const directorySize = tail.readUInt32LE(end + 12)
   const directoryOffset = tail.readUInt32LE(end + 16)
   if (directoryOffset === 0xffffffff)
@@ -84,9 +102,9 @@ export async function sonarQubeEngine(work: string): Promise<string> {
     const name = directory.toString('utf8', at + 46, at + 46 + nameLength)
     if (/\/lib\/scanner\/sonar-scanner-engine[^/]*\.jar$/.test(name)) {
       const path = join(work, name.split('/').pop() as string)
-      if (!existsSync(path)) {
+      const crc = directory.readUInt32LE(at + 16)
+      if (!existsSync(path) || crc32(readFileSync(path)) !== crc) {
         const method = directory.readUInt16LE(at + 10)
-        const crc = directory.readUInt32LE(at + 16)
         const compressed = directory.readUInt32LE(at + 20)
         const offset = directory.readUInt32LE(at + 42)
         const local = await range(offset, offset + 29)
@@ -120,7 +138,8 @@ const unhex = (text: string): string =>
     ...(text.slice(1).match(/.{4}/g) ?? []).map((unit) => parseInt(unit, 16))
   )
 
-export type ModuleWalk = { refused?: string; modules: string[]; root: string[] }
+// The engine's modules, by path ('' for the project, nested ids joined with dots), with their keys.
+export type ModuleWalk = { refused?: string; modules: Map<string, string[]> }
 
 export class Probe {
   constructor(private readonly jars: string[]) {}
@@ -164,12 +183,13 @@ export class Probe {
     ])
     return this.withInput(lines, (input) => {
       const walks: ModuleWalk[] = []
+      let keys: string[] = []
       for (const [kind, value] of this.run('modules', input)) {
-        if (kind === 'case') walks.push({ modules: [], root: [] })
+        if (kind === 'case') walks.push({ modules: new Map() })
         const walk = walks[walks.length - 1]
         if (kind === 'refused') walk.refused = unhex(value)
-        if (kind === 'module') walk.modules.push(unhex(value))
-        if (kind === 'root') walk.root.push(unhex(value))
+        if (kind === 'module') walk.modules.set(unhex(value), (keys = []))
+        if (kind === 'key') keys.push(unhex(value))
       }
       return walks
     })
@@ -206,7 +226,7 @@ export class Probe {
     )
       .split('\n')
       .filter((line) =>
-        /^(file|entry|split|case|refused|module|root|class)( |$)/.test(line)
+        /^(file|entry|split|case|refused|module|key|class)( |$)/.test(line)
       )
       .map((line) => line.split(' '))
   }

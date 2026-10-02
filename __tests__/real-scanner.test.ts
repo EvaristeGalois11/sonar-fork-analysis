@@ -2,15 +2,16 @@
 // and the engines SonarCloud and the latest SonarQube serve, which change without notice. They are
 // downloaded, so the checks only run when SCANNER_CHECKS is set, as the Scanner workflow does.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import fc from 'fast-check'
 import { formatProperties } from '../src/analyze.js'
-import { REREAD_PATH, modulePrefixes } from '../src/settings.js'
+import { REREAD_PATH, moduleTree } from '../src/settings.js'
 import {
   engineEntry,
   moduleSettings,
+  plausibleModuleSettings,
   settingText,
   settingsWithoutPlaceholders,
   trustedKeys
@@ -29,9 +30,25 @@ const javaTrim = (text: string): string =>
 
 const describeScanner = process.env.SCANNER_CHECKS ? describe : describe.skip
 
-const work = process.env.RUNNER_TEMP ?? join(tmpdir(), 'scanner-checks')
-process.env.RUNNER_TEMP ??= work
+// Sampled: about 640 trees with 2500 modules get through per 1000; well below that, the check says
+// little.
+const MIN_ACCEPTED = 400
+const MIN_MODULES = 1500
+
+// Downloads are kept between local runs in the user's own cache, never a shared directory; on CI they
+// go to the job's temporary directory. The installer's own leftovers go to a directory of this run.
+const work =
+  process.env.RUNNER_TEMP ??
+  join(homedir(), '.cache', 'sonar-fork-analysis', 'scanner-checks')
 process.env.RUNNER_TOOL_CACHE ??= join(work, 'tools')
+const runnerTemp = process.env.RUNNER_TEMP
+if (!runnerTemp)
+  process.env.RUNNER_TEMP = mkdtempSync(join(tmpdir(), 'scanner-'))
+
+afterAll(() => {
+  if (!runnerTemp)
+    rmSync(process.env.RUNNER_TEMP as string, { recursive: true, force: true })
+})
 
 describeScanner('the scanner CLI', () => {
   let probe: Probe
@@ -120,46 +137,62 @@ describeScanner.each([
     })
   })
 
-  it('finds the modules the analysis checked and leaves the trusted settings on the project', () => {
+  it('gives every setting to the module the analysis checked it for', () => {
     const seed = Date.now()
     const accepted = fc
-      .sample(moduleSettings, { numRuns: 1000, seed })
-      .map((settings) => {
+      .sample(
+        fc.oneof(
+          { weight: 3, arbitrary: plausibleModuleSettings },
+          { weight: 1, arbitrary: moduleSettings }
+        ),
+        { numRuns: 1000, seed }
+      )
+      .map((generated) => {
+        const settings = new Map([
+          ...generated,
+          ...trustedKeys.map((key): [string, string] => [key, 'trusted'])
+        ])
         try {
-          return { settings, prefixes: modulePrefixes(settings) }
+          return { settings, tree: moduleTree(settings) }
         } catch {
           return undefined
         }
       })
       .filter((tree) => tree !== undefined)
-    const walks = probe.walkModules(
-      accepted.map(
-        ({ settings }) =>
-          new Map([
-            ...settings,
-            ...trustedKeys.map((key): [string, string] => [key, 'trusted'])
-          ])
+    const walks = probe.walkModules(accepted.map(({ settings }) => settings))
+    const sorted = (modules: Map<string, string[]>): [string, string[]][] =>
+      [...modules]
+        .map(([path, keys]): [string, string[]] => [path, [...keys].sort()])
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    let modules = 0
+    accepted.forEach(({ settings, tree }, index) => {
+      // The engine names a module by its ids joined with dots: the analysis's prefix without the dot.
+      const ours = new Map(
+        tree.prefixes.map((prefix): [string, string[]] => [
+          prefix.slice(0, -1),
+          []
+        ])
       )
-    )
-    accepted.forEach(({ settings, prefixes }, index) => {
+      for (const key of settings.keys()) {
+        const { prefix, bareKey } = tree.split(key)
+        ours.get(prefix.slice(0, -1))?.push(bareKey)
+      }
       const walk = walks[index]
-      // The engine refusing a tree, e.g. a repeated id, only fails the analysis.
-      if (walk.refused !== undefined) return
-      const modules = walk.modules
-        .filter((path) => path !== '')
-        .map((path) => `${path}.`)
-        .sort()
-      expect({ seed, settings, modules }).toEqual({
+      expect({
         seed,
         settings,
-        modules: prefixes.filter((prefix) => prefix !== '').sort()
-      })
-      expect({ seed, settings, root: walk.root }).toEqual({
-        seed,
-        settings,
-        root: expect.arrayContaining(trustedKeys)
-      })
+        refused: walk.refused,
+        modules: sorted(walk.modules)
+      }).toEqual({ seed, settings, refused: undefined, modules: sorted(ours) })
+      modules += ours.size - 1
     })
+    // Most generated trees are refused or flat; enough must get through for this to say anything.
+    expect({
+      seed,
+      accepted: accepted.length,
+      modules,
+      enough: accepted.length > MIN_ACCEPTED && modules > MIN_MODULES
+    }).toMatchObject({ enough: true })
   })
 
   it('starts processes only where it is known to', () => {
@@ -182,13 +215,18 @@ describe('the fixture build wrappers', () => {
   it.each(['fixtures/maven/mvnw', 'fixtures/gradle/gradlew'])(
     '%s springs the trap',
     (wrapper) => {
-      const sprung = join(mkdtempSync(join(tmpdir(), 'trap-')), 'sprung')
-      const run = spawnSync('sh', [wrapper, '--version'], {
-        env: { ...process.env, SONAR_FORK_ANALYSIS_TRAP: sprung },
-        encoding: 'utf8'
-      })
-      expect(run.status).toBe(1)
-      expect(readFileSync(sprung, 'utf8')).toContain(wrapper)
+      const directory = mkdtempSync(join(tmpdir(), 'trap-'))
+      try {
+        const sprung = join(directory, 'sprung')
+        const run = spawnSync('sh', [wrapper, '--version'], {
+          env: { ...process.env, SONAR_FORK_ANALYSIS_TRAP: sprung },
+          encoding: 'utf8'
+        })
+        expect(run.status).toBe(1)
+        expect(readFileSync(sprung, 'utf8')).toContain(wrapper)
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+      }
     }
   )
 })
