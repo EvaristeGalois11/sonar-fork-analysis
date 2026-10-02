@@ -9,7 +9,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import * as artifact from '../__fixtures__/artifact.js'
 import * as core from '../__fixtures__/core.js'
 import { exec, getExecOutput } from '../__fixtures__/exec.js'
@@ -446,6 +446,9 @@ describe('run in analyze mode', () => {
       )
     ).toEqual([])
     const settingsFile = args![0].replace('-Dproject.settings=', '')
+    // In a directory of the action's, where tools the engine starts find none of the checkout.
+    expect(options!.cwd).not.toBe(project)
+    expect(options!.cwd).toBe(join(dirname(settingsFile), 'run'))
     const settings = readFileSync(settingsFile, 'utf8')
     expect(settings).toContain('sonar.projectKey=key')
     expect(settings).toContain('sonar.scm.revision=head-sha')

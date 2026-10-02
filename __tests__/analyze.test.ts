@@ -221,6 +221,42 @@ describe('resolveSettings', () => {
     ).toThrow(/module app no base directory/)
   })
 
+  it('refuses a module whose base goes to another module, as the engine assigns keys', () => {
+    // a.b takes every a.b.* key before a does, so a's module b.c gets no base: the engine would
+    // place it at a/b.c, unchecked.
+    mkdirSync(join(workspace, 'a'))
+    mkdirSync(join(workspace, 'ab'))
+    mkdirSync(join(workspace, 'checked'))
+    expect(() =>
+      resolveSettings(
+        {
+          'sonar.modules': 'a,a.b',
+          'a.sonar.modules': 'b.c',
+          'a.sonar.projectBaseDir': '{workspace}/a',
+          'a.b.sonar.projectBaseDir': '{workspace}/ab',
+          'a.b.c.sonar.projectBaseDir': '{workspace}/checked'
+        },
+        workspace,
+        home
+      )
+    ).toThrow(/module a\.b\.c no base directory/)
+  })
+
+  it('drops settings holding half of a character', () => {
+    // Java reads a\ud800b as a?b, which the checkout could hold as a link.
+    const resolved = resolveSettings(
+      {
+        'sonar.java.binaries': '{workspace}/a\ud800b',
+        'sonar.exclusions\udfff': 'x',
+        'sonar.java.source': '21'
+      },
+      workspace,
+      home
+    )
+    expect([...resolved.properties.keys()]).toEqual(['sonar.java.source'])
+    expect(resolved.warnings).toHaveLength(2)
+  })
+
   it('follows links in the checkout before accepting a path', () => {
     file(join(workspace, 'gen/.keep'))
     symlinkSync(outside, join(workspace, 'leak'))
@@ -464,6 +500,7 @@ describe('resolveSettings on any artifact', () => {
     'b',
     'out',
     'secret',
+    'a\ud800',
     'x',
     'x ',
     ' ',
@@ -514,11 +551,15 @@ describe('resolveSettings on any artifact', () => {
     )
 
   // Every way the scanner might read a path: as written, trimmed by the CLI (up to a space), trimmed
-  // by the engine's list parser (Unicode spaces too), and with that parser's \r read as \n.
+  // by the engine's list parser (Unicode spaces too), with that parser's \r read as \n, and with
+  // half a character pair read as '?' by Java.
   const readings = (path: string): string[] => {
     // eslint-disable-next-line no-control-regex
     const trimmed = path.replace(/^[\x00-\x20\s]+|[\x00-\x20\s]+$/g, '')
-    return [path, trimmed, trimmed.replace(/\r/g, '\n')]
+    return [path, trimmed, trimmed.replace(/\r/g, '\n')].flatMap((read) => [
+      read,
+      read.replace(/\p{Cs}/gu, '?')
+    ])
   }
 
   it('never lets a path out of the workspace or the private home', () => {
@@ -532,6 +573,8 @@ describe('resolveSettings on any artifact', () => {
     symlinkSync(outside, join(workspace, 'x'))
     mkdirSync(join(workspace, 'a\r'))
     symlinkSync(outside, join(workspace, 'a\n'))
+    // Where Java reads half a character pair as '?'.
+    symlinkSync(outside, join(workspace, 'a?'))
     // The analysis creates the private home only after resolving, when it unpacks the artifact.
     rmSync(home, { recursive: true })
     const realWorkspace = realpathSync(workspace)

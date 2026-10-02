@@ -15,6 +15,7 @@ jobs:
   scanner:
     name: 'Check against the real scanner'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: 'Checkout project'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -68,46 +68,99 @@ const takers = trustedKeys.flatMap((key) =>
 )
 
 const moduleId = fc.oneof(
-  fc.constantFrom(
-    ...takers,
-    'sonar',
-    ' sonar ',
-    ' sonar.sca',
-    '.',
-    '..',
-    'a/b',
-    'org.acme:app',
-    'a',
-    'a.b',
-    '',
-    '"sonar.sca"',
-    '"a,b"',
-    '\u0001sonar.sca',
-    'sonar.sca\r',
-    '\u3000sonar.sca',
-    '\u00a0x'
-  ),
-  fc.string({ maxLength: 12 }).filter((id) => !id.includes(','))
+  {
+    weight: 4,
+    arbitrary: fc.constantFrom(
+      ...takers,
+      'sonar',
+      ' sonar ',
+      ' sonar.sca',
+      '.',
+      '..',
+      'a/b',
+      'org.acme:app',
+      // Ids that are each other's prefixes, where a key's longest prefix and the engine disagree.
+      'a',
+      'a.b',
+      'a.b.c',
+      'b',
+      'b.c',
+      'c',
+      'X:core',
+      'X:core.tests',
+      '',
+      '"sonar.sca"',
+      '"a,b"',
+      '\u0001sonar.sca',
+      'sonar.sca\r',
+      '\u3000sonar.sca',
+      '\u00a0x'
+    )
+  },
+  {
+    weight: 1,
+    arbitrary: fc.string({ maxLength: 12 }).filter((id) => !id.includes(','))
+  }
 )
 
-// Module trees an artifact could declare, as sonar.modules lists at each level.
-export const moduleSettings = fc
-  .array(
-    fc.tuple(
-      fc.array(moduleId, { maxLength: 3 }),
-      fc.array(moduleId, { maxLength: 4 })
-    ),
-    { maxLength: 6 }
+type ModuleNode = { id: string; children: ModuleNode[] }
+
+// Ids a real build could have, overlapping so that keys collide.
+const plausibleModuleId = fc.oneof(
+  {
+    weight: 4,
+    arbitrary: fc.constantFrom(
+      'a',
+      'a.b',
+      'a.b.c',
+      'b',
+      'b.c',
+      'c',
+      'X:core',
+      'X:core.tests',
+      'org.acme:app'
+    )
+  },
+  { weight: 1, arbitrary: fc.stringMatching(/^[a-c][a-c.:]{0,5}$/) }
+)
+
+const moduleLevel = (
+  id: fc.Arbitrary<string>,
+  depth: number
+): fc.Arbitrary<ModuleNode[]> =>
+  fc.array(
+    fc.record({
+      id,
+      children: depth > 1 ? moduleLevel(id, depth - 1) : fc.constant([])
+    }),
+    { maxLength: 3 }
   )
-  .map(
-    (levels) =>
-      new Map(
-        levels.map(([path, modules]) => [
-          `${path.map((module) => `${module}.`).join('')}sonar.modules`,
-          modules.join(',')
-        ])
-      )
-  )
+
+// Module trees an artifact could declare, built top-down: each module's list, base and one more
+// setting, under the prefix its key would carry. Overlapping ids make keys collide, on purpose.
+const treeSettings = (roots: ModuleNode[]): Map<string, string> => {
+  const settings = new Map<string, string>()
+  let count = 0
+  const add = (prefix: string, nodes: ModuleNode[]): void => {
+    if (nodes.length === 0) return
+    settings.set(`${prefix}sonar.modules`, nodes.map(({ id }) => id).join(','))
+    for (const { id, children } of nodes) {
+      const nested = `${prefix}${id}.`
+      settings.set(`${nested}sonar.projectBaseDir`, `/ws/${count++}`)
+      settings.set(`${nested}sonar.exclusions`, `${count++}`)
+      add(nested, children)
+    }
+  }
+  add('', roots)
+  return settings
+}
+
+export const moduleSettings = moduleLevel(moduleId, 3).map(treeSettings)
+
+// Trees a real build could declare, which the analysis mostly accepts.
+export const plausibleModuleSettings = moduleLevel(plausibleModuleId, 3).map(
+  treeSettings
+)
 
 // How the engine trims a list entry, in two passes (SonarQube's engine 13.7 and SonarCloud's 13.14,
 // checked against both in real-scanner.test.ts): its own, which strips everything up to a space and

@@ -20,7 +20,8 @@ import java.util.jar.JarFile;
 // with a word saying what it is, since the scanner's logging may print too.
 //   cli <dir>          each file, read the way the CLI reads project.settings
 //   csv <file>         each line, split the way the engine splits list settings
-//   modules <file>     each case, walked into modules the way the engine builds the project
+//   modules <file>     each case, walked into modules the way the engine builds the project, with the
+//                      keys each module gets
 //   processes <jar>    the engine classes that can start a process
 public class ScannerProbe {
     public static void main(String[] args) throws Exception {
@@ -74,12 +75,16 @@ public class ScannerProbe {
             Map<String, Map<String, String>> byModule = new HashMap<>();
             try {
                 walk.invoke(null, byModule, "", "", new HashMap<>(settings));
-            } catch (InvocationTargetException refused) {
-                System.out.println("refused " + hex(String.valueOf(refused.getCause().getMessage())));
+            } catch (InvocationTargetException failed) {
+                // Only the engine's own refusal of a project; anything else is a failure of the check.
+                if (!failed.getCause().getClass().getName().equals("org.sonar.api.utils.MessageException")) throw failed;
+                System.out.println("refused " + hex(String.valueOf(failed.getCause().getMessage())));
                 continue;
             }
-            for (String path : byModule.keySet()) System.out.println("module " + hex(path));
-            for (String key : byModule.get("").keySet()) System.out.println("root " + hex(key));
+            for (Map.Entry<String, Map<String, String>> module : byModule.entrySet()) {
+                System.out.println("module " + hex(module.getKey()));
+                for (String key : module.getValue().keySet()) System.out.println("key " + hex(key));
+            }
         }
     }
 
@@ -92,11 +97,18 @@ public class ScannerProbe {
         }
     }
 
+    // What starts a process, directly or through the helpers the engine bundles; a class using any of
+    // them is listed.
     private static final byte[][] STARTERS = {
         utf8("java/lang/ProcessBuilder"),
-        utf8("org/sonar/scanner/process/executor/ProcessWrapperFactory"),
+        utf8("java.lang.ProcessBuilder"),
         // Runtime.exec: the method name as a constant pool entry (tag 1, length 4).
-        {1, 0, 4, 'e', 'x', 'e', 'c'}
+        {1, 0, 4, 'e', 'x', 'e', 'c'},
+        utf8("org/sonar/scanner/process/executor/ProcessWrapperFactory"),
+        utf8("org/sonar/api/utils/command/CommandExecutor"),
+        utf8("org/apache/commons/exec/DefaultExecutor"),
+        utf8("org/apache/commons/exec/CommandLine"),
+        utf8("com/sonar/sca/scanner/internal/DefaultProcessExecutor")
     };
 
     private static void processes(File jar) throws Exception {

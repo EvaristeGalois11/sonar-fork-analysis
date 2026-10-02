@@ -8,11 +8,16 @@ com/google/common/util/concurrent/JdkFutureAdapters
 com/google/common/util/concurrent/ListenableFutureTask
 com/jcraft/jsch/agentproxy/usocket/NCUSocketFactory  # SVN support
 com/sonar/sca/scanner/internal/DefaultProcessExecutor  # dependency analysis: off, sonar.sca.enabled=false
+com/sonar/sca/scanner/ScaScanner  # dependency analysis: off, sonar.sca.enabled=false
 com/sun/jna/NativeLibrary
 com/trilead/ssh2/packets/PacketSessionExecCommand  # SVN support
 nl/altindag/desidero/MacCertificateUtils
 org/apache/commons/configuration2/reloading/PeriodicReloadingTrigger
+org/apache/commons/exec/CommandLine
+org/apache/commons/exec/DaemonExecutor
 org/apache/commons/exec/DefaultExecutor
+org/apache/commons/exec/environment/DefaultProcessingEnvironment
+org/apache/commons/exec/Executor
 org/apache/commons/exec/launcher/CommandLauncher
 org/apache/commons/exec/launcher/CommandLauncherImpl
 org/apache/commons/exec/launcher/CommandLauncherProxy
@@ -45,6 +50,7 @@ org/eclipse/jgit/util/FS_Win32_Cygwin
 org/eclipse/jgit/util/SshSupport
 org/sonar/api/utils/command/CommandExecutor  # the plugin API for running commands; plugins are outside this check
 org/sonar/scanner/process/executor/ProcessWrapperFactory  # the engine's process helper itself
+org/sonar/scanner/process/executor/ProcessWrapperImpl  # the engine's process helper itself
 org/sonar/scm/git/GitScmSupport  # runs git; the .git it reads is created by the action
 org/sonar/scm/git/NativeGitBlameCommand  # runs git blame; the .git it reads is created by the action
 org/tmatesoft/sqljet/core/internal/lang/SqlJetConnection  # SVN support

@@ -236,6 +236,18 @@ describe('stageAnalysis', () => {
     expect(existsSync(join(staging, 'workspace/ruff.json'))).toBe(true)
   })
 
+  it('keeps a single path whole, commas included', () => {
+    const base = join(workspace, 'a,b')
+    file(join(base, 'pom.xml'))
+    const staged = stageAnalysis(
+      new Map([['sonar.projectBaseDir', base]]),
+      { workspace, home },
+      staging,
+      'maven'
+    )
+    expect(staged.settings['sonar.projectBaseDir']).toBe('{workspace}/a,b')
+  })
+
   it('drops paths outside the workspace and home with a warning', () => {
     const staged = stageAnalysis(
       new Map([['sonar.sources', '/etc/passwd']]),

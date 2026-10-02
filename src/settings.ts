@@ -160,15 +160,29 @@ export function isAllowed(bareKey: string): boolean {
   )
 }
 
-// Every module prefix, nested ones included: '', 'a.', 'a.b.'. Module ids may contain dots
-// (groupId:artifactId), so prefixes come from each level's sonar.modules, never from splitting keys.
-// Each prefix is visited once: repeated or overlapping ids would otherwise multiply the walk.
-export function modulePrefixes(settings: Map<string, string>): string[] {
-  const prefixes = ['']
-  const seen = new Set(prefixes)
-  for (let index = 0; index < prefixes.length; index++) {
-    const prefix = prefixes[index]
-    const list = settings.get(`${prefix}sonar.modules`) ?? ''
+export type SplitKey = { prefix: string; bareKey: string }
+
+export type ModuleTree = {
+  // Every module, as the prefix of the keys the engine gives it: '', 'a.', 'a.b.'.
+  prefixes: string[]
+  // The module the engine gives a key to, and the key within it.
+  split(key: string): SplitKey
+  // The key the engine gives a module as the given one, if any.
+  keyOf(prefix: string, bareKey: string): string | undefined
+}
+
+// The modules and their keys, assigned the way the engine does (ProjectReactorBuilder, now
+// ProjectStructureBuilder.extractPropertiesByModule): each level's sonar.modules, in reverse sorted
+// order, and each module takes the keys starting with its id from what its earlier siblings left.
+// Module ids may contain dots (groupId:artifactId), so a key's longest matching prefix can name a
+// different module than the engine's; see real-scanner.test.ts.
+export function moduleTree(settings: Map<string, string>): ModuleTree {
+  const assigned = new Map<string, SplitKey>()
+  const prefixes: string[] = []
+  const walk = (prefix: string, keys: Map<string, string>): void => {
+    prefixes.push(prefix)
+    const listKey = keys.get('sonar.modules')
+    const list = (listKey !== undefined && settings.get(listKey)) || ''
     // Quoted, "sonar.sca" would pass the check below and still name the module sonar.sca.
     if (REREAD_IN_LIST.test(list))
       throw new Error(`Invalid module id in ${JSON.stringify(list)}`)
@@ -176,7 +190,7 @@ export function modulePrefixes(settings: Map<string, string>): string[] {
       .split(',')
       .map((module) => module.trim())
       .filter((module) => module.length > 0)
-    for (const module of modules) {
+    for (const module of modules.sort().reverse()) {
       // The scanner turns a module id into a directory under its parent's, and moves every key
       // starting with the id out of the parent: 'sonar.sca' would take the trusted sonar.sca.enabled.
       if (
@@ -188,24 +202,33 @@ export function modulePrefixes(settings: Map<string, string>): string[] {
       )
         throw new Error(`Invalid module id: ${module}`)
       const nested = `${prefix}${module}.`
-      if (!seen.has(nested)) {
-        seen.add(nested)
-        prefixes.push(nested)
+      // The engine refuses a module path it has seen, e.g. a,a or a,a.b next to a's own b.
+      if (prefixes.includes(nested))
+        throw new Error(`Invalid module id: ${module} repeats ${nested}`)
+      const own = new Map<string, string>()
+      for (const [relative, original] of keys) {
+        if (relative.startsWith(`${module}.`)) {
+          own.set(relative.slice(module.length + 1), original)
+          keys.delete(relative)
+        }
       }
+      walk(nested, own)
     }
+    for (const [relative, original] of keys)
+      assigned.set(original, { prefix, bareKey: relative })
   }
-  return prefixes
-}
+  walk('', new Map([...settings.keys()].map((key) => [key, key])))
 
-export type SplitKey = { prefix: string; bareKey: string }
-
-export function splitKey(key: string, prefixes: string[]): SplitKey {
-  // Longest first, so a nested module wins over its parent.
-  const prefix =
-    [...prefixes]
-      .sort((a, b) => b.length - a.length)
-      .find((candidate) => candidate !== '' && key.startsWith(candidate)) ?? ''
-  return { prefix, bareKey: key.slice(prefix.length) }
+  const byModule = new Map<string, Map<string, string>>()
+  for (const [key, { prefix, bareKey }] of assigned) {
+    if (!byModule.has(prefix)) byModule.set(prefix, new Map())
+    byModule.get(prefix)?.set(bareKey, key)
+  }
+  return {
+    prefixes,
+    split: (key) => assigned.get(key) ?? { prefix: '', bareKey: key },
+    keyOf: (prefix, bareKey) => byModule.get(prefix)?.get(bareKey)
+  }
 }
 
 export type Filtered = {
@@ -219,7 +242,7 @@ export type Filtered = {
 }
 
 export function filterSettings(settings: Map<string, string>): Filtered {
-  const prefixes = modulePrefixes(settings)
+  const tree = moduleTree(settings)
   const filtered: Filtered = {
     kept: new Map(),
     dropped: [],
@@ -227,7 +250,7 @@ export function filterSettings(settings: Map<string, string>): Filtered {
     ignored: []
   }
   for (const [key, value] of settings) {
-    const { bareKey } = splitKey(key, prefixes)
+    const { bareKey } = tree.split(key)
     if (isAllowed(bareKey)) filtered.kept.set(key, value)
     else if (!bareKey.startsWith('sonar.')) filtered.ignored.push(key)
     else if (REPLACED_KEYS.has(bareKey) || bareKey.startsWith('sonar.scanner.'))

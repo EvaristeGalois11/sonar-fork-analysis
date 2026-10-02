@@ -36,10 +36,15 @@ jobs:
         # The PATH entry is the directory created here, holding nothing but the stand-ins.
         run: | # zizmor: ignore[github-env]
           mkdir -p "$RUNNER_TEMP/traps"
-          for tool in mvn gradle npm npx yarn pnpm cargo go python python3 pip pip3 poetry uv dotnet sbt; do
+          for tool in mvn gradle npm npx yarn pnpm cargo go python python3 pip pip3 poetry uv sbt; do
             printf "#!/bin/sh\necho \"\$0 \$*\" >> \"%s\"\nexit 1\n" "$RUNNER_TEMP/traps/sprung" > "$RUNNER_TEMP/traps/$tool"
             chmod +x "$RUNNER_TEMP/traps/$tool"
           done
+          # SonarCloud's engine runs dotnet build -version for its analytics, which is fine anywhere but
+          # in the checkout, where dotnet would read the pull request's global.json.
+          printf "#!/bin/sh\ncase \"\$PWD/\" in \"%s\"/*) echo \"dotnet \$* in \$PWD\" >> \"%s\";; esac\nexit 1\n" \
+            "$GITHUB_WORKSPACE" "$RUNNER_TEMP/traps/sprung" > "$RUNNER_TEMP/traps/dotnet"
+          chmod +x "$RUNNER_TEMP/traps/dotnet"
           echo "$RUNNER_TEMP/traps" >> "$GITHUB_PATH"
 
       - name: 'Analyse with Sonar'
@@ -60,7 +65,10 @@ jobs:
         run: |
           if [ -e "$RUNNER_TEMP/traps/sprung" ]; then
             echo '::error::The analysis ran build tools:'
-            # Indented, so no recorded line can pass for a workflow command.
-            sed 's/^/  /' "$RUNNER_TEMP/traps/sprung"
+            # The recorded lines come from the analysed code's reach; none may pass for a workflow command.
+            resume="$(cat /proc/sys/kernel/random/uuid)"
+            echo "::stop-commands::$resume"
+            cat "$RUNNER_TEMP/traps/sprung"
+            echo "::$resume::"
             exit 1
           fi

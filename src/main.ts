@@ -4,6 +4,7 @@ import { exec } from '@actions/exec'
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -50,7 +51,7 @@ import { parseProperties } from './properties.js'
 import { findNewReport, snapshotReports } from './report.js'
 import { installScanner } from './scanner.js'
 import { noReporter, trackedReporter, type Reporter } from './status.js'
-import { filterSettings, modulePrefixes, splitKey } from './settings.js'
+import { filterSettings, moduleTree } from './settings.js'
 
 async function direct(inputs: Inputs): Promise<void> {
   if (!inputs.projectKey) throw new Error('Input required: project-key')
@@ -166,8 +167,8 @@ async function prepare(inputs: Inputs): Promise<void> {
     `Ignored ${ignored.length} environment variables and JVM properties`
   )
   // Maven repeats command-line and parent settings in every module.
-  const prefixes = modulePrefixes(settings)
-  const left = new Set(dropped.map((key) => splitKey(key, prefixes).bareKey))
+  const tree = moduleTree(settings)
+  const left = new Set(dropped.map((key) => tree.split(key).bareKey))
   if (left.size > 0)
     core.warning(
       `The analysis of pull requests leaves out these settings: ${[...left].join(', ')}. Pass them to the analysis job's build-arguments if it needs them.`
@@ -421,6 +422,10 @@ async function analyzeCommit(
   // The scanner prints module names and paths from the artifact and the checkout; none of it may
   // pass for a workflow command.
   const resume = randomUUID()
+  // Not the checkout: the engine starts tools in its working directory, e.g. dotnet build -version for
+  // its analytics, and they read their configuration there. The settings name every path in full.
+  const cwd = join(temp, 'run')
+  mkdirSync(cwd)
   core.info(`::stop-commands::${resume}`)
   let exitCode: number
   try {
@@ -428,7 +433,7 @@ async function analyzeCommit(
       scanner,
       [`-Dproject.settings=${settingsFile}`, ...inputs.buildArguments],
       {
-        cwd: workspace,
+        cwd,
         env: env as Record<string, string>,
         ignoreReturnCode: true
       }

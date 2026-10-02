@@ -127442,15 +127442,18 @@ function isAllowed(bareKey) {
         PLAIN_PREFIXES.some((prefix) => bareKey.startsWith(prefix)) ||
         PLAIN_SUFFIXES.some((suffix) => bareKey.endsWith(suffix)));
 }
-// Every module prefix, nested ones included: '', 'a.', 'a.b.'. Module ids may contain dots
-// (groupId:artifactId), so prefixes come from each level's sonar.modules, never from splitting keys.
-// Each prefix is visited once: repeated or overlapping ids would otherwise multiply the walk.
-function modulePrefixes(settings) {
-    const prefixes = [''];
-    const seen = new Set(prefixes);
-    for (let index = 0; index < prefixes.length; index++) {
-        const prefix = prefixes[index];
-        const list = settings.get(`${prefix}sonar.modules`) ?? '';
+// The modules and their keys, assigned the way the engine does (ProjectReactorBuilder, now
+// ProjectStructureBuilder.extractPropertiesByModule): each level's sonar.modules, in reverse sorted
+// order, and each module takes the keys starting with its id from what its earlier siblings left.
+// Module ids may contain dots (groupId:artifactId), so a key's longest matching prefix can name a
+// different module than the engine's; see real-scanner.test.ts.
+function moduleTree(settings) {
+    const assigned = new Map();
+    const prefixes = [];
+    const walk = (prefix, keys) => {
+        prefixes.push(prefix);
+        const listKey = keys.get('sonar.modules');
+        const list = (listKey !== undefined && settings.get(listKey)) || '';
         // Quoted, "sonar.sca" would pass the check below and still name the module sonar.sca.
         if (REREAD_IN_LIST.test(list))
             throw new Error(`Invalid module id in ${JSON.stringify(list)}`);
@@ -127458,7 +127461,7 @@ function modulePrefixes(settings) {
             .split(',')
             .map((module) => module.trim())
             .filter((module) => module.length > 0);
-        for (const module of modules) {
+        for (const module of modules.sort().reverse()) {
             // The scanner turns a module id into a directory under its parent's, and moves every key
             // starting with the id out of the parent: 'sonar.sca' would take the trusted sonar.sca.enabled.
             if (module === '.' ||
@@ -127468,23 +127471,36 @@ function modulePrefixes(settings) {
                 module.startsWith('sonar.'))
                 throw new Error(`Invalid module id: ${module}`);
             const nested = `${prefix}${module}.`;
-            if (!seen.has(nested)) {
-                seen.add(nested);
-                prefixes.push(nested);
+            // The engine refuses a module path it has seen, e.g. a,a or a,a.b next to a's own b.
+            if (prefixes.includes(nested))
+                throw new Error(`Invalid module id: ${module} repeats ${nested}`);
+            const own = new Map();
+            for (const [relative, original] of keys) {
+                if (relative.startsWith(`${module}.`)) {
+                    own.set(relative.slice(module.length + 1), original);
+                    keys.delete(relative);
+                }
             }
+            walk(nested, own);
         }
+        for (const [relative, original] of keys)
+            assigned.set(original, { prefix, bareKey: relative });
+    };
+    walk('', new Map([...settings.keys()].map((key) => [key, key])));
+    const byModule = new Map();
+    for (const [key, { prefix, bareKey }] of assigned) {
+        if (!byModule.has(prefix))
+            byModule.set(prefix, new Map());
+        byModule.get(prefix)?.set(bareKey, key);
     }
-    return prefixes;
-}
-function splitKey(key, prefixes) {
-    // Longest first, so a nested module wins over its parent.
-    const prefix = [...prefixes]
-        .sort((a, b) => b.length - a.length)
-        .find((candidate) => candidate !== '' && key.startsWith(candidate)) ?? '';
-    return { prefix, bareKey: key.slice(prefix.length) };
+    return {
+        prefixes,
+        split: (key) => assigned.get(key) ?? { prefix: '', bareKey: key },
+        keyOf: (prefix, bareKey) => byModule.get(prefix)?.get(bareKey)
+    };
 }
 function filterSettings(settings) {
-    const prefixes = modulePrefixes(settings);
+    const tree = moduleTree(settings);
     const filtered = {
         kept: new Map(),
         dropped: [],
@@ -127492,7 +127508,7 @@ function filterSettings(settings) {
         ignored: []
     };
     for (const [key, value] of settings) {
-        const { bareKey } = splitKey(key, prefixes);
+        const { bareKey } = tree.split(key);
         if (isAllowed(bareKey))
             filtered.kept.set(key, value);
         else if (!bareKey.startsWith('sonar.'))
@@ -127528,6 +127544,7 @@ function mapPlaceholder(entry, workspace, home) {
 // The scanner replaces ${env.NAME} in a setting with that environment variable, where the Sonar token
 // is, and ${name} with another setting, before using it; there is no way to escape either.
 const PLACEHOLDER = /\$\{[\w.]+\}/;
+const LONE_SURROGATE = /\p{Cs}/u;
 // Must run on the pristine checkout: sources and tests are only accepted if the checkout has them.
 // Paths are compared by their real location, since the checkout may contain links.
 function resolveSettings(settings, workspace, home) {
@@ -127538,6 +127555,10 @@ function resolveSettings(settings, workspace, home) {
     for (const [key, value] of Object.entries(settings)) {
         if (PLACEHOLDER.test(value))
             warnings.push(`Dropped ${key}: it holds a placeholder the scanner would expand`);
+        // Half of a surrogate pair: Node's file system reads it as U+FFFD, the scanner's Java as '?', so
+        // a path checked here would not be the one used.
+        else if (LONE_SURROGATE.test(key) || LONE_SURROGATE.test(value))
+            warnings.push(`Dropped ${JSON.stringify(key)}: it holds half of a character`);
         else
             expandable.set(key, value);
     }
@@ -127546,7 +127567,7 @@ function resolveSettings(settings, workspace, home) {
     const unexpected = [...dropped, ...replaced, ...ignored];
     if (unexpected.length > 0)
         warnings.push(`Dropped settings a build never ships: ${unexpected.join(', ')}`);
-    const prefixes = modulePrefixes(kept);
+    const tree = moduleTree(kept);
     const sourceRoots = [];
     const properties = new Map();
     const realWorkspace = realpathSync(workspace);
@@ -127555,8 +127576,8 @@ function resolveSettings(settings, workspace, home) {
     // The scanner resolves a module's relative paths against its base directory, and derives a missing
     // one from the module id, so every module must come with a base checked here.
     const bases = new Map();
-    for (const prefix of prefixes) {
-        const base = kept.get(`${prefix}sonar.projectBaseDir`);
+    for (const prefix of tree.prefixes) {
+        const base = kept.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '');
         const mapped = base === undefined && prefix === ''
             ? workspace
             : base && mapPlaceholder(base, workspace, home);
@@ -127572,7 +127593,7 @@ function resolveSettings(settings, workspace, home) {
     }
     const withSources = new Set();
     for (const [key, value] of kept) {
-        const { prefix, bareKey } = splitKey(key, prefixes);
+        const { prefix, bareKey } = tree.split(key);
         const shipped = isShippedPath(bareKey);
         const output = OUTPUT_PATH_KEYS.has(bareKey);
         if (!shipped && !output && !CHECKOUT_PATH_KEYS.has(bareKey)) {
@@ -127757,8 +127778,9 @@ function trustedProperties(target, analysed, workingDirectory) {
         // Sonar's dependency analysis lists dependencies by running the project's own build tools
         // (mvnw, gradlew, npm), i.e. the pull request's code, with the token in the environment.
         ['sonar.sca.enabled', 'false'],
-        // So does the engine's build system autoconfiguration, which runs the checkout's mvnw (SonarCloud
-        // engine 13.14, behind server-side feature flags).
+        // So does the engine's build system autoconfiguration, which runs the checkout's mvnw; this turns
+        // off all of it, including the readers deriving the project's layout from its build files
+        // (SonarCloud engine 13.14, behind server-side feature flags).
         ['sonar.scanner.autoconfig.enabled', 'false']
     ]);
     if (target.organization)
@@ -128187,7 +128209,7 @@ function filesUnder(directory) {
 // Rewrites paths to {workspace}/… and {home}/… so the analysis can map them onto its own
 // directories, and copies the build output they point to into the staging directory.
 function stageAnalysis(settings, roots, staging, buildTool, pullRequest) {
-    const prefixes = modulePrefixes(settings);
+    const tree = moduleTree(settings);
     const shipped = new Map();
     const warnings = [];
     const out = {};
@@ -128195,7 +128217,7 @@ function stageAnalysis(settings, roots, staging, buildTool, pullRequest) {
         shipped.set(`${root}:${rel}`, [root, rel]);
     };
     for (const [key, value] of settings) {
-        const { prefix, bareKey } = splitKey(key, prefixes);
+        const { prefix, bareKey } = tree.split(key);
         const isShipped = isShippedPath(bareKey);
         if (!isShipped &&
             !CHECKOUT_PATH_KEYS.has(bareKey) &&
@@ -128203,10 +128225,11 @@ function stageAnalysis(settings, roots, staging, buildTool, pullRequest) {
             out[key] = value;
             continue;
         }
-        const base = settings.get(`${prefix}sonar.projectBaseDir`) ?? roots.workspace;
+        const base = settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '') ??
+            roots.workspace;
         const entries = [];
-        const listed = value
-            .split(',')
+        // The scanner reads only lists as comma-separated, any other path setting as one path.
+        const listed = (isPathList(bareKey) ? value.split(',') : [value])
             .map((path) => path.trim())
             .filter((path) => path !== '');
         // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
@@ -128232,8 +128255,8 @@ function stageAnalysis(settings, roots, staging, buildTool, pullRequest) {
         if (entries.length > 0 || !isShipped)
             out[key] = entries.join(',');
     }
-    for (const prefix of prefixes) {
-        const base = settings.get(`${prefix}sonar.projectBaseDir`);
+    for (const prefix of tree.prefixes) {
+        const base = settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '');
         if (!base)
             continue;
         for (const report of IMPLICIT_REPORTS) {
@@ -131800,8 +131823,8 @@ async function prepare(inputs) {
     debug(`Settings the analysis sets itself: ${replaced.join(', ')}`);
     info(`Ignored ${ignored.length} environment variables and JVM properties`);
     // Maven repeats command-line and parent settings in every module.
-    const prefixes = modulePrefixes(settings);
-    const left = new Set(dropped.map((key) => splitKey(key, prefixes).bareKey));
+    const tree = moduleTree(settings);
+    const left = new Set(dropped.map((key) => tree.split(key).bareKey));
     if (left.size > 0)
         warning(`The analysis of pull requests leaves out these settings: ${[...left].join(', ')}. Pass them to the analysis job's build-arguments if it needs them.`);
     const staging = join(temp, 'artifact');
@@ -131984,11 +132007,15 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     // The scanner prints module names and paths from the artifact and the checkout; none of it may
     // pass for a workflow command.
     const resume = randomUUID$2();
+    // Not the checkout: the engine starts tools in its working directory, e.g. dotnet build -version for
+    // its analytics, and they read their configuration there. The settings name every path in full.
+    const cwd = join(temp, 'run');
+    mkdirSync(cwd);
     info(`::stop-commands::${resume}`);
     let exitCode;
     try {
         exitCode = await exec(scanner, [`-Dproject.settings=${settingsFile}`, ...inputs.buildArguments], {
-            cwd: workspace,
+            cwd,
             env: env,
             ignoreReturnCode: true
         });

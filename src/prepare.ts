@@ -12,9 +12,9 @@ import {
   CHECKOUT_PATH_KEYS,
   OUTPUT_PATH_KEYS,
   WILDCARD,
+  isPathList,
   isShippedPath,
-  modulePrefixes,
-  splitKey
+  moduleTree
 } from './settings.js'
 
 export const ARTIFACT_FORMAT = 1
@@ -96,7 +96,7 @@ export function stageAnalysis(
   buildTool: BuildTool['name'],
   pullRequest?: number
 ): Staged {
-  const prefixes = modulePrefixes(settings)
+  const tree = moduleTree(settings)
   const shipped = new Map<string, [Root, string]>()
   const warnings: string[] = []
   const out: Record<string, string> = {}
@@ -106,7 +106,7 @@ export function stageAnalysis(
   }
 
   for (const [key, value] of settings) {
-    const { prefix, bareKey } = splitKey(key, prefixes)
+    const { prefix, bareKey } = tree.split(key)
     const isShipped = isShippedPath(bareKey)
     if (
       !isShipped &&
@@ -117,10 +117,11 @@ export function stageAnalysis(
       continue
     }
     const base =
-      settings.get(`${prefix}sonar.projectBaseDir`) ?? roots.workspace
+      settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '') ??
+      roots.workspace
     const entries: string[] = []
-    const listed = value
-      .split(',')
+    // The scanner reads only lists as comma-separated, any other path setting as one path.
+    const listed = (isPathList(bareKey) ? value.split(',') : [value])
       .map((path) => path.trim())
       .filter((path) => path !== '')
     // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
@@ -146,8 +147,8 @@ export function stageAnalysis(
     if (entries.length > 0 || !isShipped) out[key] = entries.join(',')
   }
 
-  for (const prefix of prefixes) {
-    const base = settings.get(`${prefix}sonar.projectBaseDir`)
+  for (const prefix of tree.prefixes) {
+    const base = settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '')
     if (!base) continue
     for (const report of IMPLICIT_REPORTS) {
       const path = join(base, report)
