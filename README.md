@@ -85,7 +85,9 @@ chooses the right part from where the action runs and whether it has a token.
    [scoped organization token](https://docs.sonarsource.com/sonarqube-cloud/administering-sonarcloud/managing-organization/scoped-organization-tokens)
    with only _Execute analysis_ on the project. A scoped token without an expiry
    date lapses after 60 days without use.
-2. Gradle builds need the `org.sonarqube` plugin. Maven builds need nothing.
+2. Gradle builds need the `org.sonarqube` plugin. Maven builds need nothing: the
+   action runs the latest `sonar-maven-plugin`, or the version your pom pins in
+   `<plugins>` or `<pluginManagement>`, where Dependabot can keep it updated.
 3. Add the action to your build workflow:
 
    ```yaml
