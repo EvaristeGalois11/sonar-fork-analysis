@@ -4,12 +4,14 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, sep } from 'node:path'
+import fc from 'fast-check'
 import {
   checkNoLinks,
   formatProperties,
@@ -19,6 +21,7 @@ import {
   unpackWorkspace
 } from '../src/analyze.js'
 import { parseProperties } from '../src/properties.js'
+import { WILDCARD } from '../src/settings.js'
 
 let root: string
 let workspace: string
@@ -400,6 +403,67 @@ describe('removeProjectSettings', () => {
   })
 })
 
+describe('resolveSettings on any artifact', () => {
+  const segment = fc.constantFrom(
+    '..',
+    '.',
+    '',
+    'a',
+    'out',
+    'secret',
+    '*',
+    '**',
+    '?',
+    '~'
+  )
+  const relativePath = fc
+    .array(segment, { maxLength: 5 })
+    .map((segments) => segments.join('/'))
+  const entry = fc.oneof(
+    relativePath,
+    relativePath.map((path) => `{workspace}/${path}`),
+    relativePath.map((path) => `{home}/${path}`),
+    relativePath.map((path) => `/${path}`),
+    fc.constantFrom('{workspace}', '{home}', '{other}/a')
+  )
+  const key = fc.constantFrom(
+    'sonar.java.binaries',
+    'sonar.coverageReportPaths',
+    'sonar.sources',
+    'sonar.projectBuildDir'
+  )
+
+  it('never lets a path out of the workspace or the private home', () => {
+    // A link the checkout could hold, to a file the analysis must never read.
+    file(join(outside, 'secret'))
+    symlinkSync(outside, join(workspace, 'out'))
+    mkdirSync(join(workspace, 'a'))
+    // Paths that do not exist are only resolved by name, against the roots as given.
+    const roots = [workspace, home, realpathSync(workspace), realpathSync(home)]
+    const within = (path: string, root: string): boolean =>
+      path === root || path.startsWith(root + sep)
+
+    fc.assert(
+      fc.property(key, fc.array(entry, { maxLength: 4 }), (key, entries) => {
+        const resolved = resolveSettings(
+          { [key]: entries.join(',') },
+          workspace,
+          home
+        )
+        const paths = (resolved.properties.get(key) ?? '')
+          .split(',')
+          .filter((path) => path !== '')
+        for (const path of paths) {
+          expect(isAbsolute(path)).toBe(true)
+          expect(WILDCARD.test(path)).toBe(false)
+          const real = existsSync(path) ? realpathSync(path) : path
+          expect(roots.some((root) => within(real, root))).toBe(true)
+        }
+      })
+    )
+  })
+})
+
 describe('formatProperties', () => {
   it('writes what the properties parser reads back', () => {
     const properties = new Map([
@@ -411,6 +475,63 @@ describe('formatProperties', () => {
     const formatted = formatProperties(properties)
     expect(formatted).toMatch(/^[\x20-\x7e\n]*$/)
     expect(parseProperties(formatted)).toEqual(properties)
+  })
+
+  // Biased towards what the format treats specially, so random strings meet it often.
+  const text = fc.string({
+    unit: fc.oneof(
+      fc.constantFrom(
+        '\\',
+        '\n',
+        '\r',
+        '\t',
+        '\f',
+        ' ',
+        '=',
+        ':',
+        '#',
+        '!',
+        '$',
+        '{',
+        '}',
+        '.',
+        'u',
+        'é',
+        '😀'
+      ),
+      fc.string({ unit: 'binary', minLength: 1, maxLength: 1 })
+    ),
+    maxLength: 12
+  })
+  const placeholder = /\$\{[\w.]+\}/
+
+  it('gives back exactly the settings it wrote, one per line', () => {
+    fc.assert(
+      fc.property(
+        fc.uniqueArray(fc.tuple(text, text), { selector: ([key]) => key }),
+        (entries) => {
+          fc.pre(entries.every(([, value]) => !placeholder.test(value)))
+          const formatted = formatProperties(new Map(entries))
+          expect(formatted).toMatch(/^[\x20-\x7e\n]*$/)
+          expect(
+            formatted.split('\n').filter((line) => line !== '')
+          ).toHaveLength(entries.length)
+          expect(parseProperties(formatted)).toEqual(new Map(entries))
+        }
+      )
+    )
+  })
+
+  it('refuses a placeholder wherever it is', () => {
+    const name = fc.stringMatching(/^[\w.]+$/)
+    fc.assert(
+      fc.property(text, name, text, (before, name, after) => {
+        const value = `${before}\${${name}}${after}`
+        expect(() =>
+          formatProperties(new Map([['sonar.projectName', value]]))
+        ).toThrow(/holds a placeholder/)
+      })
+    )
   })
 })
 
