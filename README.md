@@ -97,6 +97,7 @@ chooses the right part from where the action runs and whether it has a token.
      build:
        runs-on: ubuntu-latest
        steps:
+         # Your existing checkout and Java setup. Sonar needs the full history.
          - uses: actions/checkout@v7
            with:
              persist-credentials: false
@@ -105,6 +106,7 @@ chooses the right part from where the action runs and whether it has a token.
            with:
              distribution: temurin
              java-version: 21
+         # Add this in place of your build step.
          - uses: evaristegalois11/sonar-fork-analysis@v2
            with:
              project-key: my-org_my-project
@@ -112,11 +114,10 @@ chooses the right part from where the action runs and whether it has a token.
              sonar-token: ${{ secrets.SONAR_TOKEN }}
    ```
 
-   The action runs the build itself (`verify` for Maven, `check` for Gradle, see
-   `build-goals`), so it replaces your build step. Trigger the workflow on
-   `pull_request`, not `pull_request_target`. With `pull_request_target`, a
-   fork's code would run with your secrets, so the action refuses to build
-   there.
+   The action runs the build itself, `verify` for Maven and `check` for Gradle
+   (see `build-goals`). Trigger the workflow on `pull_request`, not
+   `pull_request_target`. With `pull_request_target`, a fork's code would run
+   with your secrets, so the action refuses to build there.
 
 4. Add the Sonar workflow, triggered by the build:
 
