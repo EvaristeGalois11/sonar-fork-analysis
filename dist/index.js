@@ -127318,6 +127318,14 @@ const SHIPPED_PATH_KEYS = new Set([
 const REPORT_KEY = /reports?paths?$/i;
 // Sonar's path patterns: * and ? within a directory, ** across directories.
 const WILDCARD = /[*?]/;
+// The scanner trims values of everything up to a space, and reads lists as CSV: quotes group entries,
+// \r turns into \n, and entries lose control characters and Unicode spaces (except no-break ones) at
+// either end (scanner CLI 8.1, engine 13.7). A list with these is not read the way it was checked.
+// In module lists any whitespace but a space is refused, so both sides trim the same ids the same way.
+// eslint-disable-next-line no-control-regex
+const REREAD_IN_LIST = /["\x00-\x1f]|[^\S ]/;
+// eslint-disable-next-line no-control-regex
+const REREAD_PATH = /["\x00-\x1f]|^\s|\s$/;
 function isShippedPath(bareKey) {
     return SHIPPED_PATH_KEYS.has(bareKey) || REPORT_KEY.test(bareKey);
 }
@@ -127432,7 +127440,11 @@ function modulePrefixes(settings) {
     const seen = new Set(prefixes);
     for (let index = 0; index < prefixes.length; index++) {
         const prefix = prefixes[index];
-        const modules = (settings.get(`${prefix}sonar.modules`) ?? '')
+        const list = settings.get(`${prefix}sonar.modules`) ?? '';
+        // Quoted, "sonar.sca" would pass the check below and still name the module sonar.sca.
+        if (REREAD_IN_LIST.test(list))
+            throw new Error(`Invalid module id in ${JSON.stringify(list)}`);
+        const modules = list
             .split(',')
             .map((module) => module.trim())
             .filter((module) => module.length > 0);
@@ -127539,7 +127551,10 @@ function resolveSettings(settings, workspace, home) {
             ? workspace
             : base && mapPlaceholder(base, workspace, home);
         // The scanner reads patterns in report paths, and a checkout may hold a directory named **.
-        if (!mapped || WILDCARD.test(mapped) || !inCheckout(mapped)) {
+        if (!mapped ||
+            WILDCARD.test(mapped) ||
+            REREAD_PATH.test(mapped) ||
+            !inCheckout(mapped)) {
             throw new Error(`The artifact gives ${prefix ? `module ${prefix.slice(0, -1)}` : 'the project'} no base directory in the checkout`);
         }
         bases.set(prefix, mapped);
@@ -127564,8 +127579,10 @@ function resolveSettings(settings, workspace, home) {
                     ? undefined
                     : inside(workspace, resolve$1(base, entry));
             // The build expands patterns into the files it ships; the scanner would expand what is left
-            // over files no check here has seen.
-            const path = mapped && WILDCARD.test(mapped) ? undefined : mapped;
+            // over files no check here has seen. Nor may the scanner read the path differently.
+            const path = mapped && (WILDCARD.test(mapped) || REREAD_PATH.test(mapped))
+                ? undefined
+                : mapped;
             // Shipped paths may live in the private home; output directories appear when unpacking;
             // checkout paths must already be in the checkout.
             let accepted = false;

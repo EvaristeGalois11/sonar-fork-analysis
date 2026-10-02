@@ -20,6 +20,15 @@ const REPORT_KEY = /reports?paths?$/i
 // Sonar's path patterns: * and ? within a directory, ** across directories.
 export const WILDCARD = /[*?]/
 
+// The scanner trims values of everything up to a space, and reads lists as CSV: quotes group entries,
+// \r turns into \n, and entries lose control characters and Unicode spaces (except no-break ones) at
+// either end (scanner CLI 8.1, engine 13.7). A list with these is not read the way it was checked.
+// In module lists any whitespace but a space is refused, so both sides trim the same ids the same way.
+// eslint-disable-next-line no-control-regex
+export const REREAD_IN_LIST = /["\x00-\x1f]|[^\S ]/
+// eslint-disable-next-line no-control-regex
+export const REREAD_PATH = /["\x00-\x1f]|^\s|\s$/
+
 export function isShippedPath(bareKey: string): boolean {
   return SHIPPED_PATH_KEYS.has(bareKey) || REPORT_KEY.test(bareKey)
 }
@@ -147,7 +156,11 @@ export function modulePrefixes(settings: Map<string, string>): string[] {
   const seen = new Set(prefixes)
   for (let index = 0; index < prefixes.length; index++) {
     const prefix = prefixes[index]
-    const modules = (settings.get(`${prefix}sonar.modules`) ?? '')
+    const list = settings.get(`${prefix}sonar.modules`) ?? ''
+    // Quoted, "sonar.sca" would pass the check below and still name the module sonar.sca.
+    if (REREAD_IN_LIST.test(list))
+      throw new Error(`Invalid module id in ${JSON.stringify(list)}`)
+    const modules = list
       .split(',')
       .map((module) => module.trim())
       .filter((module) => module.length > 0)
