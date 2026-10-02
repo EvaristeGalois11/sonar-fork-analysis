@@ -459,7 +459,8 @@ describe('resolveSettings on any artifact', () => {
           const real = existsSync(path) ? realpathSync(path) : path
           expect(roots.some((root) => within(real, root))).toBe(true)
         }
-      })
+      }),
+      { numRuns: 1000 }
     )
   })
 })
@@ -501,7 +502,7 @@ describe('formatProperties', () => {
       ),
       fc.string({ unit: 'binary', minLength: 1, maxLength: 1 })
     ),
-    maxLength: 12
+    maxLength: 100
   })
   const placeholder = /\$\{[\w.]+\}/
 
@@ -518,7 +519,8 @@ describe('formatProperties', () => {
           ).toHaveLength(entries.length)
           expect(parseProperties(formatted)).toEqual(new Map(entries))
         }
-      )
+      ),
+      { numRuns: 1000 }
     )
   })
 
@@ -530,7 +532,8 @@ describe('formatProperties', () => {
         expect(() =>
           formatProperties(new Map([['sonar.projectName', value]]))
         ).toThrow(/holds a placeholder/)
-      })
+      }),
+      { numRuns: 1000 }
     )
   })
 })

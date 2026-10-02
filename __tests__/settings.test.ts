@@ -114,7 +114,8 @@ describe('modulePrefixes on any artifact', () => {
         expect(new Set(prefixes).size).toBe(prefixes.length)
         for (const key of trusted)
           expect(splitKey(key, prefixes)).toEqual({ prefix: '', bareKey: key })
-      })
+      }),
+      { numRuns: 1000 }
     )
   })
 })
