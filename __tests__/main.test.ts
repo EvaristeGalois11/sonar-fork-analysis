@@ -425,7 +425,8 @@ describe('run in analyze mode', () => {
       'sonar.sources': '',
       'sonar.java.binaries': '{workspace}/target/classes',
       'sonar.host.url': 'https://evil.example.com',
-      'sonar.sca.enabled': 'true'
+      'sonar.sca.enabled': 'true',
+      'sonar.scanner.autoconfig.enabled': 'true'
     })
 
     await run()
@@ -452,6 +453,8 @@ describe('run in analyze mode', () => {
     // The scanner would otherwise run the checkout's build tools to list its dependencies.
     expect(settings).toContain('sonar.sca.enabled=false')
     expect(settings).not.toContain('sonar.sca.enabled=true')
+    expect(settings).toContain('sonar.scanner.autoconfig.enabled=false')
+    expect(settings).not.toContain('sonar.scanner.autoconfig.enabled=true')
     expect(
       readFileSync(join(project, 'target', 'classes', 'App.class'), 'utf8')
     ).toBe('bytes')
