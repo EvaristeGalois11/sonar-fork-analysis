@@ -47,7 +47,7 @@ flowchart LR
   subgraph sonar["Sonar workflow, Sonar token"]
     analyze["analyze mode<br/>checks the upload and<br/>runs only the scanner"]
   end
-  own(["Push, or pull request<br/>from this repository"]) --> direct
+  own(["Push, or pull request<br/>from your repository"]) --> direct
   subgraph trusted["Build workflow, Sonar token"]
     direct["direct mode<br/>builds and analyses"]
   end
@@ -78,7 +78,7 @@ chooses the right part from where the action runs and whether it has a token.
 
 1. Create a Sonar token and save it as the repository secret `SONAR_TOKEN`.
    SonarQube Cloud's free plan only has personal tokens, so create a dedicated
-   one named after this repository, with an expiry date. Paid plans can use a
+   one named after your repository, with an expiry date. Paid plans can use a
    [scoped organization token](https://docs.sonarsource.com/sonarqube-cloud/administering-sonarcloud/managing-organization/scoped-organization-tokens)
    with only _Execute analysis_ on the project. A scoped token without an expiry
    date lapses after 60 days without use.
