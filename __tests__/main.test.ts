@@ -328,6 +328,31 @@ describe('run in prepare mode', () => {
     )
   })
 
+  it('warns about an organization set only in the build', async () => {
+    simulate(
+      [`sonar.projectBaseDir=${project}`, 'sonar.organization=org'].join('\n')
+    )
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('set it in both workflows')
+    )
+  })
+
+  it('does not warn about an organization the input also sets', async () => {
+    inputs['sonar-organization'] = 'org'
+    simulate(
+      [`sonar.projectBaseDir=${project}`, 'sonar.organization=org'].join('\n')
+    )
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.warning).not.toHaveBeenCalled()
+  })
+
   it('needs the project key, which names the artifact', async () => {
     delete inputs['project-key']
 
