@@ -6,6 +6,7 @@ import {
   splitKey
 } from '../src/settings.js'
 import fc from 'fast-check'
+import { trustedProperties } from '../src/analyze.js'
 
 const settings = new Map([
   ['sonar.modules', 'org.acme:parent-tests'],
@@ -87,12 +88,36 @@ describe('modulePrefixes and the scanner', () => {
 })
 
 describe('modulePrefixes on any artifact', () => {
+  // Every setting the analysis sets on the project, and each dot-prefix a module id could take it by.
+  const trusted = [
+    ...trustedProperties(
+      { projectKey: 'key', organization: 'org', hostUrl: 'https://sonar' },
+      {
+        headSha: 'abc',
+        pullRequest: { key: '7', branch: 'feature', base: 'main' }
+      },
+      '/tmp/scannerwork'
+    ).keys(),
+    ...trustedProperties(
+      { projectKey: 'key', organization: '', hostUrl: '' },
+      { headSha: 'abc', branch: 'release' },
+      '/tmp/scannerwork'
+    ).keys()
+  ]
+  const takers = trusted.flatMap((key) =>
+    key
+      .split('.')
+      .slice(1, -1)
+      .map((_, index, parts) =>
+        ['sonar', ...parts.slice(0, index + 1)].join('.')
+      )
+  )
   const id = fc.oneof(
     fc.constantFrom(
+      ...takers,
       'sonar',
-      'sonar.sca',
-      'sonar.working',
       ' sonar ',
+      ' sonar.sca',
       '.',
       '..',
       'a/b',
@@ -107,7 +132,7 @@ describe('modulePrefixes on any artifact', () => {
       '\u3000sonar.sca',
       '\u00a0x'
     ),
-    fc.string({ maxLength: 8 }).filter((id) => !id.includes(','))
+    fc.string({ maxLength: 12 }).filter((id) => !id.includes(','))
   )
   const settings = fc
     .array(
@@ -124,34 +149,40 @@ describe('modulePrefixes on any artifact', () => {
         )
     )
 
+  // The module ids the engine reads, walked from the root like the engine does: lists split as CSV,
+  // ids trimmed of control characters and Unicode spaces but not no-break ones (engine 13.7).
+  const engineModules = (settings: Map<string, string>): string[] => {
+    const found: string[] = []
+    const walk = (prefix: string, depth: number): void => {
+      const list = settings.get(`${prefix}sonar.modules`)
+      if (list === undefined || depth > 6) return
+      // Quotes would group ids differently; the model only reads lists without them.
+      expect(list).not.toContain('"')
+      for (const module of list.split(',').map(engineTrim)) {
+        if (module === '') continue
+        found.push(module)
+        walk(`${prefix}${module}.`, depth + 1)
+      }
+    }
+    walk('', 0)
+    return found
+  }
+
   it('lets no module take a setting the analysis sets on the project', () => {
-    const trusted = [
-      'sonar.sca.enabled',
-      'sonar.working.directory',
-      'sonar.projectKey',
-      'sonar.scm.revision'
-    ]
     fc.assert(
       fc.property(settings, (settings) => {
-        let prefixes: string[]
         try {
-          prefixes = modulePrefixes(settings)
+          modulePrefixes(settings)
         } catch (error) {
           // Refusing the artifact is the other safe outcome.
           if ((error as Error).message.startsWith('Invalid module id')) return
           throw error
         }
-        expect(new Set(prefixes).size).toBe(prefixes.length)
-        // The scanner splits these lists as CSV, trimming control characters and Unicode spaces but
-        // not no-break ones (verified on engine 13.7): it must find the same ids.
-        for (const prefix of prefixes) {
-          const list = settings.get(`${prefix}sonar.modules`) ?? ''
-          expect(list).not.toContain('"')
-          for (const module of list.split(','))
-            expect(module.trim()).toBe(engineTrim(module))
+        for (const module of engineModules(settings)) {
+          expect(module === 'sonar' || module.startsWith('sonar.')).toBe(false)
+          for (const key of trusted)
+            expect(key.startsWith(`${module}.`)).toBe(false)
         }
-        for (const key of trusted)
-          expect(splitKey(key, prefixes)).toEqual({ prefix: '', bareKey: key })
       }),
       { numRuns: 1000 }
     )

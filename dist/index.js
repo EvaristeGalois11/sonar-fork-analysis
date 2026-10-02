@@ -127329,6 +127329,16 @@ const REREAD_PATH = /["\x00-\x1f]|^\s|\s$/;
 function isShippedPath(bareKey) {
     return SHIPPED_PATH_KEYS.has(bareKey) || REPORT_KEY.test(bareKey);
 }
+// The scanner reads these and every setting named ...Paths as lists; any other path setting as a
+// single path, commas included (sonar.projectBaseDir is a plain new File(value), engine 13.7).
+const LIST_PATH_KEYS = new Set([
+    'sonar.sources',
+    'sonar.tests',
+    ...SHIPPED_PATH_KEYS
+]);
+function isPathList(bareKey) {
+    return LIST_PATH_KEYS.has(bareKey) || /paths$/i.test(bareKey);
+}
 // Paths into the checked-out sources; never shipped, the analysis has its own checkout.
 const CHECKOUT_PATH_KEYS = new Set([
     'sonar.sources',
@@ -127552,6 +127562,7 @@ function resolveSettings(settings, workspace, home) {
             : base && mapPlaceholder(base, workspace, home);
         // The scanner reads patterns in report paths, and a checkout may hold a directory named **.
         if (!mapped ||
+            mapped.includes(',') ||
             WILDCARD.test(mapped) ||
             REREAD_PATH.test(mapped) ||
             !inCheckout(mapped)) {
@@ -127566,6 +127577,11 @@ function resolveSettings(settings, workspace, home) {
         const output = OUTPUT_PATH_KEYS.has(bareKey);
         if (!shipped && !output && !CHECKOUT_PATH_KEYS.has(bareKey)) {
             properties.set(key, value);
+            continue;
+        }
+        // Read as one path, the value would be none of the entries checked below.
+        if (!isPathList(bareKey) && value.includes(',')) {
+            warnings.push(`Dropped ${key}: the scanner reads it as one path`);
             continue;
         }
         const base = bases.get(prefix);
