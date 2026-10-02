@@ -35,6 +35,7 @@
     "package": "npx rimraf ./dist && npx rollup --config rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "package:watch": "npm run package -- --watch",
     "test": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 npx jest",
+    "test:scanner": "SCANNER_CHECKS=1 NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 npx jest __tests__/real-scanner.test.ts --coverage=false",
     "typecheck": "npx tsc --project scripts",
     "all": "npm run format:write && npm run lint && npm run lint:workflows && npm run typecheck && npm run test && npm run coverage && npm run package"
   },
