@@ -175,6 +175,13 @@ async function prepare(inputs: Inputs): Promise<void> {
       `The analysis of pull requests leaves out these settings: ${[...left].join(', ')}. Pass them to the analysis job's build-arguments if it needs them.`
     )
 
+  // The analysis takes the organization only from its own input, so one set only in the build would
+  // send the fork path's analysis to no organization at all.
+  if (settings.get('sonar.organization') && !inputs.organization)
+    core.warning(
+      `The build sets sonar.organization, which the analysis of pull requests takes only from the sonar-organization input: set it in both workflows.`
+    )
+
   const staging = join(temp, 'artifact')
   const staged = stageAnalysis(
     kept,
