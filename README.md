@@ -358,8 +358,8 @@ branch.
   start a program, don't reach the Sonar workflow. The build warns about each
   one. See
   [what the fork path carries](docs/security.md#what-the-fork-path-carries).
-- `sonar.region` isn't carried, so the fork path can't use SonarQube Cloud's US
-  region yet.
+- The build's `sonar.region` isn't carried. For SonarQube Cloud's US region, add
+  `-Dsonar.region=us` to `build-arguments` in the Sonar workflow.
 - The action looks for `mvnw` and `gradlew` only in `working-directory`, not in
   parent directories. On Windows runners it never runs `mvnw.cmd` or
   `gradlew.bat`.
