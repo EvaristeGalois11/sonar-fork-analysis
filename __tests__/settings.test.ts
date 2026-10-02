@@ -6,7 +6,7 @@ import {
   splitKey
 } from '../src/settings.js'
 import fc from 'fast-check'
-import { engineTrim, moduleSettings, trustedKeys } from './arbitraries.js'
+import { engineEntry, moduleSettings, trustedKeys } from './arbitraries.js'
 
 const settings = new Map([
   ['sonar.modules', 'org.acme:parent-tests'],
@@ -90,8 +90,8 @@ describe('modulePrefixes on any artifact', () => {
       if (list === undefined || depth > 6) return
       // Quotes would group ids differently; the model only reads lists without them.
       expect(list).not.toContain('"')
-      for (const module of list.split(',').map(engineTrim)) {
-        if (module === '') continue
+      for (const module of list.split(',').map(engineEntry)) {
+        if (!module) continue
         found.push(module)
         walk(`${prefix}${module}.`, depth + 1)
       }
