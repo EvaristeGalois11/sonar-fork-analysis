@@ -6,13 +6,13 @@
 # steps below in the job.
 name: 'Scorecard'
 on:
-  push:
-    branches:
-      - main
+  # Not on push: Scorecard only accepts the Gradle wrapper jar once CI has passed on the scanned commit,
+  # and on push it runs before CI finishes.
   schedule:
     - cron: '23 4 * * 1'
   # Re-rates as soon as the branch rules change.
   branch_protection_rule:
+  workflow_dispatch:
 permissions: {}
 jobs:
   analysis:
