@@ -35,7 +35,8 @@ inputs:
   sonar-host-url:
     description: >
       The Sonar server. Leave empty for SonarQube Cloud, or to use
-      SONAR_HOST_URL or the build's own sonar.host.url.
+      SONAR_HOST_URL. Direct analyses also fall back to the build's own
+      sonar.host.url, analyze mode doesn't.
     default: ''
   sonar-token:
     description:

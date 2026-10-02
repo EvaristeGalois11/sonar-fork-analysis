@@ -176,19 +176,19 @@ you're happy with that.
 
 ## Inputs
 
-| Input                | Default            | Description                                                                                                                                                                 |
-| -------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `project-key`        |                    | The Sonar project key. Required, and the same in the build and the Sonar workflow.                                                                                          |
-| `sonar-organization` |                    | The Sonar organization, required by SonarQube Cloud.                                                                                                                        |
-| `sonar-token`        |                    | The Sonar token. Empty on pull requests from forks, which makes the action take the fork path.                                                                              |
-| `sonar-host-url`     |                    | The Sonar server. Empty for SonarQube Cloud, or to use `SONAR_HOST_URL` or the build's own `sonar.host.url`.                                                                |
-| `mode`               | `auto`             | `auto`, or `direct`, `prepare`, `analyze` to force one part.                                                                                                                |
-| `working-directory`  | `.`                | The directory holding the Maven or Gradle build.                                                                                                                            |
-| `build-tool`         | `auto`             | `auto`, `maven` or `gradle`.                                                                                                                                                |
-| `build-goals`        | `verify` / `check` | Maven goals or Gradle tasks to run, one per line.                                                                                                                           |
-| `build-arguments`    |                    | Extra build flags, one per line. In the Sonar workflow they go to the scanner instead, such as `-Dsonar.projectName=App`, and relative paths don't point into the checkout. |
-| `checkout`           | `true`             | Whether the Sonar workflow checks out the analysed commit. `false` to do it yourself, see [your own checkout](#your-own-checkout).                                          |
-| `github-token`       | `github.token`     | Downloads the upload and finds the pull request.                                                                                                                            |
+| Input                | Required             | Default            | Description                                                                                                                                                                                              |
+| -------------------- | -------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project-key`        | Yes                  |                    | The Sonar project key. Use the same one in the build and the Sonar workflow.                                                                                                                             |
+| `sonar-organization` | For SonarQube Cloud  |                    | The Sonar organization.                                                                                                                                                                                  |
+| `sonar-token`        | Yes                  |                    | The Sonar token. It's empty on pull requests from forks, which makes the action take the fork path.                                                                                                      |
+| `sonar-host-url`     | For SonarQube Server |                    | The server URL. Leave it empty for SonarQube Cloud, or to use the `SONAR_HOST_URL` environment variable. Direct analyses also fall back to the build's own `sonar.host.url`, the Sonar workflow doesn't. |
+| `mode`               | No                   | `auto`             | `auto`, or `direct`, `prepare`, `analyze` to force one part.                                                                                                                                             |
+| `working-directory`  | No                   | `.`                | The directory holding the Maven or Gradle build.                                                                                                                                                         |
+| `build-tool`         | No                   | `auto`             | `auto`, `maven` or `gradle`.                                                                                                                                                                             |
+| `build-goals`        | No                   | `verify` / `check` | Maven goals or Gradle tasks to run, one per line.                                                                                                                                                        |
+| `build-arguments`    | No                   |                    | Extra build flags, one per line. In the Sonar workflow they go to the scanner instead, such as `-Dsonar.projectName=App`, and relative paths don't point into the checkout.                              |
+| `checkout`           | No                   | `true`             | Whether the Sonar workflow checks out the analysed commit. `false` to do it yourself, see [your own checkout](#your-own-checkout).                                                                       |
+| `github-token`       | No                   | `github.token`     | Downloads the upload and finds the pull request.                                                                                                                                                         |
 
 ## Commit statuses and required checks
 
