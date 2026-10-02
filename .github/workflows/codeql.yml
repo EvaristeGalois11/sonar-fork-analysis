@@ -6,14 +6,15 @@ on:
   pull_request:
   schedule:
     - cron: '31 7 * * 3'
-permissions:
-  actions: read
-  contents: read
-  security-events: write
+permissions: {}
 jobs:
   analyze:
     name: 'Analyze ${{ matrix.language }}'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:

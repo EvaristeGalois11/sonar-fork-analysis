@@ -9,17 +9,18 @@ on: # zizmor: ignore[dangerous-triggers]
     workflows: [Fixtures]
     types:
       - completed
-permissions:
-  actions: read
-  contents: read
-  pull-requests: read
-  # Lets the action report the analysis on the analysed commit, where the pull request shows it.
-  statuses: write
+permissions: {}
 jobs:
   analyze:
     name: 'Analyse ${{ matrix.fixture }} on the fork path'
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      # Lets the action report the analysis on the analysed commit, where the pull request shows it.
+      statuses: write
     strategy:
       fail-fast: false
       matrix:
