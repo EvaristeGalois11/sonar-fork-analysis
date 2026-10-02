@@ -374,12 +374,93 @@ branch.
 ## Migrating from v1
 
 v1 stays on its tags but gets no more fixes, security fixes included. Move to
-v2.
+v2, and if v1 has analysed pull requests from forks, rotate your Sonar token.
+See [security](docs/security.md#v1) for why.
 
-v2 runs the build itself. Remove your build step and the `java-version` and
-`distribution` inputs, and set up Java with `actions/setup-java` instead. Add
-`sonar-organization` to both workflows. `github-token`, `sonar-token` and
-`project-key` work as before.
+In v1, the Sonar workflow analysed every build. In v2, the build analyses pushes
+and your own pull requests itself, and the Sonar workflow only analyses pull
+requests from forks and Dependabot.
+
+In the build workflow, the action replaces your build step, and now gets the
+token. Before:
+
+```yaml
+steps:
+  - uses: actions/checkout@v7
+  - uses: actions/setup-java@v6
+    with:
+      distribution: temurin
+      java-version: 21
+  - run: mvn install
+  - uses: evaristegalois11/sonar-fork-analysis@v1
+```
+
+After:
+
+```yaml
+steps:
+  - uses: actions/checkout@v7
+    with:
+      persist-credentials: false
+      fetch-depth: 0
+  - uses: actions/setup-java@v6
+    with:
+      distribution: temurin
+      java-version: 21
+  - uses: evaristegalois11/sonar-fork-analysis@v2
+    with:
+      project-key: my-org_my-project
+      sonar-organization: my-org
+      sonar-token: ${{ secrets.SONAR_TOKEN }}
+```
+
+v2 runs `verify` for Maven and `check` for Gradle, and no longer needs
+`install`. If your build step ran other goals or flags, move them to
+`build-goals` and `build-arguments`.
+
+In the Sonar workflow, the action no longer sets up Java, and needs a few more
+permissions. Before:
+
+```yaml
+jobs:
+  sonar:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - uses: evaristegalois11/sonar-fork-analysis@v1
+        with:
+          distribution: temurin
+          java-version: 21
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
+          project-key: my-org_my-project
+```
+
+After:
+
+```yaml
+jobs:
+  sonar:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: evaristegalois11/sonar-fork-analysis@v2
+        with:
+          project-key: my-org_my-project
+          sonar-organization: my-org
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
+```
+
+`sonar-organization` is new. v1 took the organization from your build, but v2's
+Sonar workflow only takes it from this input. `github-token` now defaults to the
+workflow's own token, so you can drop it.
 
 ## Development
 
