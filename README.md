@@ -120,7 +120,7 @@ chooses the right part from where the action runs and whether it has a token.
    ```
 
    The action runs the build itself, `verify` for Maven and `check` for Gradle
-   (see `build-goals`). Trigger the workflow on `pull_request`, not
+   (see [`build-goals`](#inputs)). Trigger the workflow on `pull_request`, not
    `pull_request_target`. With `pull_request_target`, a fork's code would run
    with your secrets, so the action refuses to build there.
 
