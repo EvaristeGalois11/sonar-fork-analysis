@@ -279,6 +279,12 @@ take the same path, and the Sonar workflow analyses them.
 ## Limitations
 
 - Only Maven and Gradle builds are supported.
+- On the fork path, the build collects its settings through the Sonar plugins'
+  simulation mode (`sonar.scanner.internal.dumpToFile`). Sonar uses it in its
+  own tests but doesn't document it, so a plugin release could change it. If it
+  stops working, the build fails with _the plugin may be too old to support
+  simulation mode_. This project's tests keep up with the latest plugins, so
+  such a change should show up here first.
 - Dependency analysis (SCA) and the engine's build-system autoconfiguration are
   off on fork pull requests, because both run the project's build tools. See
   [what stays off](docs/security.md#what-stays-off-on-the-fork-path).
