@@ -24,6 +24,7 @@ import {
   REREAD_PATH,
   WILDCARD,
   filterSettings,
+  isPathList,
   isShippedPath,
   modulePrefixes,
   splitKey
@@ -111,6 +112,7 @@ export function resolveSettings(
     // The scanner reads patterns in report paths, and a checkout may hold a directory named **.
     if (
       !mapped ||
+      mapped.includes(',') ||
       WILDCARD.test(mapped) ||
       REREAD_PATH.test(mapped) ||
       !inCheckout(mapped)
@@ -129,6 +131,11 @@ export function resolveSettings(
     const output = OUTPUT_PATH_KEYS.has(bareKey)
     if (!shipped && !output && !CHECKOUT_PATH_KEYS.has(bareKey)) {
       properties.set(key, value)
+      continue
+    }
+    // Read as one path, the value would be none of the entries checked below.
+    if (!isPathList(bareKey) && value.includes(',')) {
+      warnings.push(`Dropped ${key}: the scanner reads it as one path`)
       continue
     }
     const base = bases.get(prefix) as string

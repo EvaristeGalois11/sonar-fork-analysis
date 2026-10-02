@@ -11,7 +11,7 @@ import {
 } from 'node:fs'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import fc from 'fast-check'
 import {
   checkNoLinks,
@@ -22,7 +22,6 @@ import {
   unpackWorkspace
 } from '../src/analyze.js'
 import { parseProperties } from '../src/properties.js'
-import { WILDCARD } from '../src/settings.js'
 
 let root: string
 let workspace: string
@@ -424,6 +423,25 @@ describe('resolveSettings and the scanner', () => {
     expect(resolved.warnings).toHaveLength(4)
   })
 
+  it('reads single paths whole, commas included', () => {
+    // The scanner reads <workspace>/a,<workspace>/b as one path: here, through the link a, to outside.
+    mkdirSync(join(workspace, 'a'))
+    mkdirSync(join(workspace, 'b'))
+    mkdirSync(join(workspace, `a,${workspace}`), { recursive: true })
+    symlinkSync(outside, join(workspace, `a,${workspace}`, 'b'))
+    const both = '{workspace}/a,{workspace}/b'
+    const resolved = resolveSettings(
+      { 'sonar.projectBuildDir': both, 'sonar.jacoco.reportPath': both },
+      workspace,
+      home
+    )
+    expect(resolved.properties.has('sonar.projectBuildDir')).toBe(false)
+    expect(resolved.properties.has('sonar.jacoco.reportPath')).toBe(false)
+    expect(() =>
+      resolveSettings({ 'sonar.projectBaseDir': both }, workspace, home)
+    ).toThrow('no base directory in the checkout')
+  })
+
   it('refuses such a base directory', () => {
     mkdirSync(join(workspace, 'x '))
     symlinkSync(outside, join(workspace, 'x'))
@@ -443,6 +461,7 @@ describe('resolveSettings on any artifact', () => {
     '.',
     '',
     'a',
+    'b',
     'out',
     'secret',
     'x',
@@ -467,48 +486,84 @@ describe('resolveSettings on any artifact', () => {
     relativePath.map((path) => `/${path}`),
     fc.constantFrom('{workspace}', '{home}', '{other}/a')
   )
-  const key = fc.constantFrom(
-    'sonar.java.binaries',
-    'sonar.coverageReportPaths',
-    'sonar.sources',
-    'sonar.projectBuildDir'
-  )
+  // How the scanner reads each kind of setting, written out here rather than taken from the code:
+  // lists or single paths, and whether the private home may hold what they point to.
+  const kinds: Record<string, { list: boolean; home: boolean }> = {
+    'sonar.java.binaries': { list: true, home: true },
+    'sonar.coverageReportPaths': { list: true, home: true },
+    'sonar.jacoco.reportPath': { list: false, home: true },
+    'sonar.sources': { list: true, home: false },
+    'sonar.projectBuildDir': { list: false, home: false },
+    'sonar.kotlin.gradleProjectRoot': { list: false, home: false },
+    'sonar.projectBaseDir': { list: false, home: false }
+  }
+  const artifact = fc
+    .record({
+      key: fc.constantFrom(...Object.keys(kinds)),
+      entries: fc.array(entry, { maxLength: 4 }),
+      module: fc.option(fc.array(entry, { minLength: 1, maxLength: 2 }))
+    })
+    .map(({ key, entries, module }): Record<string, string> =>
+      module === null
+        ? { [key]: entries.join(',') }
+        : {
+            'sonar.modules': 'm',
+            'm.sonar.projectBaseDir': module.join(','),
+            [`m.${key}`]: entries.join(',')
+          }
+    )
+
+  // Every way the scanner might read a path: as written, trimmed by the CLI (up to a space), trimmed
+  // by the engine's list parser (Unicode spaces too), and with that parser's \r read as \n.
+  const readings = (path: string): string[] => {
+    // eslint-disable-next-line no-control-regex
+    const trimmed = path.replace(/^[\x00-\x20\s]+|[\x00-\x20\s]+$/g, '')
+    return [path, trimmed, trimmed.replace(/\r/g, '\n')]
+  }
 
   it('never lets a path out of the workspace or the private home', () => {
-    // A link the checkout could hold, to a file the analysis must never read.
+    // Links the checkout could hold, to a file the analysis must never read.
     file(join(outside, 'secret'))
     symlinkSync(outside, join(workspace, 'out'))
     mkdirSync(join(workspace, 'a'))
+    mkdirSync(join(workspace, 'b'))
     // Names the scanner reads as the links next to them: trimmed, and \r as \n.
     mkdirSync(join(workspace, 'x '))
     symlinkSync(outside, join(workspace, 'x'))
     mkdirSync(join(workspace, 'a\r'))
     symlinkSync(outside, join(workspace, 'a\n'))
-    // Paths that do not exist are only resolved by name, against the roots as given.
-    const roots = [workspace, home, realpathSync(workspace), realpathSync(home)]
+    // The analysis creates the private home only after resolving, when it unpacks the artifact.
+    rmSync(home, { recursive: true })
+    const realWorkspace = realpathSync(workspace)
     const within = (path: string, root: string): boolean =>
       path === root || path.startsWith(root + sep)
 
     fc.assert(
-      fc.property(key, fc.array(entry, { maxLength: 4 }), (key, entries) => {
-        const resolved = resolveSettings(
-          { [key]: entries.join(',') },
-          workspace,
-          home
-        )
-        const paths = (resolved.properties.get(key) ?? '')
-          .split(',')
-          .filter((path) => path !== '')
-        for (const path of paths) {
-          expect(isAbsolute(path)).toBe(true)
-          expect(WILDCARD.test(path)).toBe(false)
-          // What the scanner uses: trimmed, then \r read as \n by its list parser.
-          const read = path
-            // eslint-disable-next-line no-control-regex
-            .replace(/^[\x00-\x20\s]+|[\x00-\x20\s]+$/g, '')
-            .replace(/\r/g, '\n')
-          const real = existsSync(read) ? realpathSync(read) : read
-          expect(roots.some((root) => within(real, root))).toBe(true)
+      fc.property(artifact, (settings) => {
+        let resolved
+        try {
+          resolved = resolveSettings(settings, workspace, home)
+        } catch (error) {
+          // Refusing the artifact is the other safe outcome.
+          if ((error as Error).message.includes('no base directory')) return
+          throw error
+        }
+        for (const [key, value] of resolved.properties) {
+          const kind = kinds[key.replace(/^m\./, '')]
+          if (!kind) continue
+          const paths = kind.list ? value.split(',') : [value]
+          for (const path of paths.filter((path) => path !== '')) {
+            expect(path).toBe(resolve(path))
+            expect(/[*?]/.test(path)).toBe(false)
+            expect(kind.list && path.includes('"')).toBe(false)
+            const roots = kind.home
+              ? [workspace, realWorkspace, home]
+              : [workspace, realWorkspace]
+            for (const read of readings(path)) {
+              const real = existsSync(read) ? realpathSync(read) : read
+              expect(roots.some((root) => within(real, root))).toBe(true)
+            }
+          }
         }
       }),
       { numRuns: 1000 }
@@ -549,7 +604,10 @@ describe('formatProperties', () => {
         '.',
         'u',
         'é',
-        '😀'
+        '😀',
+        // Lone surrogates, which a JSON artifact can carry.
+        '\ud800',
+        '\udfff'
       ),
       fc.string({ unit: 'binary', minLength: 1, maxLength: 1 })
     ),

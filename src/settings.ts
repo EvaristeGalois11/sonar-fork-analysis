@@ -33,6 +33,18 @@ export function isShippedPath(bareKey: string): boolean {
   return SHIPPED_PATH_KEYS.has(bareKey) || REPORT_KEY.test(bareKey)
 }
 
+// The scanner reads these and every setting named ...Paths as lists; any other path setting as a
+// single path, commas included (sonar.projectBaseDir is a plain new File(value), engine 13.7).
+const LIST_PATH_KEYS = new Set([
+  'sonar.sources',
+  'sonar.tests',
+  ...SHIPPED_PATH_KEYS
+])
+
+export function isPathList(bareKey: string): boolean {
+  return LIST_PATH_KEYS.has(bareKey) || /paths$/i.test(bareKey)
+}
+
 // Paths into the checked-out sources; never shipped, the analysis has its own checkout.
 export const CHECKOUT_PATH_KEYS = new Set([
   'sonar.sources',
