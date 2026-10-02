@@ -7,6 +7,11 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvaristeGalois11/sonar-fork-analysis/badge)](https://scorecard.dev/viewer/?uri=github.com/EvaristeGalois11/sonar-fork-analysis)
 ![Coverage](./badges/coverage.svg)
 
+<!-- prettier-ignore -->
+> [!NOTE]
+> v2 is under development and not released yet, so `@v2` doesn't resolve. This
+> README describes v2.
+
 Runs Sonar analysis, with coverage and test results, on pull requests from
 forks.
 
@@ -262,6 +267,14 @@ branch.
 
 Dependabot's pull requests run without your Actions secrets, like forks. They
 take the same path, and the Sonar workflow analyses them.
+
+## Used by
+
+- [Instancio](https://github.com/instancio/instancio), a Maven build with 38
+  modules:
+  [build workflow](https://github.com/instancio/instancio/blob/main/.github/workflows/build.yml)
+  and
+  [Sonar workflow](https://github.com/instancio/instancio/blob/main/.github/workflows/sonar.yml).
 
 ## Limitations
 
