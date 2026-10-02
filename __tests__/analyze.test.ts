@@ -15,6 +15,7 @@ import fc from 'fast-check'
 import {
   checkNoLinks,
   formatProperties,
+  removeOutwardLinks,
   removeProjectSettings,
   resolveSettings,
   trustedProperties,
@@ -436,6 +437,45 @@ describe('removeProjectSettings', () => {
     file(join(artifact, 'app/target/App.class'))
     unpackWorkspace(artifact, workspace, [])
     expect(existsSync(settings)).toBe(false)
+  })
+
+  it('never reaches through a link', () => {
+    const elsewhere = file(join(outside, 'sonar-project.properties'))
+    symlinkSync(outside, join(workspace, 'linked'))
+    file(join(workspace, 'module/sonar-project.properties'))
+
+    removeProjectSettings(workspace)
+
+    expect(existsSync(elsewhere)).toBe(true)
+    expect(existsSync(join(workspace, 'module/sonar-project.properties'))).toBe(
+      false
+    )
+  })
+})
+
+describe('removeOutwardLinks', () => {
+  it('removes links leading out of the checkout, and keeps the others', () => {
+    file(join(workspace, 'src/A.java'))
+    symlinkSync(outside, join(workspace, 'src/leak'))
+    symlinkSync('/proc/self', join(workspace, 'proc'))
+    symlinkSync(join(workspace, 'missing'), join(workspace, 'dangling'))
+    // Inside the checkout, but on to the link that leaves it.
+    symlinkSync(join(workspace, 'src/leak'), join(workspace, 'chain'))
+    symlinkSync(join(workspace, 'src'), join(workspace, 'sources'))
+
+    const warnings = removeOutwardLinks(workspace)
+
+    const left = (name: string): boolean =>
+      lstatSync(join(workspace, name), { throwIfNoEntry: false }) !== undefined
+    expect(['src/leak', 'proc', 'dangling', 'chain'].map(left)).toEqual([
+      false,
+      false,
+      false,
+      false
+    ])
+    expect(left('sources')).toBe(true)
+    expect(existsSync(join(outside))).toBe(true)
+    expect(warnings).toHaveLength(4)
   })
 })
 

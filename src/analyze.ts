@@ -1,4 +1,5 @@
 import {
+  type Dirent,
   constants,
   copyFileSync,
   existsSync,
@@ -6,7 +7,8 @@ import {
   mkdirSync,
   readdirSync,
   realpathSync,
-  rmSync
+  rmSync,
+  unlinkSync
 } from 'node:fs'
 import {
   basename,
@@ -188,9 +190,23 @@ export function resolveSettings(
   return { properties, sourceRoots, warnings }
 }
 
+// Every entry under a directory, links included but never followed: Node's recursive readdir follows
+// links to directories, out of the directory or round in circles.
+function entriesUnder(directory: string): Dirent[] {
+  const entries: Dirent[] = []
+  const pending = [directory]
+  for (let current = pending.pop(); current; current = pending.pop()) {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      entries.push(entry)
+      if (entry.isDirectory()) pending.push(join(current, entry.name))
+    }
+  }
+  return entries
+}
+
 function walk(directory: string): string[] {
-  return readdirSync(directory, { recursive: true, encoding: 'utf8' }).map(
-    (entry) => join(directory, entry)
+  return entriesUnder(directory).map((entry) =>
+    join(entry.parentPath, entry.name)
   )
 }
 
@@ -276,15 +292,38 @@ export function unpackWorkspace(
   return warnings
 }
 
+// The engine follows links into directories and only checks the path it reached a file by, so a link
+// in the checkout to anywhere else, /proc/self for one, would have Sonar index and upload what is
+// there. Links staying in the checkout are left to the checks on settings and the scanner's own.
+export function removeOutwardLinks(workspace: string): string[] {
+  const realWorkspace = realpathSync(workspace)
+  const warnings: string[] = []
+  const entries = entriesUnder(workspace)
+  for (const entry of entries) {
+    if (!entry.isSymbolicLink()) continue
+    const path = join(entry.parentPath, entry.name)
+    let target: string | undefined
+    try {
+      target = realpathSync(path)
+    } catch {
+      target = undefined
+    }
+    if (target === undefined || !isWithin(target, realWorkspace)) {
+      unlinkSync(path)
+      warnings.push(
+        `Removed ${relative(workspace, path)}: a link leading out of the checkout`
+      )
+    }
+  }
+  return warnings
+}
+
 // The scanner reads one from every module directory, unchecked, so none may come from the pull
 // request or the artifact. Deleting by name lets the file system match it the way the scanner's
 // lookup will, e.g. SONAR-PROJECT.PROPERTIES on the case-insensitive file systems of macOS and
 // Windows, which a comparison of names would miss.
 export function removeProjectSettings(workspace: string): void {
-  const directories = readdirSync(workspace, {
-    recursive: true,
-    withFileTypes: true
-  })
+  const directories = entriesUnder(workspace)
     .filter((entry) => entry.isDirectory())
     .map((entry) => join(entry.parentPath, entry.name))
     .filter(
