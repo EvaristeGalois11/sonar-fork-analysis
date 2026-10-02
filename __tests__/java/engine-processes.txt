@@ -1,0 +1,44 @@
+# Engine classes that can start a process, as listed by ScannerProbe processes, with why each is
+# safe on the fork path. Last reviewed on sonarcloud-scanner-engine-13.14.0.6149.
+# Unmarked entries are libraries bundled in the engine; JGit runs hooks and filters only from the
+# .git the action creates.
+com/google/common/util/concurrent/ForwardingListenableFuture
+com/google/common/util/concurrent/JdkFutureAdapters
+com/google/common/util/concurrent/ListenableFutureTask
+com/sonar/sca/scanner/internal/DefaultProcessExecutor  # dependency analysis: off, sonar.sca.enabled=false
+io/netty/util/NetUtil
+io/netty/util/internal/NativeLibraryLoader
+nl/altindag/desidero/MacCertificateUtils
+org/apache/commons/configuration2/reloading/PeriodicReloadingTrigger
+org/apache/commons/exec/DefaultExecutor
+org/apache/commons/exec/launcher/CommandLauncher
+org/apache/commons/exec/launcher/CommandLauncherImpl
+org/apache/commons/exec/launcher/CommandLauncherProxy
+org/apache/commons/exec/launcher/Java13CommandLauncher
+org/apache/commons/exec/launcher/OS2CommandLauncher
+org/apache/commons/exec/launcher/VmsCommandLauncher
+org/apache/commons/exec/launcher/WinNTCommandLauncher
+org/apache/commons/lang3/concurrent/BackgroundInitializer
+org/apache/commons/lang3/concurrent/CallableBackgroundInitializer
+org/apache/commons/lang3/concurrent/MultiBackgroundInitializer
+org/eclipse/jgit/dircache/DirCacheCheckout
+org/eclipse/jgit/internal/diffmergetool/CommandExecutor
+org/eclipse/jgit/patch/PatchApplier
+org/eclipse/jgit/transport/RemoteSession
+org/eclipse/jgit/transport/RemoteSession2
+org/eclipse/jgit/transport/TransportGitSsh
+org/eclipse/jgit/transport/TransportLocal
+org/eclipse/jgit/treewalk/WorkingTreeIterator
+org/eclipse/jgit/util/FS
+org/eclipse/jgit/util/FS_POSIX
+org/eclipse/jgit/util/FS_Win32
+org/eclipse/jgit/util/FS_Win32_Cygwin
+org/eclipse/jgit/util/SshSupport
+org/sonar/api/utils/command/CommandExecutor  # the plugin API for running commands; plugins are outside this check
+org/sonar/scanner/buildsystem/maven/MavenBuildSystemModelReader  # build system autoconfiguration runs the checkout's mvnw: off, sonar.scanner.autoconfig.enabled=false
+org/sonar/scanner/process/executor/ProcessWrapperFactory  # the engine's process helper itself
+org/sonar/scanner/util/LinuxAndMacArchProvider  # runs uname
+org/sonar/scm/git/GitScmSupport  # runs git; the .git it reads is created by the action
+org/sonar/scm/git/NativeGitBlameCommand  # runs git blame; the .git it reads is created by the action
+software/amazon/awssdk/auth/credentials/ProcessCredentialsProvider
+software/amazon/awssdk/http/apache5/internal/conn/IdleConnectionReaper

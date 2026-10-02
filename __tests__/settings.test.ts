@@ -6,7 +6,7 @@ import {
   splitKey
 } from '../src/settings.js'
 import fc from 'fast-check'
-import { trustedProperties } from '../src/analyze.js'
+import { engineTrim, moduleSettings, trustedKeys } from './arbitraries.js'
 
 const settings = new Map([
   ['sonar.modules', 'org.acme:parent-tests'],
@@ -63,13 +63,6 @@ describe('modulePrefixes', () => {
   )
 })
 
-const engineTrim = (text: string): string =>
-  text.replace(
-    // eslint-disable-next-line no-control-regex
-    /^[\x00-\x20\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+|[\x00-\x20\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+$/g,
-    ''
-  )
-
 describe('modulePrefixes and the scanner', () => {
   it.each([
     'app,"sonar.sca"',
@@ -88,69 +81,8 @@ describe('modulePrefixes and the scanner', () => {
 })
 
 describe('modulePrefixes on any artifact', () => {
-  // Every setting the analysis sets on the project, and each dot-prefix a module id could take it by.
-  const trusted = [
-    ...trustedProperties(
-      { projectKey: 'key', organization: 'org', hostUrl: 'https://sonar' },
-      {
-        headSha: 'abc',
-        pullRequest: { key: '7', branch: 'feature', base: 'main' }
-      },
-      '/tmp/scannerwork'
-    ).keys(),
-    ...trustedProperties(
-      { projectKey: 'key', organization: '', hostUrl: '' },
-      { headSha: 'abc', branch: 'release' },
-      '/tmp/scannerwork'
-    ).keys()
-  ]
-  const takers = trusted.flatMap((key) =>
-    key
-      .split('.')
-      .slice(1, -1)
-      .map((_, index, parts) =>
-        ['sonar', ...parts.slice(0, index + 1)].join('.')
-      )
-  )
-  const id = fc.oneof(
-    fc.constantFrom(
-      ...takers,
-      'sonar',
-      ' sonar ',
-      ' sonar.sca',
-      '.',
-      '..',
-      'a/b',
-      'org.acme:app',
-      'a',
-      'a.b',
-      '',
-      '"sonar.sca"',
-      '"a,b"',
-      '\u0001sonar.sca',
-      'sonar.sca\r',
-      '\u3000sonar.sca',
-      '\u00a0x'
-    ),
-    fc.string({ maxLength: 12 }).filter((id) => !id.includes(','))
-  )
-  const settings = fc
-    .array(
-      fc.tuple(fc.array(id, { maxLength: 3 }), fc.array(id, { maxLength: 4 })),
-      { maxLength: 6 }
-    )
-    .map(
-      (levels) =>
-        new Map(
-          levels.map(([path, modules]) => [
-            `${path.map((module) => `${module}.`).join('')}sonar.modules`,
-            modules.join(',')
-          ])
-        )
-    )
-
   // The module ids the engine reads, walked from the root like the engine does: lists split as CSV,
-  // ids trimmed of control characters and Unicode spaces but not no-break ones (engine 13.7).
+  // ids trimmed of control characters and Unicode spaces but not no-break ones (see arbitraries.ts).
   const engineModules = (settings: Map<string, string>): string[] => {
     const found: string[] = []
     const walk = (prefix: string, depth: number): void => {
@@ -170,7 +102,7 @@ describe('modulePrefixes on any artifact', () => {
 
   it('lets no module take a setting the analysis sets on the project', () => {
     fc.assert(
-      fc.property(settings, (settings) => {
+      fc.property(moduleSettings, (settings) => {
         try {
           modulePrefixes(settings)
         } catch (error) {
@@ -180,7 +112,7 @@ describe('modulePrefixes on any artifact', () => {
         }
         for (const module of engineModules(settings)) {
           expect(module === 'sonar' || module.startsWith('sonar.')).toBe(false)
-          for (const key of trusted)
+          for (const key of trustedKeys)
             expect(key.startsWith(`${module}.`)).toBe(false)
         }
       }),

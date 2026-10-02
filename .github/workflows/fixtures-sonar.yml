@@ -30,9 +30,22 @@ jobs:
           - fixture: gradle
             name: Gradle
     steps:
+      # The analysis must never run the analysed code, whatever the scanner or Sonar adds: build tools
+      # on the PATH and the fixtures' own wrappers record any run and fail it.
+      - name: 'Set traps'
+        run: |
+          mkdir -p "$RUNNER_TEMP/traps"
+          for tool in mvn gradle npm npx yarn pnpm cargo go python python3 pip pip3 poetry uv dotnet sbt; do
+            printf '#!/bin/sh\necho "$0 $*" >> "%s"\nexit 1\n' "$RUNNER_TEMP/traps/sprung" > "$RUNNER_TEMP/traps/$tool"
+            chmod +x "$RUNNER_TEMP/traps/$tool"
+          done
+          echo "$RUNNER_TEMP/traps" >> "$GITHUB_PATH"
+
       - name: 'Analyse with Sonar'
         # This repository at the commit the workflow runs from, which for workflow_run is main's.
         uses: $/
+        env:
+          SONAR_FORK_ANALYSIS_TRAP: ${{ runner.temp }}/traps/sprung
         with:
           project-key:
             evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
@@ -40,3 +53,13 @@ jobs:
           sonar-token: ${{ secrets.SONAR_TOKEN }}
           build-arguments:
             -Dsonar.projectName=Sonar fork analysis - ${{ matrix.name }} split
+
+      - name: 'Check the traps'
+        if: always()
+        run: |
+          if [ -e "$RUNNER_TEMP/traps/sprung" ]; then
+            echo '::error::The analysis ran build tools:'
+            # Indented, so no recorded line can pass for a workflow command.
+            sed 's/^/  /' "$RUNNER_TEMP/traps/sprung"
+            exit 1
+          fi

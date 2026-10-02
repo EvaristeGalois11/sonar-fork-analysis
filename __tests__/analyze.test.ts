@@ -9,7 +9,6 @@ import {
   symlinkSync,
   writeFileSync
 } from 'node:fs'
-import { execFileSync, spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import fc from 'fast-check'
@@ -22,6 +21,7 @@ import {
   unpackWorkspace
 } from '../src/analyze.js'
 import { parseProperties } from '../src/properties.js'
+import { settingText, settingsWithoutPlaceholders } from './arbitraries.js'
 
 let root: string
 let workspace: string
@@ -584,125 +584,24 @@ describe('formatProperties', () => {
     expect(parseProperties(formatted)).toEqual(properties)
   })
 
-  // Biased towards what the format treats specially, so random strings meet it often.
-  const text = fc.string({
-    unit: fc.oneof(
-      fc.constantFrom(
-        '\\',
-        '\n',
-        '\r',
-        '\t',
-        '\f',
-        ' ',
-        '=',
-        ':',
-        '#',
-        '!',
-        '$',
-        '{',
-        '}',
-        '.',
-        'u',
-        'é',
-        '😀',
-        // Lone surrogates, which a JSON artifact can carry.
-        '\ud800',
-        '\udfff'
-      ),
-      fc.string({ unit: 'binary', minLength: 1, maxLength: 1 })
-    ),
-    maxLength: 100
-  })
-  const placeholder = /\$\{[\w.]+\}/
-
   it('gives back exactly the settings it wrote, one per line', () => {
     fc.assert(
-      fc.property(
-        fc.uniqueArray(fc.tuple(text, text), { selector: ([key]) => key }),
-        (entries) => {
-          fc.pre(entries.every(([, value]) => !placeholder.test(value)))
-          const formatted = formatProperties(new Map(entries))
-          expect(formatted).toMatch(/^[\x20-\x7e\n]*$/)
-          expect(
-            formatted.split('\n').filter((line) => line !== '')
-          ).toHaveLength(entries.length)
-          expect(parseProperties(formatted)).toEqual(new Map(entries))
-        }
-      ),
+      fc.property(settingsWithoutPlaceholders, (entries) => {
+        const formatted = formatProperties(new Map(entries))
+        expect(formatted).toMatch(/^[\x20-\x7e\n]*$/)
+        expect(
+          formatted.split('\n').filter((line) => line !== '')
+        ).toHaveLength(entries.length)
+        expect(parseProperties(formatted)).toEqual(new Map(entries))
+      }),
       { numRuns: 1000 }
     )
   })
 
-  // The scanner CLI reads the file with java.util.Properties itself, so the round trip above is
-  // checked against Java too. Without Java the check is skipped, except on CI, where it must run.
-  const hasJava = spawnSync('java', ['-version']).status === 0
-  const withJava = hasJava || process.env.CI ? it : it.skip
-
-  withJava(
-    'is read back by the scanner CLI as written, values trimmed',
-    () => {
-      const seed = Date.now()
-      const samples = fc.sample(
-        fc
-          .uniqueArray(fc.tuple(text, text), { selector: ([key]) => key })
-          .filter((entries) =>
-            entries.every(([, value]) => !placeholder.test(value))
-          ),
-        { numRuns: 1000, seed }
-      )
-      const directory = join(root, 'settings')
-      mkdirSync(directory)
-      const names = samples.map((entries, index) => {
-        const name = `${String(index).padStart(4, '0')}.properties`
-        writeFileSync(join(directory, name), formatProperties(new Map(entries)))
-        return name
-      })
-
-      const output = execFileSync(
-        'java',
-        [resolve('__tests__/java/ReadSettings.java'), directory],
-        { encoding: 'utf8', maxBuffer: 1 << 28 }
-      )
-      const unhex = (text: string): string =>
-        String.fromCharCode(
-          ...(text.slice(1).match(/.{4}/g) ?? []).map((unit) =>
-            parseInt(unit, 16)
-          )
-        )
-      const read = new Map<string, Map<string, string>>()
-      let current = new Map<string, string>()
-      for (const line of output.split('\n').filter((line) => line !== '')) {
-        if (line.startsWith('file ')) {
-          current = new Map()
-          read.set(line.slice('file '.length), current)
-        } else {
-          const [key, value] = line.split(' ').map(unhex)
-          current.set(key, value)
-        }
-      }
-
-      // Like String.trim: everything up to a space goes at both ends.
-      const trim = (text: string): string =>
-        // eslint-disable-next-line no-control-regex
-        text.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, '')
-      samples.forEach((entries, index) => {
-        const expected = new Map(
-          entries.map(([key, value]) => [key, trim(value)])
-        )
-        expect({ seed, entries, read: read.get(names[index]) }).toEqual({
-          seed,
-          entries,
-          read: expected
-        })
-      })
-    },
-    60_000
-  )
-
   it('refuses a placeholder wherever it is', () => {
     const name = fc.stringMatching(/^[\w.]+$/)
     fc.assert(
-      fc.property(text, name, text, (before, name, after) => {
+      fc.property(settingText, name, settingText, (before, name, after) => {
         const value = `${before}\${${name}}${after}`
         expect(() =>
           formatProperties(new Map([['sonar.projectName', value]]))

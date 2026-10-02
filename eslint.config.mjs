@@ -77,10 +77,6 @@ export default [
       'eslint-comments/no-use': 'off',
       'eslint-comments/no-unused-disable': 'off',
       'i18n-text/no-en': 'off',
-      'jest/no-standalone-expect': [
-        'error',
-        { additionalTestBlockFunctions: ['withJava'] }
-      ],
       'import/no-namespace': 'off',
       'no-console': 'off',
       'no-shadow': 'off',

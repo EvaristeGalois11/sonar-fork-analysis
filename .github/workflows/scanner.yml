@@ -1,0 +1,40 @@
+# Checks what the analysis assumes about the scanner against the real one: the CLI the action pins,
+# and the engine SonarCloud serves, which changes on Sonar's schedule, hence the weekly run.
+name: 'Scanner'
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scanner:
+    name: 'Check against the real scanner'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 'Set up Node.js'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: 'Set up Java'
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: 'Install dependencies'
+        run: npm ci
+
+      - name: 'Check against the real scanner'
+        run: npm run test:scanner
