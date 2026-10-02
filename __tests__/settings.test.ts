@@ -5,6 +5,7 @@ import {
   modulePrefixes,
   splitKey
 } from '../src/settings.js'
+import fc from 'fast-check'
 
 const settings = new Map([
   ['sonar.modules', 'org.acme:parent-tests'],
@@ -59,6 +60,63 @@ describe('modulePrefixes', () => {
       )
     }
   )
+})
+
+describe('modulePrefixes on any artifact', () => {
+  const id = fc.oneof(
+    fc.constantFrom(
+      'sonar',
+      'sonar.sca',
+      'sonar.working',
+      ' sonar ',
+      '.',
+      '..',
+      'a/b',
+      'org.acme:app',
+      'a',
+      'a.b',
+      ''
+    ),
+    fc.string({ maxLength: 8 }).filter((id) => !id.includes(','))
+  )
+  const settings = fc
+    .array(
+      fc.tuple(fc.array(id, { maxLength: 3 }), fc.array(id, { maxLength: 4 })),
+      { maxLength: 6 }
+    )
+    .map(
+      (levels) =>
+        new Map(
+          levels.map(([path, modules]) => [
+            `${path.map((module) => `${module}.`).join('')}sonar.modules`,
+            modules.join(',')
+          ])
+        )
+    )
+
+  it('lets no module take a setting the analysis sets on the project', () => {
+    const trusted = [
+      'sonar.sca.enabled',
+      'sonar.working.directory',
+      'sonar.projectKey',
+      'sonar.scm.revision'
+    ]
+    fc.assert(
+      fc.property(settings, (settings) => {
+        let prefixes: string[]
+        try {
+          prefixes = modulePrefixes(settings)
+        } catch (error) {
+          // Refusing the artifact is the other safe outcome.
+          if ((error as Error).message.startsWith('Invalid module id')) return
+          throw error
+        }
+        expect(new Set(prefixes).size).toBe(prefixes.length)
+        for (const key of trusted)
+          expect(splitKey(key, prefixes)).toEqual({ prefix: '', bareKey: key })
+      })
+    )
+  })
 })
 
 describe('splitKey', () => {
