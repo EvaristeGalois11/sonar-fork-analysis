@@ -192,23 +192,18 @@ you're happy with that.
 
 ## Commit statuses and required checks
 
-With `statuses: write`, the Sonar workflow posts a status called _Sonar fork
-analysis (your project key)_ on the analysed commit. It's pending while the
-analysis runs, then success or failure, and links to the run. Without the
-permission, no status is posted.
+Sonar posts its own check on every analysed pull request, such as _SonarCloud
+Code Analysis_. On pull requests from forks it arrives once the Sonar workflow
+has run, a little after the build's own checks. To block merging until the
+analysis passes, require that check in your branch rules, with the Sonar app as
+its source. If the fork path fails, the check never arrives, so merging stays
+blocked.
 
-The Sonar workflow starts when the build finishes, so its results show up after
-the build's own checks.
-
-To block merging until the analysis passes, require these checks in your branch
-rules:
-
-- _Sonar fork analysis (your project key)_, from GitHub Actions
-- the project's Sonar check, such as _SonarCloud Code Analysis_, from the Sonar
-  app
-
-Only checks the Sonar workflow posts appear on pull requests from forks, so
-don't require checks that only a direct analysis posts.
+With `statuses: write`, the Sonar workflow also posts a status called _Sonar
+fork analysis (your project key)_, so you can see why a check is missing. It's
+pending while the analysis runs, then success or failure, and links to the run.
+It's only posted for pull requests that take the fork path, so don't require it,
+or pull requests from your own repository can never be merged.
 
 ## Recipes
 
