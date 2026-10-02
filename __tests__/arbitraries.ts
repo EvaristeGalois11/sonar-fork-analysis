@@ -109,12 +109,18 @@ export const moduleSettings = fc
       )
   )
 
-// What the engine trims from list entries: control characters and Unicode spaces but not no-break
-// ones (measured on SonarQube's engine 13.7 and SonarCloud's 13.14, and checked against the real
-// engine in real-scanner.test.ts).
-export const engineTrim = (text: string): string =>
-  text.replace(
-    // eslint-disable-next-line no-control-regex
-    /^[\x00-\x20\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+|[\x00-\x20\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+$/g,
-    ''
-  )
+// How the engine trims a list entry, in two passes (SonarQube's engine 13.7 and SonarCloud's 13.14,
+// checked against both in real-scanner.test.ts): its own, which strips everything up to a space and
+// drops an entry left empty, then the CSV parser's, which strips Java whitespace, i.e. Unicode spaces
+// but not no-break ones, plus a few control characters.
+// eslint-disable-next-line no-control-regex
+const upToSpace = /^[\x00-\x20]+|[\x00-\x20]+$/g
+const javaWhitespace =
+  // eslint-disable-next-line no-control-regex
+  /^[\t\n\v\f\r\x1c-\x1f \u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+|[\t\n\v\f\r\x1c-\x1f \u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+$/g
+
+// The entry the engine reads, or undefined when it drops it.
+export const engineEntry = (text: string): string | undefined => {
+  const own = text.replace(upToSpace, '')
+  return own === '' ? undefined : own.replace(javaWhitespace, '')
+}

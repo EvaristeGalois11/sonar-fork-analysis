@@ -1,0 +1,91 @@
+# Engine classes that can start a process, as listed by ScannerProbe processes, with why each is
+# safe on the fork path. Last reviewed on sonar-scanner-engine-community-13.7.0.4455 (SonarQube 26.9).
+# Unmarked entries are libraries bundled in the engine; JGit runs hooks and filters only from the
+# .git the action creates. SVNKit and the SSH libraries serve the SVN provider, which never runs on
+# the fork path: the action's .git makes git claim the project, and sonar.scm.provider is denied.
+com/google/common/util/concurrent/ForwardingListenableFuture
+com/google/common/util/concurrent/JdkFutureAdapters
+com/google/common/util/concurrent/ListenableFutureTask
+com/jcraft/jsch/agentproxy/usocket/NCUSocketFactory  # SVN support
+com/sonar/sca/scanner/internal/DefaultProcessExecutor  # dependency analysis: off, sonar.sca.enabled=false
+com/sun/jna/NativeLibrary
+com/trilead/ssh2/packets/PacketSessionExecCommand  # SVN support
+nl/altindag/desidero/MacCertificateUtils
+org/apache/commons/configuration2/reloading/PeriodicReloadingTrigger
+org/apache/commons/exec/DefaultExecutor
+org/apache/commons/exec/launcher/CommandLauncher
+org/apache/commons/exec/launcher/CommandLauncherImpl
+org/apache/commons/exec/launcher/CommandLauncherProxy
+org/apache/commons/exec/launcher/Java13CommandLauncher
+org/apache/commons/exec/launcher/OS2CommandLauncher
+org/apache/commons/exec/launcher/VmsCommandLauncher
+org/apache/commons/exec/launcher/WinNTCommandLauncher
+org/apache/commons/lang3/concurrent/BackgroundInitializer
+org/apache/commons/lang3/concurrent/CallableBackgroundInitializer
+org/apache/commons/lang3/concurrent/MultiBackgroundInitializer
+org/apache/sshd/client/channel/ChannelExec  # SVN support
+org/apache/sshd/client/session/AbstractClientSession  # SVN support
+org/apache/sshd/common/channel/Channel  # SVN support
+org/apache/sshd/common/channel/SttySupport  # SVN support
+org/apache/sshd/server/channel/ChannelSession  # SVN support
+org/apache/sshd/server/shell/ProcessShell  # SVN support
+org/apache/sshd/server/x11/DefaultX11ForwardSupport  # SVN support
+org/eclipse/jgit/dircache/DirCacheCheckout
+org/eclipse/jgit/internal/diffmergetool/CommandExecutor
+org/eclipse/jgit/patch/PatchApplier
+org/eclipse/jgit/transport/RemoteSession
+org/eclipse/jgit/transport/RemoteSession2
+org/eclipse/jgit/transport/TransportGitSsh
+org/eclipse/jgit/transport/TransportLocal
+org/eclipse/jgit/treewalk/WorkingTreeIterator
+org/eclipse/jgit/util/FS
+org/eclipse/jgit/util/FS_POSIX
+org/eclipse/jgit/util/FS_Win32
+org/eclipse/jgit/util/FS_Win32_Cygwin
+org/eclipse/jgit/util/SshSupport
+org/sonar/api/utils/command/CommandExecutor  # the plugin API for running commands; plugins are outside this check
+org/sonar/scanner/process/executor/ProcessWrapperFactory  # the engine's process helper itself
+org/sonar/scm/git/GitScmSupport  # runs git; the .git it reads is created by the action
+org/sonar/scm/git/NativeGitBlameCommand  # runs git blame; the .git it reads is created by the action
+org/tmatesoft/sqljet/core/internal/lang/SqlJetConnection  # SVN support
+org/tmatesoft/sqljet/core/internal/lang/SqlJetConsole  # SVN support
+org/tmatesoft/svn/core/internal/db/SVNSqlJetDb  # SVN support
+org/tmatesoft/svn/core/internal/db/SVNSqlJetDeleteStatement  # SVN support
+org/tmatesoft/svn/core/internal/db/SVNSqlJetInsertStatement  # SVN support
+org/tmatesoft/svn/core/internal/db/SVNSqlJetStatement  # SVN support
+org/tmatesoft/svn/core/internal/db/SVNSqlJetUpdateStatement  # SVN support
+org/tmatesoft/svn/core/internal/io/fs/FSHooks  # SVN support
+org/tmatesoft/svn/core/internal/io/fs/revprop/SVNFSFSRevPropCreateSchema  # SVN support
+org/tmatesoft/svn/core/internal/io/svn/SVNAbstractTunnelConnector  # SVN support
+org/tmatesoft/svn/core/internal/util/SVNFLock  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbCopyMoveNode  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbCreateSchema  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertActualEmpties  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertDeleteFromBase  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertDeleteFromNodeRecursive  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertDeleteList  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertExternalUpgrade  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertLock  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertTarget  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertTarget2  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertTargetDepthFiles  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertTargetDepthFilesWithChangelist  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertTargetDepthImmediates  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertTargetDepthImmediatesWithChangelist  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertTargetDepthInfinity  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertTargetDepthInfinityWithChangelist  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertTargetWithChangelist  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertWCLock  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertWorkingNodeFromBase  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertWorkingNodeFromBaseCopy  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertWorkingNodeNormalFromBase  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertWorkingNodeNotPresentFromBase  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInsertWorkItem  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbInstallWorkingNodeForDelete  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbMarkSkippedChangelistDirs  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/statement/SVNWCDbReplaceWithBaseDeleted  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/SVNWCDb  # SVN support
+org/tmatesoft/svn/core/internal/wc17/db/SvnWcDbProperties  # SVN support
+org/tmatesoft/svn/core/internal/wc2/ng/SvnNgUpgradeSDb  # SVN support
+org/tmatesoft/svn/core/internal/wc2/old/SvnOldUpgrade  # SVN support
+org/tmatesoft/svn/core/internal/wc/SVNFileUtil  # SVN support
