@@ -750,6 +750,7 @@ describe('trustedProperties', () => {
       'sonar.scm.revision': 'abc',
       'sonar.working.directory': '/tmp/scannerwork',
       'sonar.sca.enabled': 'false',
+      'sonar.scanner.autoconfig.enabled': 'false',
       'sonar.organization': 'org',
       'sonar.pullrequest.key': '7',
       'sonar.pullrequest.branch': 'feature',
@@ -757,14 +758,14 @@ describe('trustedProperties', () => {
     })
   })
 
-  it('keeps dependency analysis off on branches too', () => {
-    expect(
-      trustedProperties(
-        target,
-        { headSha: 'abc', branch: 'release' },
-        '/tmp/scannerwork'
-      ).get('sonar.sca.enabled')
-    ).toBe('false')
+  it('keeps everything that runs build tools off on branches too', () => {
+    const properties = trustedProperties(
+      target,
+      { headSha: 'abc', branch: 'release' },
+      '/tmp/scannerwork'
+    )
+    expect(properties.get('sonar.sca.enabled')).toBe('false')
+    expect(properties.get('sonar.scanner.autoconfig.enabled')).toBe('false')
   })
 
   it('names branches other than the default one', () => {

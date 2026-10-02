@@ -348,7 +348,10 @@ export function trustedProperties(
     ['sonar.working.directory', workingDirectory],
     // Sonar's dependency analysis lists dependencies by running the project's own build tools
     // (mvnw, gradlew, npm), i.e. the pull request's code, with the token in the environment.
-    ['sonar.sca.enabled', 'false']
+    ['sonar.sca.enabled', 'false'],
+    // So does the engine's build system autoconfiguration, which runs the checkout's mvnw (SonarCloud
+    // engine 13.14, behind server-side feature flags).
+    ['sonar.scanner.autoconfig.enabled', 'false']
   ])
   if (target.organization)
     properties.set('sonar.organization', target.organization)
