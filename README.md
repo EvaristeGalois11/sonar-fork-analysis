@@ -337,3 +337,6 @@ allowed actions.
 
 Report vulnerabilities as described in [SECURITY.md](SECURITY.md). Licensed
 under [MIT](LICENSE).
+
+This project is not affiliated with or endorsed by SonarSource. Sonar, SonarQube
+and SonarCloud are trademarks of SonarSource.
