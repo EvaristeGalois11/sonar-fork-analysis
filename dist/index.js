@@ -46,10 +46,10 @@ import https$1 from 'node:https';
 import { createHmac, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
-import fs$1, { lstatSync, realpathSync, existsSync as existsSync$1, readdirSync, rmSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, globSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
+import fs$1, { realpathSync, unlinkSync, lstatSync, existsSync as existsSync$1, rmSync, readdirSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, globSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
-import require$$1$7, { relative, isAbsolute, resolve as resolve$1, join, sep as sep$2, basename, dirname } from 'node:path';
+import require$$1$7, { join, relative, isAbsolute, resolve as resolve$1, sep as sep$2, basename, dirname } from 'node:path';
 import require$$5$6 from 'node:fs/promises';
 import require$$2$1 from 'node:string_decoder';
 import require$$0$e from 'zlib';
@@ -127352,7 +127352,6 @@ const CHECKOUT_PATH_KEYS = new Set([
 const OUTPUT_PATH_KEYS = new Set(['sonar.projectBuildDir']);
 const PLAIN_KEYS = new Set([
     'sonar.modules',
-    'sonar.moduleKey',
     'sonar.projectName',
     'sonar.projectDescription',
     'sonar.projectVersion',
@@ -127424,6 +127423,9 @@ const REPLACED_KEYS = new Set([
     'sonar.login',
     'sonar.organization',
     'sonar.projectKey',
+    // The engine names each module's work directory after its key, and empties it: a key holding ../
+    // would point that anywhere. Without it, the engine derives the same parent:id key builds use.
+    'sonar.moduleKey',
     'sonar.working.directory',
     'sonar.userHome',
     'sonar.java.jdkHome',
@@ -127450,8 +127452,10 @@ function isAllowed(bareKey) {
 function moduleTree(settings) {
     const assigned = new Map();
     const prefixes = [];
+    const seen = new Set();
     const walk = (prefix, keys) => {
         prefixes.push(prefix);
+        seen.add(prefix);
         const listKey = keys.get('sonar.modules');
         const list = (listKey !== undefined && settings.get(listKey)) || '';
         // Quoted, "sonar.sca" would pass the check below and still name the module sonar.sca.
@@ -127472,7 +127476,7 @@ function moduleTree(settings) {
                 throw new Error(`Invalid module id: ${module}`);
             const nested = `${prefix}${module}.`;
             // The engine refuses a module path it has seen, e.g. a,a or a,a.b next to a's own b.
-            if (prefixes.includes(nested))
+            if (seen.has(nested))
                 throw new Error(`Invalid module id: ${module} repeats ${nested}`);
             const own = new Map();
             for (const [relative, original] of keys) {
@@ -127648,8 +127652,22 @@ function resolveSettings(settings, workspace, home) {
     }
     return { properties, sourceRoots, warnings };
 }
+// Every entry under a directory, links included but never followed: Node's recursive readdir follows
+// links to directories, out of the directory or round in circles.
+function entriesUnder(directory) {
+    const entries = [];
+    const pending = [directory];
+    for (let current = pending.pop(); current; current = pending.pop()) {
+        for (const entry of readdirSync(current, { withFileTypes: true })) {
+            entries.push(entry);
+            if (entry.isDirectory())
+                pending.push(join(current, entry.name));
+        }
+    }
+    return entries;
+}
 function walk(directory) {
-    return readdirSync(directory, { recursive: true, encoding: 'utf8' }).map((entry) => join(directory, entry));
+    return entriesUnder(directory).map((entry) => join(entry.parentPath, entry.name));
 }
 // The artifact download should never produce links, but it is not ours to trust.
 function checkNoLinks(directory) {
@@ -127723,15 +127741,37 @@ function unpackWorkspace(from, workspace, protectedRoots) {
     removeProjectSettings(workspace);
     return warnings;
 }
+// The engine follows links into directories and only checks the path it reached a file by, so a link
+// in the checkout to anywhere else, /proc/self for one, would have Sonar index and upload what is
+// there. Links staying in the checkout are left to the checks on settings and the scanner's own.
+function removeOutwardLinks(workspace) {
+    const realWorkspace = realpathSync(workspace);
+    const warnings = [];
+    const entries = entriesUnder(workspace);
+    for (const entry of entries) {
+        if (!entry.isSymbolicLink())
+            continue;
+        const path = join(entry.parentPath, entry.name);
+        let target;
+        try {
+            target = realpathSync(path);
+        }
+        catch {
+            target = undefined;
+        }
+        if (target === undefined || !isWithin(target, realWorkspace)) {
+            unlinkSync(path);
+            warnings.push(`Removed ${relative(workspace, path)}: a link leading out of the checkout`);
+        }
+    }
+    return warnings;
+}
 // The scanner reads one from every module directory, unchecked, so none may come from the pull
 // request or the artifact. Deleting by name lets the file system match it the way the scanner's
 // lookup will, e.g. SONAR-PROJECT.PROPERTIES on the case-insensitive file systems of macOS and
 // Windows, which a comparison of names would miss.
 function removeProjectSettings(workspace) {
-    const directories = readdirSync(workspace, {
-        recursive: true,
-        withFileTypes: true
-    })
+    const directories = entriesUnder(workspace)
         .filter((entry) => entry.isDirectory())
         .map((entry) => join(entry.parentPath, entry.name))
         .filter((directory) => !relative(workspace, directory).split(sep$2).some(isGitDirectory));
@@ -131961,6 +132001,7 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
         });
     }
     await verifyCheckout(workspace, origin.headSha);
+    const removedLinks = removeOutwardLinks(workspace);
     const temp = tempDirectory();
     const artifact = await downloadArtifact(found, temp);
     checkNoLinks(artifact);
@@ -131973,6 +132014,7 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     const resolved = resolveSettings(manifest.settings, workspace, home);
     removeProjectSettings(workspace);
     const warnings = [
+        ...removedLinks,
         ...resolved.warnings,
         ...unpackWorkspace(join(artifact, 'workspace'), workspace, resolved.sourceRoots)
     ];
@@ -132004,6 +132046,10 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
         !name.startsWith('ACTIONS_') &&
         !RUNNER_FILES.includes(name)));
     env.SONAR_TOKEN = inputs.token;
+    // Java names files in the locale's encoding; without a UTF-8 one, e.g. in a bare container, it reads
+    // a non-ASCII name as '?', which is not the path checked here.
+    if (process.platform === 'linux')
+        env.LC_ALL = 'C.UTF-8';
     // The scanner prints module names and paths from the artifact and the checkout; none of it may
     // pass for a workflow command.
     const resume = randomUUID$2();

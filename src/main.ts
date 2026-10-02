@@ -16,6 +16,7 @@ import { dirname, join, resolve } from 'node:path'
 import {
   checkNoLinks,
   formatProperties,
+  removeOutwardLinks,
   removeProjectSettings,
   resolveSettings,
   trustedProperties,
@@ -358,6 +359,7 @@ async function analyzeCommit(
     })
   }
   await verifyCheckout(workspace, origin.headSha)
+  const removedLinks = removeOutwardLinks(workspace)
 
   const temp = tempDirectory()
   const artifact = await downloadArtifact(found, temp)
@@ -376,6 +378,7 @@ async function analyzeCommit(
   const resolved = resolveSettings(manifest.settings, workspace, home)
   removeProjectSettings(workspace)
   const warnings = [
+    ...removedLinks,
     ...resolved.warnings,
     ...unpackWorkspace(
       join(artifact, 'workspace'),
@@ -419,6 +422,9 @@ async function analyzeCommit(
     )
   )
   env.SONAR_TOKEN = inputs.token
+  // Java names files in the locale's encoding; without a UTF-8 one, e.g. in a bare container, it reads
+  // a non-ASCII name as '?', which is not the path checked here.
+  if (process.platform === 'linux') env.LC_ALL = 'C.UTF-8'
   // The scanner prints module names and paths from the artifact and the checkout; none of it may
   // pass for a workflow command.
   const resume = randomUUID()

@@ -436,6 +436,9 @@ describe('run in analyze mode', () => {
     expect(tool).toBe('/opt/sonar-scanner/bin/sonar-scanner')
     expect(args!.join(' ')).not.toContain(TOKEN)
     expect(options!.env!.SONAR_TOKEN).toBe(TOKEN)
+    expect(options!.env!.LC_ALL).toBe(
+      process.platform === 'linux' ? 'C.UTF-8' : undefined
+    )
     // Tokens and runner files the scanner, which reads untrusted content, has no use for.
     expect(
       Object.keys(options!.env!).filter(

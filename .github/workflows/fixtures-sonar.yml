@@ -40,10 +40,11 @@ jobs:
             printf "#!/bin/sh\necho \"\$0 \$*\" >> \"%s\"\nexit 1\n" "$RUNNER_TEMP/traps/sprung" > "$RUNNER_TEMP/traps/$tool"
             chmod +x "$RUNNER_TEMP/traps/$tool"
           done
-          # SonarCloud's engine runs dotnet build -version for its analytics, which is fine anywhere but
-          # in the checkout, where dotnet would read the pull request's global.json.
-          printf "#!/bin/sh\ncase \"\$PWD/\" in \"%s\"/*) echo \"dotnet \$* in \$PWD\" >> \"%s\";; esac\nexit 1\n" \
-            "$GITHUB_WORKSPACE" "$RUNNER_TEMP/traps/sprung" > "$RUNNER_TEMP/traps/dotnet"
+          # SonarCloud's engine runs dotnet build -version for its analytics, in the working directory the
+          # action gives the scanner; anywhere else, e.g. the checkout or the unpacked artifact, dotnet
+          # would read the pull request's global.json.
+          printf "#!/bin/sh\ncase \"\$PWD/\" in \"%s\"/sonar-fork-analysis-*/run/) ;; *) echo \"dotnet \$* in \$PWD\" >> \"%s\";; esac\nexit 1\n" \
+            "$RUNNER_TEMP" "$RUNNER_TEMP/traps/sprung" > "$RUNNER_TEMP/traps/dotnet"
           chmod +x "$RUNNER_TEMP/traps/dotnet"
           echo "$RUNNER_TEMP/traps" >> "$GITHUB_PATH"
 

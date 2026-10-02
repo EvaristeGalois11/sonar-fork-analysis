@@ -21,7 +21,9 @@ inputs:
   build-arguments:
     description: >
       Extra build flags (not goals or tasks), one per line. In analyze mode they
-      go to the Sonar scanner instead, e.g. -Dsonar.projectName=App.
+      go to the Sonar scanner instead, e.g. -Dsonar.projectName=App, which runs
+      in a directory of the action's: relative paths there do not point into the
+      checkout.
     default: ''
   project-key:
     description: >

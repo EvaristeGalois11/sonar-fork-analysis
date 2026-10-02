@@ -60,7 +60,6 @@ export const OUTPUT_PATH_KEYS = new Set(['sonar.projectBuildDir'])
 
 const PLAIN_KEYS = new Set([
   'sonar.modules',
-  'sonar.moduleKey',
   'sonar.projectName',
   'sonar.projectDescription',
   'sonar.projectVersion',
@@ -136,6 +135,9 @@ const REPLACED_KEYS = new Set([
   'sonar.login',
   'sonar.organization',
   'sonar.projectKey',
+  // The engine names each module's work directory after its key, and empties it: a key holding ../
+  // would point that anywhere. Without it, the engine derives the same parent:id key builds use.
+  'sonar.moduleKey',
   'sonar.working.directory',
   'sonar.userHome',
   'sonar.java.jdkHome',
@@ -179,8 +181,10 @@ export type ModuleTree = {
 export function moduleTree(settings: Map<string, string>): ModuleTree {
   const assigned = new Map<string, SplitKey>()
   const prefixes: string[] = []
+  const seen = new Set<string>()
   const walk = (prefix: string, keys: Map<string, string>): void => {
     prefixes.push(prefix)
+    seen.add(prefix)
     const listKey = keys.get('sonar.modules')
     const list = (listKey !== undefined && settings.get(listKey)) || ''
     // Quoted, "sonar.sca" would pass the check below and still name the module sonar.sca.
@@ -203,7 +207,7 @@ export function moduleTree(settings: Map<string, string>): ModuleTree {
         throw new Error(`Invalid module id: ${module}`)
       const nested = `${prefix}${module}.`
       // The engine refuses a module path it has seen, e.g. a,a or a,a.b next to a's own b.
-      if (prefixes.includes(nested))
+      if (seen.has(nested))
         throw new Error(`Invalid module id: ${module} repeats ${nested}`)
       const own = new Map<string, string>()
       for (const [relative, original] of keys) {
