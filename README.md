@@ -48,10 +48,26 @@ flowchart LR
   end
 ```
 
-The `mode` input defaults to `auto`, which picks the part to run. With a token,
-the action analyses directly. Without one, it builds and uploads the result. In
-the Sonar workflow, it analyses that upload. The Sonar workflow runs after every
-build, and does nothing if the build already analysed directly.
+On a pull request from a fork:
+
+1. Your build workflow runs without the Sonar token. The action builds the
+   project with Maven or Gradle, and has Sonar's build plugin work out the
+   analysis settings without running the analysis. It uploads the compiled
+   classes, libraries, coverage and test reports, together with those settings,
+   as an artifact.
+2. When the build finishes, GitHub starts your Sonar workflow through
+   `workflow_run`. It runs in your repository, so it has the Sonar token.
+3. The action checks out the pull request, checks the uploaded settings against
+   an allowlist, and runs the Sonar scanner on the sources and the build output.
+   It never runs the build or anything else from the pull request. Sonar shows
+   the results on the pull request as usual.
+
+On pushes and pull requests from your own repository, the build has the token,
+so the action analyses straight away, as Sonar's own Maven and Gradle plugins
+would. The Sonar workflow still starts after the build, but has nothing to do.
+
+You don't have to pick any of this. The `mode` input defaults to `auto`, which
+chooses the right part from where the action runs and whether it has a token.
 
 ## Setup
 
