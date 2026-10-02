@@ -14,9 +14,10 @@ GitHub doesn't give secrets to workflows triggered by a fork, so the usual Sonar
 setup can't analyse their pull requests. This action splits the work in two. The
 build workflow builds the pull request without the Sonar token. A second
 workflow then analyses the result with the token, without running any of the
-pull request's code. It's the same split Sonar's documentation describes for
-forks, packaged for Maven and Gradle. Binaries, libraries, coverage, test
-reports and the settings your build defines all carry over.
+pull request's code. It's the split
+[Sonar's documentation describes for forks](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/ci-based-analysis/github-actions-for-sonarcloud#analyzing-fork-pull-requests),
+packaged for Maven and Gradle. Binaries, libraries, coverage, test reports and
+the settings your build defines all carry over.
 
 If you don't need coverage on fork pull requests, SonarQube Cloud's
 [Automatic Analysis](https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/automatic-analysis/)
