@@ -100,7 +100,6 @@ information about the pull request, not as a review of it.
 
 ## Hardening your setup
 
-- Trigger the build on `pull_request`, never `pull_request_target`.
 - Don't run fork builds on self-hosted runners that also run the Sonar workflow.
   A fork's build could leave something behind on the machine, such as a tampered
   copy of the scanner the action caches there. GitHub
