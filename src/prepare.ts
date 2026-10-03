@@ -5,6 +5,8 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  realpathSync,
+  statSync,
   writeFileSync,
   type Dirent
 } from 'node:fs'
@@ -73,16 +75,25 @@ export function missingDump(tool: BuildTool): string {
   return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the fork path needs ${MINIMUM_PLUGIN[tool.name]} or later`
 }
 
+// A link in node_modules, both paths relative to the workspace, with forward slashes.
+export type PackageLink = { path: string; target: string }
+
+export type TypeInformation = { files: string[]; links: PackageLink[] }
+
 // The analysis has no node_modules, as nothing may install the pull request's dependencies there, so
 // TypeScript would resolve fewer types and type-aware rules report less. This is what it reads there,
 // from the project's node_modules and those of the directories above it up to the workspace, where
-// npm and Yarn workspaces install. Links are not followed, nor is pnpm's store, whose packages are
-// only reachable through links. A directory the build can't read is skipped.
-export function typeDeclarations(
+// npm and Yarn workspaces install. Links are not followed but recorded, when they lead to a directory
+// in the workspace, so the analysis can make them again: workspaces link their own packages, pnpm
+// every package. A directory the build can't read is skipped.
+export function typeInformation(
   directory: string,
   workspace: string
-): string[] {
-  const found: string[] = []
+): TypeInformation {
+  const files: string[] = []
+  const links: PackageLink[] = []
+  const realWorkspace = realpathSync(workspace)
+  const posix = (path: string): string => path.split(sep).join('/')
   const visit = (path: string, inPackages: boolean): void => {
     let entries: Dirent[]
     try {
@@ -93,15 +104,21 @@ export function typeDeclarations(
     for (const entry of entries) {
       const child = join(path, entry.name)
       if (entry.isDirectory()) {
-        if (entry.name === '.git' || (inPackages && entry.name === '.pnpm'))
-          continue
-        visit(child, inPackages || entry.name === 'node_modules')
+        if (entry.name !== '.git')
+          visit(child, inPackages || entry.name === 'node_modules')
+      } else if (inPackages && entry.isSymbolicLink()) {
+        const target = inPackageLink(child, realWorkspace)
+        if (target)
+          links.push({
+            path: posix(relative(workspace, child)),
+            target: posix(target)
+          })
       } else if (
         inPackages &&
         entry.isFile() &&
         isTypeInformation(entry.name)
       ) {
-        found.push(child)
+        files.push(child)
       }
     }
   }
@@ -116,7 +133,22 @@ export function typeDeclarations(
       visit(packages, true)
     if (above === dirname(above)) break
   }
-  return found
+  return { files, links }
+}
+
+// Where a link leads, relative to the workspace, if that is a directory inside it.
+function inPackageLink(
+  link: string,
+  realWorkspace: string
+): string | undefined {
+  try {
+    const target = realpathSync(link)
+    const rel = relative(realWorkspace, target)
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return undefined
+    return statSync(target).isDirectory() ? rel : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function locate(path: string, roots: Roots): [Root, string] | undefined {
@@ -152,7 +184,8 @@ export function stageAnalysis(
   staging: string,
   buildTool: BuildTool['name'],
   pullRequest?: number,
-  extraFiles: string[] = []
+  extraFiles: string[] = [],
+  links: PackageLink[] = []
 ): Staged {
   const tree = moduleTree(settings)
   const shipped = new Map<string, [Root, string]>()
@@ -230,7 +263,7 @@ export function stageAnalysis(
   writeFileSync(
     join(staging, 'settings.json'),
     JSON.stringify(
-      { format: ARTIFACT_FORMAT, buildTool, pullRequest, settings: out },
+      { format: ARTIFACT_FORMAT, buildTool, pullRequest, settings: out, links },
       null,
       2
     )

@@ -201,8 +201,9 @@ sonar.javascript.lcov.reportPaths=coverage/lcov.info
 Other languages have their own report settings, such as
 `sonar.python.coverage.reportPaths=coverage.xml` for Python. The Sonar workflow
 doesn't change. For a Node project, the action also passes the type declarations
-from your `node_modules` to the Sonar workflow, so rules that need types work on
-pull requests from forks too.
+in your `node_modules` to the Sonar workflow, along with the links npm, Yarn and
+pnpm make there. Rules that need types then work on pull requests from forks
+too, even across the packages of a monorepo.
 
 ### Which commit the build tests
 
@@ -411,10 +412,6 @@ and
   `sonar-project.properties` and `build-arguments`. Unlike Sonar's npm scanner,
   it doesn't guess any from `package.json`, so set your coverage report path
   yourself.
-- The action doesn't follow links in `node_modules`, so type declarations behind
-  them don't reach pull requests from forks. That covers all of pnpm's packages
-  and the workspace packages that npm and Yarn link. Rules that need types may
-  find less there.
 - On the fork path, the build collects its settings with simulation mode
   (`sonar.scanner.internal.dumpToFile`), a feature of the Sonar plugins for
   Maven and Gradle and of the pinned scanner. Sonar uses it in its own tests but

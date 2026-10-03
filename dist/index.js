@@ -46,7 +46,7 @@ import https$1 from 'node:https';
 import { createHmac, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
-import fs$1, { realpathSync, unlinkSync, lstatSync, existsSync as existsSync$1, rmSync, readdirSync, statSync, mkdirSync, copyFileSync, constants as constants$8, accessSync, globSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
+import fs$1, { realpathSync, unlinkSync, lstatSync, existsSync as existsSync$1, rmSync, readdirSync, statSync, mkdirSync, copyFileSync, constants as constants$8, symlinkSync, accessSync, globSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
 import require$$1$7, { join, relative, isAbsolute, resolve as resolve$1, sep as sep$2, basename, dirname } from 'node:path';
@@ -127828,6 +127828,74 @@ function removeOutwardLinks(workspace) {
     }
     return warnings;
 }
+// Makes the links a Node project's node_modules had again, without which TypeScript finds no package
+// a workspace or pnpm links. Each one stays in a node_modules directory, leads to a directory in the
+// checkout and never into .git, which keeps them to what a fork could commit itself.
+function recreateLinks(workspace, links) {
+    if (!Array.isArray(links))
+        return [];
+    const warnings = [];
+    const realWorkspace = realpathSync(workspace);
+    for (const link of links) {
+        const path = link?.path;
+        const target = link?.target;
+        if (typeof path !== 'string' || typeof target !== 'string') {
+            warnings.push(`Skipped a link: ${JSON.stringify(link)} names no path and target`);
+            continue;
+        }
+        const reason = recreateLink(workspace, realWorkspace, path, target);
+        if (reason)
+            warnings.push(`Skipped link ${path}: ${reason}`);
+    }
+    return warnings;
+}
+// The segments of a relative path that stays below where it starts and out of .git.
+function plainSegments(path) {
+    if (isAbsolute(path))
+        return undefined;
+    const segments = path.split('/');
+    const plain = segments.every((segment) => segment !== '' &&
+        segment !== '.' &&
+        segment !== '..' &&
+        !segment.includes('\\') &&
+        !isGitDirectory(segment));
+    return plain ? segments : undefined;
+}
+function recreateLink(workspace, realWorkspace, path, target) {
+    const at = plainSegments(path);
+    const to = plainSegments(target);
+    if (!at || !to)
+        return 'it leaves the checkout or enters .git';
+    if (!at.slice(0, -1).includes('node_modules'))
+        return 'it is not in a node_modules directory';
+    const destination = join(workspace, ...to);
+    const real = existsSync$1(destination) ? realpathSync(destination) : undefined;
+    if (!real ||
+        !statSync(real).isDirectory() ||
+        !isWithin(real, realWorkspace) ||
+        relative(realWorkspace, real).split(sep$2).some(isGitDirectory))
+        return 'it does not lead to a directory in the checkout';
+    // The directories on the way are made here, never through a link, like unpacked files.
+    let directory = workspace;
+    for (const segment of at.slice(0, -1)) {
+        directory = join(directory, segment);
+        const stats = lstatSync(directory, { throwIfNoEntry: false });
+        if (!stats)
+            mkdirSync(directory);
+        else if (stats.isSymbolicLink() || !stats.isDirectory())
+            return 'its directory is a link or a file in the checkout';
+    }
+    const location = join(directory, at[at.length - 1]);
+    // Committed, or made by an earlier entry: the checkout's own stays.
+    if (lstatSync(location, { throwIfNoEntry: false }))
+        return undefined;
+    // Windows makes directory links as junctions, which need no privilege but an absolute target.
+    if (process.platform === 'win32')
+        symlinkSync(real, location, 'junction');
+    else
+        symlinkSync(relative(directory, real), location, 'dir');
+    return undefined;
+}
 // The scanner reads one from every module directory, unchecked, so none may come from the pull
 // request or the artifact. Deleting by name lets the file system match it the way the scanner's
 // lookup will, e.g. SONAR-PROJECT.PROPERTIES on the case-insensitive file systems of macOS and
@@ -128324,10 +128392,14 @@ function missingDump(tool) {
 // The analysis has no node_modules, as nothing may install the pull request's dependencies there, so
 // TypeScript would resolve fewer types and type-aware rules report less. This is what it reads there,
 // from the project's node_modules and those of the directories above it up to the workspace, where
-// npm and Yarn workspaces install. Links are not followed, nor is pnpm's store, whose packages are
-// only reachable through links. A directory the build can't read is skipped.
-function typeDeclarations(directory, workspace) {
-    const found = [];
+// npm and Yarn workspaces install. Links are not followed but recorded, when they lead to a directory
+// in the workspace, so the analysis can make them again: workspaces link their own packages, pnpm
+// every package. A directory the build can't read is skipped.
+function typeInformation(directory, workspace) {
+    const files = [];
+    const links = [];
+    const realWorkspace = realpathSync(workspace);
+    const posix = (path) => path.split(sep$2).join('/');
     const visit = (path, inPackages) => {
         let entries;
         try {
@@ -128339,14 +128411,21 @@ function typeDeclarations(directory, workspace) {
         for (const entry of entries) {
             const child = join(path, entry.name);
             if (entry.isDirectory()) {
-                if (entry.name === '.git' || (inPackages && entry.name === '.pnpm'))
-                    continue;
-                visit(child, inPackages || entry.name === 'node_modules');
+                if (entry.name !== '.git')
+                    visit(child, inPackages || entry.name === 'node_modules');
+            }
+            else if (inPackages && entry.isSymbolicLink()) {
+                const target = inPackageLink(child, realWorkspace);
+                if (target)
+                    links.push({
+                        path: posix(relative(workspace, child)),
+                        target: posix(target)
+                    });
             }
             else if (inPackages &&
                 entry.isFile() &&
                 isTypeInformation(entry.name)) {
-                found.push(child);
+                files.push(child);
             }
         }
     };
@@ -128358,7 +128437,20 @@ function typeDeclarations(directory, workspace) {
         if (above === dirname(above))
             break;
     }
-    return found;
+    return { files, links };
+}
+// Where a link leads, relative to the workspace, if that is a directory inside it.
+function inPackageLink(link, realWorkspace) {
+    try {
+        const target = realpathSync(link);
+        const rel = relative(realWorkspace, target);
+        if (rel === '' || rel.startsWith('..') || isAbsolute(rel))
+            return undefined;
+        return statSync(target).isDirectory() ? rel : undefined;
+    }
+    catch {
+        return undefined;
+    }
 }
 function locate(path, roots) {
     for (const root of ['workspace', 'home']) {
@@ -128378,7 +128470,7 @@ function filesUnder(directory) {
 }
 // Rewrites paths to {workspace}/… and {home}/… so the analysis can map them onto its own
 // directories, and copies the build output they point to into the staging directory.
-function stageAnalysis(settings, roots, staging, buildTool, pullRequest, extraFiles = []) {
+function stageAnalysis(settings, roots, staging, buildTool, pullRequest, extraFiles = [], links = []) {
     const tree = moduleTree(settings);
     const shipped = new Map();
     const warnings = [];
@@ -128448,7 +128540,7 @@ function stageAnalysis(settings, roots, staging, buildTool, pullRequest, extraFi
             dereference: true
         });
     }
-    writeFileSync(join(staging, 'settings.json'), JSON.stringify({ format: ARTIFACT_FORMAT, buildTool, pullRequest, settings: out }, null, 2));
+    writeFileSync(join(staging, 'settings.json'), JSON.stringify({ format: ARTIFACT_FORMAT, buildTool, pullRequest, settings: out, links }, null, 2));
     return { settings: out, files: filesUnder(staging), warnings };
 }
 
@@ -132017,10 +132109,12 @@ async function prepare(inputs) {
     if (settings.get('sonar.organization') && !inputs.organization)
         warning(`The build sets sonar.organization, which the analysis of pull requests takes only from the sonar-organization input: set it in both workflows.`);
     const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
-    const declarations = tool.name === 'scanner' ? typeDeclarations(workingDirectory, workspace) : [];
-    if (declarations.length > 0) {
-        const bytes = declarations.reduce((sum, path) => sum + statSync(path).size, 0);
-        info(`Shipping ${declarations.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) from node_modules`);
+    const types = tool.name === 'scanner'
+        ? typeInformation(workingDirectory, workspace)
+        : { files: [], links: [] };
+    if (types.files.length > 0 || types.links.length > 0) {
+        const bytes = types.files.reduce((sum, path) => sum + statSync(path).size, 0);
+        info(`Shipping ${types.files.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) and ${types.links.length} links from node_modules`);
     }
     else if (tool.name === 'scanner' &&
         existsSync$1(join(workingDirectory, 'package.json'))) {
@@ -132030,7 +132124,7 @@ async function prepare(inputs) {
     const staged = stageAnalysis(kept, {
         workspace,
         home: homedir()
-    }, staging, tool.name, pullRequestNumber(), declarations);
+    }, staging, tool.name, pullRequestNumber(), types.files, types.links);
     for (const warning$1 of staged.warnings)
         warning(warning$1);
     if (!process.env.ACTIONS_RUNTIME_TOKEN) {
@@ -132187,7 +132281,8 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     const warnings = [
         ...removedLinks,
         ...resolved.warnings,
-        ...unpackWorkspace(join(artifact, 'workspace'), workspace, resolved.sourceRoots, resolved.reports)
+        ...unpackWorkspace(join(artifact, 'workspace'), workspace, resolved.sourceRoots, resolved.reports),
+        ...recreateLinks(workspace, manifest.links)
     ];
     if (existsSync$1(join(artifact, 'home')))
         cpSync(join(artifact, 'home'), home, { recursive: true });

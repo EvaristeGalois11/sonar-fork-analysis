@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals'
 import {
   cpSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -472,12 +473,19 @@ describe('run in analyze mode', () => {
 
   function prepared(
     settings: Record<string, string>,
-    pullRequest?: number
+    pullRequest?: number,
+    links?: { path: string; target: string }[]
   ): void {
     artifactDir = mkdtempSync(join(tmpdir(), 'artifact-'))
     writeFileSync(
       join(artifactDir, 'settings.json'),
-      JSON.stringify({ format: 1, buildTool: 'maven', pullRequest, settings })
+      JSON.stringify({
+        format: 1,
+        buildTool: 'maven',
+        pullRequest,
+        settings,
+        links
+      })
     )
     mkdirSync(join(artifactDir, 'workspace', 'target', 'classes'), {
       recursive: true
@@ -517,6 +525,22 @@ describe('run in analyze mode', () => {
   afterEach(() => {
     process.env = { ...saved }
     if (artifactDir) rmSync(artifactDir, { recursive: true, force: true })
+  })
+
+  it("makes the links the build's node_modules had again", async () => {
+    mkdirSync(join(project, 'packages', 'shared'), { recursive: true })
+    prepared({ 'sonar.projectBaseDir': '{workspace}' }, undefined, [
+      { path: 'node_modules/@app/shared', target: 'packages/shared' }
+    ])
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(
+      lstatSync(
+        join(project, 'node_modules', '@app', 'shared')
+      ).isSymbolicLink()
+    ).toBe(true)
   })
 
   it('scans with trusted settings and the token only in the environment', async () => {

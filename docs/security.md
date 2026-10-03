@@ -33,7 +33,10 @@ or through a link. It adds only two kinds of files to the source directories:
 report files that the settings name and type information in `node_modules`
 (declaration, `package.json` and `tsconfig` files). The analyzers read the type
 information to learn the types the code uses and by default never report on it
-as part of the project.
+as part of the project. The action also recreates the links a Node project had
+in `node_modules`. It only recreates links that sit in a `node_modules`
+directory and lead to a directory in the checkout, never into `.git`. A fork
+could commit links like these itself.
 
 **The settings.** The build's settings go through the same
 [allowlist](#what-the-fork-path-carries) again, and every path in them must lead

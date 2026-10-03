@@ -17,6 +17,7 @@ import { dirname, join, resolve } from 'node:path'
 import {
   checkNoLinks,
   formatProperties,
+  recreateLinks,
   removeOutwardLinks,
   removeProjectSettings,
   resolveSettings,
@@ -48,7 +49,7 @@ import {
   missingDump,
   simulationProperties,
   stageAnalysis,
-  typeDeclarations
+  typeInformation
 } from './prepare.js'
 import { parseProperties } from './properties.js'
 import { findNewReport, snapshotReports } from './report.js'
@@ -187,15 +188,17 @@ async function prepare(inputs: Inputs): Promise<void> {
     )
 
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd()
-  const declarations =
-    tool.name === 'scanner' ? typeDeclarations(workingDirectory, workspace) : []
-  if (declarations.length > 0) {
-    const bytes = declarations.reduce(
+  const types =
+    tool.name === 'scanner'
+      ? typeInformation(workingDirectory, workspace)
+      : { files: [], links: [] }
+  if (types.files.length > 0 || types.links.length > 0) {
+    const bytes = types.files.reduce(
       (sum, path) => sum + statSync(path).size,
       0
     )
     core.info(
-      `Shipping ${declarations.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) from node_modules`
+      `Shipping ${types.files.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) and ${types.links.length} links from node_modules`
     )
   } else if (
     tool.name === 'scanner' &&
@@ -215,7 +218,8 @@ async function prepare(inputs: Inputs): Promise<void> {
     staging,
     tool.name,
     pullRequestNumber(),
-    declarations
+    types.files,
+    types.links
   )
   for (const warning of staged.warnings) core.warning(warning)
 
@@ -438,7 +442,8 @@ async function analyzeCommit(
       workspace,
       resolved.sourceRoots,
       resolved.reports
-    )
+    ),
+    ...recreateLinks(workspace, manifest.links)
   ]
   if (existsSync(join(artifact, 'home')))
     cpSync(join(artifact, 'home'), home, { recursive: true })
