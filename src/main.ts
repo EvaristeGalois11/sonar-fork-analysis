@@ -90,14 +90,14 @@ async function direct(inputs: Inputs): Promise<void> {
 
 const NOTE_DAYS = 35
 
-const RUNNER_FILES = [
+const RUNNER_FILES = new Set([
   'GITHUB_ENV',
   'GITHUB_OUTPUT',
   'GITHUB_PATH',
   'GITHUB_STATE',
   'GITHUB_STEP_SUMMARY',
   'GITHUB_TOKEN'
-]
+])
 
 // Tells a fork path's analysis, which runs after every build, that this one already analysed.
 async function leaveDirectNote(projectKey: string): Promise<void> {
@@ -481,7 +481,7 @@ async function analyzeCommit(
       ([name]) =>
         !name.startsWith('INPUT_') &&
         !name.startsWith('ACTIONS_') &&
-        !RUNNER_FILES.includes(name)
+        !RUNNER_FILES.has(name)
     )
   )
   env.SONAR_TOKEN = inputs.token

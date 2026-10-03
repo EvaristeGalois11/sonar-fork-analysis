@@ -56,7 +56,7 @@ for (const [, suffix] of source.matchAll(/suffix: '([^']*)'/g)) {
   if (!/^[0-9a-f]{64}$/.test(sha256))
     throw new Error(`No SHA-256 published for the ${suffix || 'plain'} build`)
   source = source.replace(
-    new RegExp(`(suffix: '${suffix}',\\s*sha256: )'[0-9a-f]{64}'`),
+    new RegExp(String.raw`(suffix: '${suffix}',\s*sha256: )'[0-9a-f]{64}'`),
     `$1'${sha256}'`
   )
 }

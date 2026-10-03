@@ -6,7 +6,7 @@ const MODES = ['auto', 'direct', 'prepare', 'analyze']
 
 // Events that run with the base repository's secrets and write token. Building a pull request
 // there would hand those to its code, which is exactly what this action exists to avoid.
-const PRIVILEGED_EVENTS = ['pull_request_target', 'issue_comment']
+const PRIVILEGED_EVENTS = new Set(['pull_request_target', 'issue_comment'])
 
 export function resolveMode(
   requested: string,
@@ -30,7 +30,7 @@ export function resolveMode(
   if (mode === 'analyze') return { mode }
 
   if (
-    PRIVILEGED_EVENTS.includes(eventName) ||
+    PRIVILEGED_EVENTS.has(eventName) ||
     (mode === 'prepare' && eventName === 'workflow_run')
   ) {
     throw new Error(

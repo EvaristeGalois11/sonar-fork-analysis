@@ -63,6 +63,18 @@ function mapPlaceholder(
   return undefined
 }
 
+// Relative paths resolve against the module's base; an absolute one could point anywhere.
+function mapEntry(
+  entry: string,
+  base: string,
+  workspace: string,
+  home: string
+): string | undefined {
+  if (entry.startsWith('{')) return mapPlaceholder(entry, workspace, home)
+  if (isAbsolute(entry)) return undefined
+  return inside(workspace, resolve(base, entry))
+}
+
 // The scanner replaces ${env.NAME} in a setting with that environment variable, where the Sonar token
 // is, and ${name} with another setting, before using it; there is no way to escape either.
 const PLACEHOLDER = /\$\{[\w.]+\}/
@@ -134,8 +146,9 @@ export function resolveSettings(
       REREAD_PATH.test(mapped) ||
       !inCheckout(mapped)
     ) {
+      const subject = prefix ? `module ${prefix.slice(0, -1)}` : 'the project'
       throw new Error(
-        `The artifact gives ${prefix ? `module ${prefix.slice(0, -1)}` : 'the project'} no base directory in the checkout`
+        `The artifact gives ${subject} no base directory in the checkout`
       )
     }
     bases.set(prefix, mapped)
@@ -160,11 +173,7 @@ export function resolveSettings(
       withSources.add(prefix)
     const entries: string[] = []
     for (const entry of value.split(',').filter((path) => path !== '')) {
-      const mapped = entry.startsWith('{')
-        ? mapPlaceholder(entry, workspace, home)
-        : isAbsolute(entry)
-          ? undefined
-          : inside(workspace, resolve(base, entry))
+      const mapped = mapEntry(entry, base, workspace, home)
       // The build expands patterns into the files it ships; the scanner would expand what is left
       // over files no check here has seen. Nor may the scanner read the path differently.
       const path =
@@ -235,7 +244,12 @@ export function checkNoLinks(directory: string): void {
 // Git would take a planted repository's config and history when Sonar runs it on the checkout.
 // Case and Windows aliases (trailing dots, 8.3 short names) matter on some runners.
 function isGitDirectory(segment: string): boolean {
-  return /^(\.git|git~\d+)$/i.test(segment.replace(/[. ]+$/, ''))
+  // Trimmed by hand: a regular expression anchored at the end takes quadratic time on a long run of
+  // dots and spaces, and the segments come from the artifact.
+  let end = segment.length
+  while (end > 0 && (segment[end - 1] === '.' || segment[end - 1] === ' '))
+    end--
+  return /^(\.git|git~\d+)$/i.test(segment.slice(0, end))
 }
 
 // Type information prepare ships from node_modules, which the analyzers read but by default don't
@@ -465,7 +479,7 @@ function recreateLink(
     else if (stats.isSymbolicLink() || !stats.isDirectory())
       return 'its directory is a link or a file in the checkout'
   }
-  const location = join(directory, at[at.length - 1])
+  const location = join(directory, at.at(-1) as string)
   // Committed, or made by an earlier entry: the checkout's own stays.
   if (lstatSync(location, { throwIfNoEntry: false })) return undefined
   // Windows makes directory links as junctions, which need no privilege but an absolute target.
@@ -502,18 +516,19 @@ export function removeProjectSettings(workspace: string): void {
 
 function escape(text: string, isKey: boolean): string {
   let escaped = text
-    .replace(/\\/g, '\\\\')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t')
-    .replace(/\f/g, '\\f')
+    .replaceAll('\\', String.raw`\\`)
+    .replaceAll('\n', String.raw`\n`)
+    .replaceAll('\r', String.raw`\r`)
+    .replaceAll('\t', String.raw`\t`)
+    .replaceAll('\f', String.raw`\f`)
     // Correct whichever encoding the scanner reads the file with.
-    .replace(
+    .replaceAll(
       /[^\x20-\x7e]/g,
-      (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`
+      (char) =>
+        String.raw`\u${(char.codePointAt(0) as number).toString(16).padStart(4, '0')}`
     )
-  if (isKey) escaped = escaped.replace(/[:= #!]/g, '\\$&')
-  else escaped = escaped.replace(/^ /, '\\ ')
+  if (isKey) escaped = escaped.replaceAll(/[:= #!]/g, String.raw`\$&`)
+  else escaped = escaped.replace(/^ /, String.raw`\ `)
   return escaped
 }
 

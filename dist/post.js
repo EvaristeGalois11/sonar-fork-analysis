@@ -28694,5 +28694,5 @@ async function reportInterrupted() {
 }
 
 /* istanbul ignore next */
-reportInterrupted();
+void reportInterrupted();
 //# sourceMappingURL=post.js.map

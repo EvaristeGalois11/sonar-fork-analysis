@@ -211,7 +211,7 @@ export function moduleTree(settings: Map<string, string>): ModuleTree {
       .split(',')
       .map((module) => module.trim())
       .filter((module) => module.length > 0)
-    for (const module of modules.sort().reverse()) {
+    for (const module of modules.toSorted().reverse()) {
       // The scanner turns a module id into a directory under its parent's, and moves every key
       // starting with the id out of the parent: 'sonar.sca' would take the trusted sonar.sca.enabled.
       if (
