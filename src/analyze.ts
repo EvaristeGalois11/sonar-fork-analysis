@@ -32,7 +32,8 @@ import {
   isReport,
   isShippedPath,
   isTypeInformation,
-  moduleTree
+  moduleTree,
+  type ModuleTree
 } from './settings.js'
 
 // Everything here handles an artifact built by code from a pull request, possibly a fork's, in a job
@@ -89,6 +90,14 @@ export type Resolved = {
   warnings: string[]
 }
 
+// Where the analysis may find the files the settings name, as given and as really located.
+type Places = {
+  workspace: string
+  home: string
+  realWorkspace: string
+  realHome: string
+}
+
 // Must run on the pristine checkout: sources and tests are only accepted if the checkout has them.
 // Paths are compared by their real location, since the checkout may contain links.
 export function resolveSettings(
@@ -97,8 +106,58 @@ export function resolveSettings(
   home: string
 ): Resolved {
   const warnings: string[] = []
-  // First of all, so the allowlist and everything after it read the same module tree: a value
-  // could quote the token, and sonar.modules decides how every other key is read.
+  const kept = allowedSettings(settings, warnings)
+  const tree = moduleTree(kept)
+  const places: Places = {
+    workspace,
+    home,
+    realWorkspace: realpathSync(workspace),
+    realHome: existsSync(home) ? realpathSync(home) : home
+  }
+  const bases = moduleBases(kept, tree, places)
+  let sourceRoots: string[] = []
+  let reports: string[] = []
+  const properties = new Map<string, string>()
+  const withSources = new Set<string>()
+  for (const [key, value] of kept) {
+    const { prefix, bareKey } = tree.split(key)
+    if (
+      !isShippedPath(bareKey) &&
+      !OUTPUT_PATH_KEYS.has(bareKey) &&
+      !CHECKOUT_PATH_KEYS.has(bareKey)
+    ) {
+      properties.set(key, value)
+      continue
+    }
+    const base = bases.get(prefix) as string
+    const paths = resolvePaths(key, bareKey, value, base, places, warnings)
+    if (!paths) continue
+    properties.set(key, paths.join(','))
+    if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests') {
+      withSources.add(prefix)
+      // concat, as a spread would put every entry on the stack, which a long list overflows.
+      sourceRoots = sourceRoots.concat(paths.map((path) => realpathSync(path)))
+    }
+    if (isReport(bareKey))
+      reports = reports.concat(
+        paths
+          .filter((path) => isWithin(path, workspace))
+          .map((path) => join(places.realWorkspace, relative(workspace, path)))
+      )
+  }
+  // Without either setting the scanner analyses the whole base directory.
+  for (const [prefix, base] of bases) {
+    if (!withSources.has(prefix)) sourceRoots.push(realpathSync(base))
+  }
+  return { properties, sourceRoots, reports, warnings }
+}
+
+// First of all, so the allowlist and everything after it read the same module tree: a value
+// could quote the token, and sonar.modules decides how every other key is read.
+function allowedSettings(
+  settings: Record<string, string>,
+  warnings: string[]
+): Map<string, string> {
   const expandable = new Map<string, string>()
   for (const [key, value] of Object.entries(settings)) {
     if (PLACEHOLDER.test(value))
@@ -120,31 +179,31 @@ export function resolveSettings(
     warnings.push(
       `Dropped settings a build never ships: ${unexpected.join(', ')}`
     )
-  const tree = moduleTree(kept)
-  const sourceRoots: string[] = []
-  const reports: string[] = []
-  const properties = new Map<string, string>()
-  const realWorkspace = realpathSync(workspace)
-  const realHome = existsSync(home) ? realpathSync(home) : home
-  const inCheckout = (path: string): boolean =>
-    existsSync(path) && isWithin(realpathSync(path), realWorkspace)
+  return kept
+}
 
-  // The scanner resolves a module's relative paths against its base directory, and derives a missing
-  // one from the module id, so every module must come with a base checked here.
+// The scanner resolves a module's relative paths against its base directory, and derives a missing
+// one from the module id, so every module must come with a base checked here.
+function moduleBases(
+  kept: Map<string, string>,
+  tree: ModuleTree,
+  places: Places
+): Map<string, string> {
   const bases = new Map<string, string>()
   for (const prefix of tree.prefixes) {
     const base = kept.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '')
     const mapped =
       base === undefined && prefix === ''
-        ? workspace
-        : base && mapPlaceholder(base, workspace, home)
+        ? places.workspace
+        : base && mapPlaceholder(base, places.workspace, places.home)
     // The scanner reads patterns in report paths, and a checkout may hold a directory named **.
     if (
       !mapped ||
       mapped.includes(',') ||
       WILDCARD.test(mapped) ||
       REREAD_PATH.test(mapped) ||
-      !inCheckout(mapped)
+      !existsSync(mapped) ||
+      !isWithin(realpathSync(mapped), places.realWorkspace)
     ) {
       const subject = prefix ? `module ${prefix.slice(0, -1)}` : 'the project'
       throw new Error(
@@ -153,60 +212,57 @@ export function resolveSettings(
     }
     bases.set(prefix, mapped)
   }
+  return bases
+}
 
-  const withSources = new Set<string>()
-  for (const [key, value] of kept) {
-    const { prefix, bareKey } = tree.split(key)
-    const shipped = isShippedPath(bareKey)
-    const output = OUTPUT_PATH_KEYS.has(bareKey)
-    if (!shipped && !output && !CHECKOUT_PATH_KEYS.has(bareKey)) {
-      properties.set(key, value)
-      continue
-    }
-    // Read as one path, the value would be none of the entries checked below.
-    if (!isPathList(bareKey) && value.includes(',')) {
-      warnings.push(`Dropped ${key}: the scanner reads it as one path`)
-      continue
-    }
-    const base = bases.get(prefix) as string
-    if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests')
-      withSources.add(prefix)
-    const entries: string[] = []
-    for (const entry of value.split(',').filter((path) => path !== '')) {
-      const mapped = mapEntry(entry, base, workspace, home)
-      // The build expands patterns into the files it ships; the scanner would expand what is left
-      // over files no check here has seen. Nor may the scanner read the path differently.
-      const path =
-        mapped && (WILDCARD.test(mapped) || REREAD_PATH.test(mapped))
-          ? undefined
-          : mapped
-      // Shipped paths may live in the private home; output directories appear when unpacking;
-      // checkout paths must already be in the checkout.
-      let accepted = false
-      if (path !== undefined && existsSync(path)) {
-        const real = realpathSync(path)
-        accepted =
-          isWithin(real, realWorkspace) || (shipped && isWithin(real, realHome))
-      } else if (path !== undefined) {
-        accepted = shipped || (output && isWithin(path, workspace))
-      }
-      if (!accepted) {
-        warnings.push(`Dropped ${key} entry: ${entry}`)
-        continue
-      }
-      entries.push(path as string)
-      if (isReport(bareKey) && isWithin(path as string, workspace))
-        reports.push(join(realWorkspace, relative(workspace, path as string)))
-      if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests')
-        sourceRoots.push(realpathSync(path as string))
-    }
-    properties.set(key, entries.join(','))
+// The entries of a path setting that pass the checks, or nothing when the setting itself fails.
+function resolvePaths(
+  key: string,
+  bareKey: string,
+  value: string,
+  base: string,
+  places: Places,
+  warnings: string[]
+): string[] | undefined {
+  // Read as one path, the value would be none of the entries checked below.
+  if (!isPathList(bareKey) && value.includes(',')) {
+    warnings.push(`Dropped ${key}: the scanner reads it as one path`)
+    return undefined
   }
-  // Without either setting the scanner analyses the whole base directory.
-  for (const [prefix, base] of bases) {
-    if (!withSources.has(prefix)) sourceRoots.push(realpathSync(base))
+  const paths: string[] = []
+  for (const entry of value.split(',').filter((path) => path !== '')) {
+    const path = acceptedPath(entry, bareKey, base, places)
+    if (path === undefined) warnings.push(`Dropped ${key} entry: ${entry}`)
+    else paths.push(path)
   }
-  return { properties, sourceRoots, reports, warnings }
+  return paths
+}
+
+function acceptedPath(
+  entry: string,
+  bareKey: string,
+  base: string,
+  places: Places
+): string | undefined {
+  const path = mapEntry(entry, base, places.workspace, places.home)
+  // The build expands patterns into the files it ships; the scanner would expand what is left
+  // over files no check here has seen. Nor may the scanner read the path differently.
+  if (!path || WILDCARD.test(path) || REREAD_PATH.test(path)) return undefined
+  // Shipped paths may live in the private home; output directories appear when unpacking;
+  // checkout paths must already be in the checkout.
+  const shipped = isShippedPath(bareKey)
+  let accepted: boolean
+  if (existsSync(path)) {
+    const real = realpathSync(path)
+    accepted =
+      isWithin(real, places.realWorkspace) ||
+      (shipped && isWithin(real, places.realHome))
+  } else {
+    accepted =
+      shipped ||
+      (OUTPUT_PATH_KEYS.has(bareKey) && isWithin(path, places.workspace))
+  }
+  return accepted ? path : undefined
 }
 
 // Every entry under a directory, links included but never followed: Node's recursive readdir follows
@@ -315,20 +371,13 @@ function unpackFile(
     !mayJoinSources(rel, real, reports)
   )
     return 'inside the sources'
-  // A committed symlink (e.g. target -> /home/runner/.m2) must not redirect the write.
-  let directory = workspace
-  for (const segment of dirname(rel)
-    .split(sep)
-    .filter((s) => s !== '.')) {
-    directory = join(directory, segment)
-    if (!existsSync(directory) && !isSymbolicLink(directory)) {
-      mkdirSync(directory)
-      continue
-    }
-    const stats = lstatSync(directory)
-    if (stats.isSymbolicLink() || !stats.isDirectory())
-      return 'its directory is a link or a file in the checkout'
-  }
+  const refused = makeDirectories(
+    workspace,
+    dirname(rel)
+      .split(sep)
+      .filter((s) => s !== '.')
+  )
+  if (refused) return refused
   try {
     copyFileSync(source, target, constants.COPYFILE_EXCL)
   } catch (error) {
@@ -342,12 +391,21 @@ function unpackFile(
   return undefined
 }
 
-function isSymbolicLink(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink()
-  } catch {
-    return false
+// A committed symlink (e.g. target -> /home/runner/.m2) must not redirect a write below it, so the
+// directories on the way are made here and never followed.
+function makeDirectories(
+  workspace: string,
+  segments: string[]
+): string | undefined {
+  let directory = workspace
+  for (const segment of segments) {
+    directory = join(directory, segment)
+    const stats = lstatSync(directory, { throwIfNoEntry: false })
+    if (!stats) mkdirSync(directory)
+    else if (stats.isSymbolicLink() || !stats.isDirectory())
+      return 'its directory is a link or a file in the checkout'
   }
+  return undefined
 }
 
 // Unpacks the build output in place, next to the checkout, so default report locations keep working.
@@ -470,16 +528,9 @@ function recreateLink(
     relative(realWorkspace, real).split(sep).some(isGitDirectory)
   )
     return 'it does not lead to a directory in the checkout'
-  // The directories on the way are made here, never through a link, like unpacked files.
-  let directory = workspace
-  for (const segment of at.slice(0, -1)) {
-    directory = join(directory, segment)
-    const stats = lstatSync(directory, { throwIfNoEntry: false })
-    if (!stats) mkdirSync(directory)
-    else if (stats.isSymbolicLink() || !stats.isDirectory())
-      return 'its directory is a link or a file in the checkout'
-  }
-  const location = join(directory, at.at(-1) as string)
+  const refused = makeDirectories(workspace, at.slice(0, -1))
+  if (refused) return refused
+  const location = join(workspace, ...at)
   // Committed, or made by an earlier entry: the checkout's own stays.
   if (lstatSync(location, { throwIfNoEntry: false })) return undefined
   // Windows makes directory links as junctions, which need no privilege but an absolute target.

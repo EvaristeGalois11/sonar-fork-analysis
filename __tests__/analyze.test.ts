@@ -91,6 +91,18 @@ describe('resolveSettings', () => {
     ])
   })
 
+  it('takes a list too long to spread onto the stack', () => {
+    const resolved = resolveSettings(
+      {
+        'sonar.sources': '.',
+        'sonar.javascript.lcov.reportPaths': Array(200_000).fill('a').join(',')
+      },
+      workspace,
+      home
+    )
+    expect(resolved.reports).toHaveLength(200_000)
+  })
+
   it('drops settings the analysis decides itself', () => {
     const resolved = resolveSettings(
       {
