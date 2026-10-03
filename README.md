@@ -241,7 +241,7 @@ jobs:
             working-directory: service-b
     runs-on: ubuntu-latest
     steps:
-      # Checkout and Java setup as in the setup.
+      # Your existing checkout and Java setup.
       - uses: evaristegalois11/sonar-fork-analysis@v2
         with:
           project-key: ${{ matrix.project-key }}
@@ -260,7 +260,7 @@ jobs:
       matrix:
         project-key: [my-org_service-a, my-org_service-b]
     runs-on: ubuntu-latest
-    # Permissions as in the setup.
+    # Same permissions as for a single project.
     steps:
       - uses: evaristegalois11/sonar-fork-analysis@v2
         with:
