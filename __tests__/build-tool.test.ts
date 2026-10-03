@@ -77,6 +77,23 @@ describe('detectBuildTool', () => {
     ).toBe('gradle')
   })
 
+  it('detects Node from package.json', () => {
+    expect(detectBuildTool(project('package.json'))).toEqual({
+      name: 'node',
+      executable: '',
+      prefix: []
+    })
+  })
+
+  it('prefers the Java build to a package.json next to it', () => {
+    expect(detectBuildTool(project('pom.xml', 'package.json')).name).toBe(
+      'maven'
+    )
+    expect(
+      detectBuildTool(project('pom.xml', 'package.json'), 'node').name
+    ).toBe('node')
+  })
+
   it('rejects an unknown build tool', () => {
     expect(() => detectBuildTool(project('pom.xml'), 'ant')).toThrow(
       /Unknown build tool 'ant'/

@@ -7,6 +7,7 @@ import {
 
 const maven = { name: 'maven' as const, executable: './mvnw', prefix: [] }
 const gradle = { name: 'gradle' as const, executable: './gradlew', prefix: [] }
+const node = { name: 'node' as const, executable: '', prefix: [] }
 const properties = ['-Dsonar.projectKey=key']
 
 describe('sonarProperties', () => {
@@ -69,6 +70,26 @@ describe('sonarBuildArguments', () => {
       []
     )
     expect(args.slice(0, 3)).toEqual(['gradlew', 'check', 'sonar'])
+  })
+})
+
+describe('sonarBuildArguments for Node', () => {
+  it('only starts the scanner, which reads the build-arguments too', () => {
+    expect(
+      sonarBuildArguments(node, [], properties, ['-Dsonar.projectName=App'])
+    ).toEqual(['-Dsonar.projectKey=key', '-Dsonar.projectName=App'])
+  })
+
+  it('refuses build goals, as the action runs after the build', () => {
+    expect(() => sonarBuildArguments(node, ['test'], properties, [])).toThrow(
+      'build-goals does not apply to Node projects: install and test in your own steps before the action'
+    )
+  })
+
+  it('reports a failed scanner as such', () => {
+    expect(buildFailure(node, 2, '')).toBe(
+      'The Sonar scanner failed with exit code 2'
+    )
   })
 })
 

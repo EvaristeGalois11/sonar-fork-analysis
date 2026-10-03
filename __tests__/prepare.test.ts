@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +12,8 @@ import { dirname, join } from 'node:path'
 import {
   artifactName,
   simulationProperties,
-  stageAnalysis
+  stageAnalysis,
+  typeDeclarations
 } from '../src/prepare.js'
 
 let root: string
@@ -259,5 +261,42 @@ describe('stageAnalysis', () => {
     expect(staged.warnings).toEqual([
       'Dropped sonar.sources entry outside the workspace: /etc/passwd'
     ])
+  })
+})
+
+describe('typeDeclarations', () => {
+  it('finds the declarations in every node_modules, and the package.json files leading to them', () => {
+    file(join(workspace, 'package.json'))
+    file(join(workspace, 'src/types.d.ts'))
+    file(join(workspace, 'node_modules/express/index.js'))
+    const found = [
+      file(join(workspace, 'node_modules/express/index.d.ts')),
+      file(join(workspace, 'node_modules/express/package.json')),
+      file(join(workspace, 'node_modules/a/node_modules/b/lib/x.d.mts')),
+      file(join(workspace, 'packages/web/node_modules/c/index.d.cts'))
+    ]
+    expect(typeDeclarations(workspace).sort()).toEqual(found.sort())
+  })
+
+  it('does not follow links, out of the workspace or anywhere', () => {
+    file(join(home, 'elsewhere/index.d.ts'))
+    mkdirSync(join(workspace, 'node_modules'))
+    symlinkSync(join(home, 'elsewhere'), join(workspace, 'node_modules/linked'))
+    expect(typeDeclarations(workspace)).toEqual([])
+  })
+
+  it('are shipped with the settings', () => {
+    const declaration = file(join(workspace, 'node_modules/x/index.d.ts'))
+    stageAnalysis(
+      new Map([['sonar.projectBaseDir', workspace]]),
+      { workspace, home },
+      staging,
+      'node',
+      undefined,
+      [declaration]
+    )
+    expect(
+      existsSync(join(staging, 'workspace/node_modules/x/index.d.ts'))
+    ).toBe(true)
   })
 })

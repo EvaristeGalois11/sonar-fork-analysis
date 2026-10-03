@@ -29,6 +29,10 @@ export const REREAD_IN_LIST = /["\x00-\x1f]|[^\S ]/
 // eslint-disable-next-line no-control-regex
 export const REREAD_PATH = /["\x00-\x1f]|^\s|\s$/
 
+export function isReport(bareKey: string): boolean {
+  return REPORT_KEY.test(bareKey)
+}
+
 export function isShippedPath(bareKey: string): boolean {
   return SHIPPED_PATH_KEYS.has(bareKey) || REPORT_KEY.test(bareKey)
 }
@@ -52,6 +56,8 @@ export const CHECKOUT_PATH_KEYS = new Set([
   'sonar.projectBaseDir',
   'sonar.kotlin.gradleProjectRoot',
   'sonar.typescript.tsconfigPaths',
+  // The singular name SonarJS still reads.
+  'sonar.typescript.tsconfigPath',
   'sonar.dre.mulesoft.muleArtifactPath'
 ])
 

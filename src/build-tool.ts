@@ -2,7 +2,8 @@ import { accessSync, constants, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 export type BuildTool = {
-  name: 'maven' | 'gradle'
+  name: 'maven' | 'gradle' | 'node'
+  // For Node, empty: there is no build to run, the action runs the scanner CLI.
   executable: string
   // Arguments that must precede the build's own, e.g. the wrapper script run through sh.
   prefix: string[]
@@ -34,24 +35,28 @@ export function detectBuildTool(
   )
 
   let name: BuildTool['name']
-  if (requested === 'maven' || requested === 'gradle') {
+  if (requested === 'maven' || requested === 'gradle' || requested === 'node') {
     name = requested
   } else if (requested !== 'auto') {
     throw new Error(
-      `Unknown build tool '${requested}', expected one of: auto, maven, gradle`
+      `Unknown build tool '${requested}', expected one of: auto, maven, gradle, node`
     )
   } else if (maven && gradle) {
     throw new Error(
       `Both Maven and Gradle build files found in '${directory}', set the build-tool input`
     )
   } else if (maven || gradle) {
+    // A Java project's frontend is analysed with build-tool: node, under its own project key.
     name = maven ? 'maven' : 'gradle'
+  } else if (existsSync(join(directory, 'package.json'))) {
+    name = 'node'
   } else {
     throw new Error(
-      `No Maven or Gradle build found in '${directory}', set the working-directory input`
+      `No Maven, Gradle or Node build found in '${directory}', set the working-directory input`
     )
   }
 
+  if (name === 'node') return { name, executable: '', prefix: [] }
   const wrapper = name === 'maven' ? 'mvnw' : 'gradlew'
   if (!existsSync(join(directory, wrapper))) {
     return { name, executable: name === 'maven' ? 'mvn' : 'gradle', prefix: [] }

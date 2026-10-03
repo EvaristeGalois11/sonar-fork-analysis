@@ -65,7 +65,36 @@ const MINIMUM_PLUGIN = {
 }
 
 export function missingDump(tool: BuildTool): string {
+  if (tool.name === 'node')
+    return 'The Sonar scanner succeeded but wrote no analysis settings'
   return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the fork path needs ${MINIMUM_PLUGIN[tool.name]} or later`
+}
+
+const DECLARATION = /\.d\.[cm]?ts$/
+
+// The analysis has no node_modules, as nothing may install the pull request's dependencies there, so
+// TypeScript would resolve fewer types and type-aware rules report less. Their declarations, and the
+// package.json files that lead to them, are all it reads. Links are not followed: pnpm's
+// node_modules/<package> links are left out, along with the types behind them.
+export function typeDeclarations(directory: string): string[] {
+  const found: string[] = []
+  const visit = (path: string, inPackages: boolean): void => {
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      const child = join(path, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name !== '.git')
+          visit(child, inPackages || entry.name === 'node_modules')
+      } else if (
+        inPackages &&
+        entry.isFile() &&
+        (entry.name === 'package.json' || DECLARATION.test(entry.name))
+      ) {
+        found.push(child)
+      }
+    }
+  }
+  visit(directory, false)
+  return found
 }
 
 function locate(path: string, roots: Roots): [Root, string] | undefined {
@@ -100,7 +129,8 @@ export function stageAnalysis(
   roots: Roots,
   staging: string,
   buildTool: BuildTool['name'],
-  pullRequest?: number
+  pullRequest?: number,
+  extraFiles: string[] = []
 ): Staged {
   const tree = moduleTree(settings)
   const shipped = new Map<string, [Root, string]>()
@@ -161,6 +191,11 @@ export function stageAnalysis(
       const located = existsSync(path) && locate(path, roots)
       if (located) ship(located)
     }
+  }
+
+  for (const path of extraFiles) {
+    const located = locate(path, roots)
+    if (located) ship(located)
   }
 
   mkdirSync(staging, { recursive: true })

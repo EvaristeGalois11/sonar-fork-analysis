@@ -27,6 +27,7 @@ import {
   WILDCARD,
   filterSettings,
   isPathList,
+  isReport,
   isShippedPath,
   moduleTree
 } from './settings.js'
@@ -67,6 +68,8 @@ const LONE_SURROGATE = /\p{Cs}/u
 export type Resolved = {
   properties: Map<string, string>
   sourceRoots: string[]
+  // The report files the settings name, where they land in the checkout.
+  reports: string[]
   warnings: string[]
 }
 
@@ -103,6 +106,7 @@ export function resolveSettings(
     )
   const tree = moduleTree(kept)
   const sourceRoots: string[] = []
+  const reports: string[] = []
   const properties = new Map<string, string>()
   const realWorkspace = realpathSync(workspace)
   const realHome = existsSync(home) ? realpathSync(home) : home
@@ -178,6 +182,8 @@ export function resolveSettings(
         continue
       }
       entries.push(path as string)
+      if (isReport(bareKey) && isWithin(path as string, workspace))
+        reports.push(join(realWorkspace, relative(workspace, path as string)))
       if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests')
         sourceRoots.push(realpathSync(path as string))
     }
@@ -187,7 +193,7 @@ export function resolveSettings(
   for (const [prefix, base] of bases) {
     if (!withSources.has(prefix)) sourceRoots.push(realpathSync(base))
   }
-  return { properties, sourceRoots, warnings }
+  return { properties, sourceRoots, reports, warnings }
 }
 
 // Every entry under a directory, links included but never followed: Node's recursive readdir follows
@@ -228,11 +234,26 @@ function isGitDirectory(segment: string): boolean {
   return /^(\.git|git~\d+)$/i.test(segment.replace(/[. ]+$/, ''))
 }
 
+const DECLARATION = /\.d\.[cm]?ts$/
+
+// What may land in the sources: the files the settings name as reports, which Node projects keep next
+// to their sources when they analyse the whole project, and the type declarations prepare ships from
+// node_modules, which the analyzers don't count as sources. Never a source file of the pull request.
+function mayJoinSources(rel: string, real: string, reports: string[]): boolean {
+  if (reports.includes(real)) return true
+  const name = basename(rel)
+  return (
+    rel.split(sep).includes('node_modules') &&
+    (name === 'package.json' || DECLARATION.test(name))
+  )
+}
+
 function unpackFile(
   source: string,
   rel: string,
   workspace: string,
-  protectedRoots: string[]
+  protectedRoots: string[],
+  reports: string[]
 ): string | undefined {
   const target = join(workspace, rel)
   if (rel.split(sep).some(isGitDirectory)) return 'inside .git'
@@ -240,7 +261,10 @@ function unpackFile(
     return 'the scanner would read it as settings'
   // Directories on the way are never links (checked below), so this is where the file really lands.
   const real = join(realpathSync(workspace), rel)
-  if (protectedRoots.some((root) => isWithin(real, root)))
+  if (
+    protectedRoots.some((root) => isWithin(real, root)) &&
+    !mayJoinSources(rel, real, reports)
+  )
     return 'inside the sources'
   // A committed symlink (e.g. target -> /home/runner/.m2) must not redirect the write.
   let directory = workspace
@@ -278,14 +302,15 @@ function isSymbolicLink(path: string): boolean {
 export function unpackWorkspace(
   from: string,
   workspace: string,
-  protectedRoots: string[]
+  protectedRoots: string[],
+  reports: string[] = []
 ): string[] {
   const warnings: string[] = []
   if (!existsSync(from)) return warnings
   for (const source of walk(from)) {
     if (!lstatSync(source).isFile()) continue
     const rel = relative(from, source)
-    const reason = unpackFile(source, rel, workspace, protectedRoots)
+    const reason = unpackFile(source, rel, workspace, protectedRoots, reports)
     if (reason) warnings.push(`Skipped ${rel}: ${reason}`)
   }
   removeProjectSettings(workspace)

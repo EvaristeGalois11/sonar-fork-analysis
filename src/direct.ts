@@ -6,7 +6,7 @@ export type SonarSettings = {
   organization: string
 }
 
-const DEFAULT_GOALS = { maven: ['verify'], gradle: ['check'] }
+const DEFAULT_GOALS = { maven: ['verify'], gradle: ['check'], node: [] }
 
 const GRADLE_PLUGIN_GUIDE =
   'https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/ci-based-analysis/sonarscanner-for-gradle'
@@ -27,6 +27,15 @@ export function sonarBuildArguments(
   properties: string[],
   buildArguments: string[]
 ): string[] {
+  if (tool.name === 'node') {
+    // The settings come from sonar-project.properties, not from a build, so the action runs after the
+    // workflow's own install and test steps and only starts the scanner.
+    if (goals.length > 0)
+      throw new Error(
+        'build-goals does not apply to Node projects: install and test in your own steps before the action'
+      )
+    return [...properties, ...buildArguments]
+  }
   const buildGoals = goals.length > 0 ? goals : DEFAULT_GOALS[tool.name]
   if (tool.name === 'maven') {
     // One invocation on purpose: a separate `sonar:sonar` run cannot resolve the reactor's own modules
@@ -52,7 +61,7 @@ export function sonarBuildArguments(
   ]
 }
 
-const TOOL_NAMES = { maven: 'Maven', gradle: 'Gradle' }
+const TOOL_NAMES = { maven: 'Maven', gradle: 'Gradle', node: 'Node' }
 
 export function buildFailure(
   tool: BuildTool,
@@ -65,11 +74,16 @@ export function buildFailure(
   ) {
     return `The Gradle build has no 'sonar' task: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`
   }
+  if (tool.name === 'node')
+    return `The Sonar scanner failed with exit code ${exitCode}`
   return `The ${TOOL_NAMES[tool.name]} build failed with exit code ${exitCode}`
 }
 
 export function missingAnalysis(tool: BuildTool): string {
-  const message = `The ${TOOL_NAMES[tool.name]} build succeeded but no Sonar analysis ran`
+  const message =
+    tool.name === 'node'
+      ? 'The Sonar scanner succeeded but no analysis ran'
+      : `The ${TOOL_NAMES[tool.name]} build succeeded but no Sonar analysis ran`
   // Gradle runs any single task whose name starts with 'sonar' when the plugin is missing.
   return tool.name === 'gradle'
     ? `${message}: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`

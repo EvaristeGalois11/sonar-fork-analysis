@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync
 } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -22,7 +23,7 @@ import {
   trustedProperties,
   unpackWorkspace
 } from './analyze.js'
-import { detectBuildTool } from './build-tool.js'
+import { detectBuildTool, type BuildTool } from './build-tool.js'
 import { checkoutCommit, verifyCheckout } from './checkout.js'
 import {
   buildFailure,
@@ -46,7 +47,8 @@ import {
   directArtifactName,
   missingDump,
   simulationProperties,
-  stageAnalysis
+  stageAnalysis,
+  typeDeclarations
 } from './prepare.js'
 import { parseProperties } from './properties.js'
 import { findNewReport, snapshotReports } from './report.js'
@@ -70,7 +72,7 @@ async function direct(inputs: Inputs): Promise<void> {
   const env = { ...process.env, SONAR_TOKEN: inputs.token }
   const reportsBefore = snapshotReports(workingDirectory)
   let errorOutput = ''
-  const exitCode = await exec(tool.executable, args, {
+  const exitCode = await exec(await executable(tool), args, {
     cwd: workingDirectory,
     env: env as Record<string, string>,
     ignoreReturnCode: true,
@@ -150,7 +152,7 @@ async function prepare(inputs: Inputs): Promise<void> {
   const env: Record<string, string | undefined> = { ...process.env }
   delete env.SONAR_TOKEN
   let errorOutput = ''
-  const exitCode = await exec(tool.executable, args, {
+  const exitCode = await exec(await executable(tool), args, {
     cwd: workingDirectory,
     env: env as Record<string, string>,
     ignoreReturnCode: true,
@@ -182,6 +184,17 @@ async function prepare(inputs: Inputs): Promise<void> {
       `The build sets sonar.organization, which the analysis of pull requests takes only from the sonar-organization input: set it in both workflows.`
     )
 
+  const declarations =
+    tool.name === 'node' ? typeDeclarations(workingDirectory) : []
+  if (declarations.length > 0) {
+    const bytes = declarations.reduce(
+      (sum, path) => sum + statSync(path).size,
+      0
+    )
+    core.info(
+      `Shipping ${declarations.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) from node_modules`
+    )
+  }
   const staging = join(temp, 'artifact')
   const staged = stageAnalysis(
     kept,
@@ -191,7 +204,8 @@ async function prepare(inputs: Inputs): Promise<void> {
     },
     staging,
     tool.name,
-    pullRequestNumber()
+    pullRequestNumber(),
+    declarations
   )
   for (const warning of staged.warnings) core.warning(warning)
 
@@ -218,6 +232,11 @@ function pullRequestNumber(): number | undefined {
   if (process.env.GITHUB_EVENT_NAME !== 'pull_request' || !eventPath)
     return undefined
   return JSON.parse(readFileSync(eventPath, 'utf8')).pull_request?.number
+}
+
+// Node projects have no build to run: the action runs the scanner CLI it pins.
+async function executable(tool: BuildTool): Promise<string> {
+  return tool.name === 'node' ? installScanner() : tool.executable
 }
 
 function tempDirectory(): string {
@@ -390,7 +409,8 @@ async function analyzeCommit(
     ...unpackWorkspace(
       join(artifact, 'workspace'),
       workspace,
-      resolved.sourceRoots
+      resolved.sourceRoots,
+      resolved.reports
     )
   ]
   if (existsSync(join(artifact, 'home')))
