@@ -85,9 +85,10 @@ chooses the right part from where the action runs and whether it has a token.
    [scoped organization token](https://docs.sonarsource.com/sonarqube-cloud/administering-sonarcloud/managing-organization/scoped-organization-tokens)
    with only _Execute analysis_ on the project. A scoped token without an expiry
    date lapses after 60 days without use.
-2. Gradle builds need the `org.sonarqube` plugin. Maven builds need nothing: the
-   action runs the latest `sonar-maven-plugin` or the version your pom pins in
-   `<plugins>` or `<pluginManagement>`, where Dependabot can keep it updated.
+2. Gradle builds need the `org.sonarqube` plugin, 2.1 or later. Maven builds
+   need nothing: the action runs the latest `sonar-maven-plugin` or the version
+   your pom pins in `<plugins>` or `<pluginManagement>`, which must be 3.2 or
+   later. Dependabot can keep either up to date.
 3. Add the action to your build workflow:
 
    ```yaml
@@ -362,9 +363,9 @@ and
 - On the fork path, the build collects its settings through the Sonar plugins'
   simulation mode (`sonar.scanner.internal.dumpToFile`). Sonar uses it in its
   own tests but doesn't document it, so a plugin release could change it. If it
-  stops working, the build fails with _the plugin may be too old to support
-  simulation mode_. This project's tests keep up with the latest plugins, so
-  such a change should show up here first.
+  stops working, the build fails with _its Sonar plugin wrote no analysis
+  settings_. This project's tests keep up with the latest plugins, so such a
+  change should show up here first.
 - Dependency analysis (SCA) and the engine's build-system autoconfiguration are
   off on fork pull requests, because both run the project's build tools. See
   [what stays off](docs/security.md#what-stays-off-on-the-fork-path).

@@ -368,7 +368,9 @@ describe('run in prepare mode', () => {
     await run()
 
     expect(core.setFailed).toHaveBeenCalledWith(
-      expect.stringContaining('wrote no analysis settings')
+      expect.stringContaining(
+        'wrote no analysis settings; the fork path needs sonar-maven-plugin 3.2 or later'
+      )
     )
     expect(artifact.uploadArtifact).not.toHaveBeenCalled()
   })
