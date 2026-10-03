@@ -114,7 +114,7 @@ export async function verifyCheckout(
     '--local',
     '--includes',
     '--get-regexp',
-    '^http\\..*\\.extraheader$'
+    String.raw`^http\..*\.extraheader$`
   ])
   if (stdout.trim() !== '') {
     throw new Error(

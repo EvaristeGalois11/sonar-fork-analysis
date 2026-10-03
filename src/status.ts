@@ -67,7 +67,7 @@ export function statusReporter(target: StatusTarget): Reporter {
   }
 }
 
-export const noReporter: Reporter = async () => false
+export const noReporter: Reporter = () => Promise.resolve(false)
 
 const NOTE = 'pending-status'
 const INTERRUPTED = 'The analysis ended without reporting its result'

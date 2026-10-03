@@ -38,7 +38,7 @@ const ESCAPES: Record<string, string> = { t: '\t', n: '\n', r: '\r', f: '\f' }
 function unescape(text: string): string {
   return text.replace(/\\(u[0-9a-fA-F]{4}|.)/g, (_, escaped: string) =>
     escaped.length === 5
-      ? String.fromCharCode(parseInt(escaped.slice(1), 16))
+      ? String.fromCodePoint(Number.parseInt(escaped.slice(1), 16))
       : (ESCAPES[escaped] ?? escaped)
   )
 }

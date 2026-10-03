@@ -883,6 +883,25 @@ describe('recreateLinks', () => {
     expect(readdirOrEmpty(join(workspace, 'node_modules'))).toEqual([])
   })
 
+  it("refuses Windows' aliases of .git, and checks a long segment quickly", () => {
+    mkdirSync(join(workspace, 'src'))
+    // A regular expression for the trailing dots and spaces took 20 seconds on this one.
+    const long = `${' '.repeat(100_000)}x`
+    const started = Date.now()
+    expect(
+      recreateLinks(workspace, [
+        { path: 'node_modules/.git. .', target: 'src' },
+        { path: 'node_modules/GIT~1', target: 'src' },
+        { path: 'node_modules/a', target: `src/${long}` }
+      ])
+    ).toEqual([
+      'Skipped link node_modules/.git. .: it leaves the checkout or enters .git',
+      'Skipped link node_modules/GIT~1: it leaves the checkout or enters .git',
+      'Skipped link node_modules/a: it does not lead to a directory in the checkout'
+    ])
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
   it('refuses what only resolving the target reveals: .git through a committed link, a file, the root', () => {
     mkdirSync(join(workspace, '.git'))
     symlinkSync('.git', join(workspace, 'g'))
