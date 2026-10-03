@@ -49,6 +49,21 @@ jobs:
           java-version: 21
           cache: ${{ matrix.fixture }}
 
+      # What the Sonar plugin downloads from SonarCloud (engine, Java runtime, analyzers), as Sonar's own
+      # CI examples cache it. A fresh entry each week, so it doesn't fill up with old engines. Never in
+      # Fixtures Sonar: its job holds the token, and the scanner doesn't re-check what it finds here.
+      - name: "Pick this week's Sonar cache"
+        if: env.HAS_SONAR_TOKEN == 'true'
+        id: sonar-cache
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: 'Restore the Sonar cache'
+        if: env.HAS_SONAR_TOKEN == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.sonar/cache
+          key: sonar-${{ matrix.fixture }}-${{ steps.sonar-cache.outputs.week }}
+
       - name: 'Analyse with Sonar'
         if: env.HAS_SONAR_TOKEN == 'true'
         uses: $/
