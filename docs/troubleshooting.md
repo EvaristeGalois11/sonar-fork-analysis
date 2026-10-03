@@ -96,14 +96,14 @@ notices show up as annotations on the run. Errors fail the step.
 - **Could not look up the pull request: GitHub answered …**\
   The job needs `pull-requests: read`.
 - **The artifact contains a link or special file: …**\
-  The upload was tampered with. Nothing is analysed.
+  The artifact was tampered with. Nothing is analysed.
 - **The artifact gives … no base directory in the checkout**, **Invalid module
   id …**\
-  The upload describes a module structure the action can't check safely, or it
+  The artifact describes a module structure the action can't check safely, or it
   was tampered with. Real Maven and Gradle builds don't produce these. If yours
   does, please report it.
 - **Dropped settings a build never ships: …**\
-  The upload was tampered with, or the two workflows run different versions of
+  The artifact was tampered with, or the two workflows run different versions of
   the action.
 - **Dropped …: it holds a placeholder the scanner would expand**, **Dropped …:
   it holds half of a character**, **Dropped …: the scanner reads it as one
@@ -115,7 +115,7 @@ notices show up as annotations on the run. Errors fail the step.
   A link in the pull request points outside the checkout, or nowhere. The
   analysis continues without it.
 - **Skipped …: …**\
-  A file from the upload wasn't unpacked, because it would land in `.git`, in
+  A file from the artifact wasn't unpacked, because it would land in `.git`, in
   the sources, over an existing file or through a link, or because it's a
   `sonar-project.properties` file.
 - **The downloaded scanner has SHA-256 …, expected …**\
@@ -139,4 +139,4 @@ notices show up as annotations on the run. Errors fail the step.
 
 - **Not running in GitHub Actions, …**\
   The action ran outside a workflow, for example with `npm run local`, so it
-  kept the upload or the analysis on your machine.
+  kept the artifact or the analysis on your machine.

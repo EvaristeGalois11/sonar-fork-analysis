@@ -6,13 +6,13 @@ token, and the Sonar workflow, which has the token, never runs the pull
 request's code.
 
 The Sonar workflow treats everything it takes from the pull request as hostile.
-That includes the upload, which the pull request's build produced, and the
+That includes the artifact, which the pull request's build produced, and the
 checkout, which holds the pull request's files.
 
 ## What the Sonar workflow does
 
 It runs no build and no wrapper script. It checks out the pull request, unpacks
-the upload and runs the Sonar scanner on the result. Along the way, it:
+the artifact and runs the Sonar scanner on the result. Along the way, it:
 
 - Checks out the pull request's head itself. The GitHub token reaches Git
   through its environment and is never written to disk, and `origin` points at
@@ -22,8 +22,9 @@ the upload and runs the Sonar scanner on the result. Along the way, it:
   own environment, token included.
 - Removes `sonar-project.properties` files, which the scanner would read without
   any checks.
-- Refuses an upload that holds links or special files, and filters its settings
-  through the same [allowlist](#what-the-fork-path-carries) the build used.
+- Refuses an artifact that holds links or special files, and filters its
+  settings through the same [allowlist](#what-the-fork-path-carries) the build
+  used.
 - Requires every path in the settings to resolve inside the checkout after
   following links. Build output may also resolve inside the action's own
   directory.
@@ -73,10 +74,10 @@ requests leaves out these settings_. If the analysis needs one of them, pass it
 with `build-arguments` in the Sonar workflow. That's your own configuration, so
 it's trusted.
 
-When the Sonar workflow drops a setting from the upload, it warns with _Dropped
-settings a build never ships_. A normal build never produces one, so either the
-upload was tampered with, or the two workflows run different versions of the
-action.
+When the Sonar workflow drops a setting from the artifact, it warns with
+_Dropped settings a build never ships_. A normal build never produces one, so
+either the artifact was tampered with, or the two workflows run different
+versions of the action.
 
 ## What stays off on the fork path
 

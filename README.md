@@ -45,7 +45,7 @@ flowchart LR
   end
   prepare -- "workflow_run" --> analyze
   subgraph sonar["Sonar workflow, Sonar token"]
-    analyze["analyze mode<br/>checks the upload and<br/>runs only the scanner"]
+    analyze["analyze mode<br/>checks the artifact and<br/>runs only the scanner"]
   end
   own(["Push, or pull request<br/>from your repository"]) --> direct
   subgraph trusted["Build workflow, Sonar token"]
@@ -62,10 +62,10 @@ On a pull request from a fork:
    as an artifact.
 2. When the build finishes, GitHub starts your Sonar workflow through
    `workflow_run`. It runs in your repository, so it has the Sonar token.
-3. The action checks out the pull request, checks the uploaded settings against
-   an allowlist, and runs the Sonar scanner on the sources and the build output.
-   It never runs the build or anything else from the pull request. Sonar shows
-   the results on the pull request as usual.
+3. The action checks out the pull request, checks the artifact's settings
+   against an allowlist, and runs the Sonar scanner on the sources and the build
+   output. It never runs the build or anything else from the pull request. Sonar
+   shows the results on the pull request as usual.
 
 On pushes and pull requests from your own repository, the build has the token,
 so the action analyses straight away, as Sonar's own Maven and Gradle plugins
@@ -150,7 +150,7 @@ chooses the right part from where the action runs and whether it has a token.
    ```
 
    Use the same `project-key` in both workflows, because it also names the
-   upload. `statuses: write` is optional, see
+   artifact. `statuses: write` is optional, see
    [commit statuses](#commit-statuses-and-required-checks).
 
 If you pin your other actions to commit SHAs, pin this one too. The
@@ -193,7 +193,7 @@ you're happy with that.
 | `build-goals`        | No                   | `verify` / `check` | Maven goals or Gradle tasks to run.                                                                                                                                                                      |
 | `build-arguments`    | No                   |                    | Extra build flags. In the Sonar workflow they're passed to the scanner instead, for example `-Dsonar.projectName=App`. The scanner doesn't run in the checkout there, so use absolute paths.             |
 | `checkout`           | No                   | `true`             | Whether the Sonar workflow checks out the analysed commit. `false` to do it yourself, see [your own checkout](#your-own-checkout).                                                                       |
-| `github-token`       | No                   | `github.token`     | Downloads the upload and finds the pull request.                                                                                                                                                         |
+| `github-token`       | No                   | `github.token`     | Used to download the build's artifact and look up the pull request.                                                                                                                                      |
 
 `build-goals` and `build-arguments` take one entry per line, so write several as
 a YAML block:
