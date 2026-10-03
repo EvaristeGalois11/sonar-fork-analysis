@@ -191,14 +191,18 @@ async function prepare(inputs: Inputs): Promise<void> {
   const types =
     tool.name === 'scanner'
       ? typeInformation(workingDirectory, workspace)
-      : { files: [], links: [] }
+      : { files: [], links: [], outside: 0 }
   if (types.files.length > 0 || types.links.length > 0) {
     const bytes = types.files.reduce(
       (sum, path) => sum + statSync(path).size,
       0
     )
+    const outside =
+      types.outside > 0
+        ? `, leaving out ${types.outside} links that lead outside the workspace`
+        : ''
     core.info(
-      `Shipping ${types.files.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) and ${types.links.length} links from node_modules`
+      `Shipping ${types.files.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) and ${types.links.length} links from node_modules${outside}`
     )
   } else if (
     tool.name === 'scanner' &&

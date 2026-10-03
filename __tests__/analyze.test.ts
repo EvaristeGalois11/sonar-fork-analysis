@@ -883,6 +883,63 @@ describe('recreateLinks', () => {
     expect(readdirOrEmpty(join(workspace, 'node_modules'))).toEqual([])
   })
 
+  it('refuses what only resolving the target reveals: .git through a committed link, a file, the root', () => {
+    mkdirSync(join(workspace, '.git'))
+    symlinkSync('.git', join(workspace, 'g'))
+    file(join(workspace, 'README.md'))
+    symlinkSync('.', join(workspace, 'r'))
+    expect(
+      recreateLinks(workspace, [
+        { path: 'node_modules/a', target: 'g' },
+        { path: 'node_modules/b', target: 'README.md' },
+        { path: 'node_modules/c', target: 'packages/..' },
+        { path: 'node_modules/d', target: 'r' }
+      ])
+    ).toEqual([
+      'Skipped link node_modules/a: it does not lead to a directory in the checkout',
+      'Skipped link node_modules/b: it does not lead to a directory in the checkout',
+      'Skipped link node_modules/c: it leaves the checkout or enters .git',
+      'Skipped link node_modules/d: it does not lead to a directory in the checkout'
+    ])
+  })
+
+  it('refuses NTFS streams, settings files and names the file system rejects', () => {
+    mkdirSync(join(workspace, 'packages/app'), { recursive: true })
+    const warnings = recreateLinks(workspace, [
+      { path: 'node_modules/a', target: '.git::$INDEX_ALLOCATION' },
+      { path: '.git::$INDEX_ALLOCATION/node_modules/b', target: 'packages' },
+      {
+        path: 'packages/app/sonar-project.properties/node_modules/c',
+        target: 'packages'
+      },
+      { path: 'node_modules/d\0', target: 'packages' }
+    ])
+    expect(warnings.slice(0, 3)).toEqual([
+      'Skipped link node_modules/a: it leaves the checkout or enters .git',
+      'Skipped link .git::$INDEX_ALLOCATION/node_modules/b: it leaves the checkout or enters .git',
+      'Skipped link packages/app/sonar-project.properties/node_modules/c: it makes a sonar-project.properties'
+    ])
+    expect(warnings[3]).toMatch(/^Skipped link node_modules\/d\0: /)
+    expect(
+      existsSync(join(workspace, 'packages/app/sonar-project.properties'))
+    ).toBe(false)
+  })
+
+  it('points a link at where its target really is, whatever path leads to the workspace', () => {
+    const real = join(root, 'real')
+    mkdirSync(join(real, 'packages/shared'), { recursive: true })
+    symlinkSync(real, join(root, 'via'))
+    const viaLink = join(root, 'via')
+    expect(
+      recreateLinks(viaLink, [
+        { path: 'node_modules/@app/shared', target: 'packages/shared' }
+      ])
+    ).toEqual([])
+    expect(realpathSync(join(viaLink, 'node_modules/@app/shared'))).toBe(
+      realpathSync(join(real, 'packages/shared'))
+    )
+  })
+
   it('never makes a link through a link the checkout commits', () => {
     mkdirSync(join(workspace, 'packages/shared'), { recursive: true })
     symlinkSync(outside, join(workspace, 'node_modules'))

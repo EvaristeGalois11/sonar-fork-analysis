@@ -76,7 +76,8 @@ jobs:
         if: matrix.fixture == 'npm'
         working-directory: fixtures/npm
         run: |
-          npm ci
+          # The fixture needs no install scripts, and none may touch the steps that follow.
+          npm ci --ignore-scripts
           npm test
 
       - name: 'Test the pnpm fixture'
@@ -162,7 +163,8 @@ jobs:
         if: matrix.fixture == 'npm'
         working-directory: fixtures/npm
         run: |
-          npm ci
+          # The fixture needs no install scripts, and none may touch the steps that follow.
+          npm ci --ignore-scripts
           npm test
 
       - name: 'Test the pnpm fixture'
@@ -202,9 +204,29 @@ jobs:
       HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
     # No checkout step: the action checks out the analysed commit itself, as it does for users.
     steps:
+      # The same traps as Fixtures Sonar's, which only ever runs main's copy of itself: here they also
+      # catch a pull request's own changes before they reach main.
+      - name: 'Set traps'
+        # The PATH entry is the directory created here, holding nothing but the stand-ins.
+        run: | # zizmor: ignore[github-env]
+          mkdir -p "$RUNNER_TEMP/traps"
+          for tool in mvn gradle npm npx yarn pnpm cargo go python python3 pip pip3 poetry uv sbt; do
+            printf "#!/bin/sh\necho \"\$0 \$*\" >> \"%s\"\nexit 1\n" "$RUNNER_TEMP/traps/sprung" > "$RUNNER_TEMP/traps/$tool"
+            chmod +x "$RUNNER_TEMP/traps/$tool"
+          done
+          # SonarCloud's engine runs dotnet build -version for its analytics, in the working directory the
+          # action gives the scanner; anywhere else, e.g. the checkout or the unpacked artifact, dotnet
+          # would read the pull request's global.json.
+          printf "#!/bin/sh\ncase \"\$PWD/\" in \"%s\"/sonar-fork-analysis-??????/run/) ;; *) echo \"dotnet \$* in \$PWD\" >> \"%s\";; esac\nexit 1\n" \
+            "$RUNNER_TEMP" "$RUNNER_TEMP/traps/sprung" > "$RUNNER_TEMP/traps/dotnet"
+          chmod +x "$RUNNER_TEMP/traps/dotnet"
+          echo "$RUNNER_TEMP/traps" >> "$GITHUB_PATH"
+
       - name: 'Analyse with Sonar'
         if: env.HAS_SONAR_TOKEN == 'true'
         uses: $/
+        env:
+          SONAR_FORK_ANALYSIS_TRAP: ${{ runner.temp }}/traps/sprung
         with:
           mode: analyze
           project-key:
@@ -213,6 +235,19 @@ jobs:
           sonar-token: ${{ secrets.SONAR_TOKEN }}
           build-arguments:
             -Dsonar.projectName=Sonar fork analysis - ${{ matrix.name }} split
+
+      - name: 'Check the traps'
+        if: always()
+        run: |
+          if [ -e "$RUNNER_TEMP/traps/sprung" ]; then
+            echo '::error::The analysis ran build tools:'
+            # The recorded lines come from the analysed code's reach; none may pass for a workflow command.
+            resume="$(cat /proc/sys/kernel/random/uuid)"
+            echo "::stop-commands::$resume"
+            cat "$RUNNER_TEMP/traps/sprung"
+            echo "::$resume::"
+            exit 1
+          fi
 
   # Fails when the fork path loses anything a direct analysis finds. On pull requests Sonar only keeps
   # issues on changed lines, so the full comparison happens on main.

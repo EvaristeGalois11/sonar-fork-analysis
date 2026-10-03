@@ -402,7 +402,13 @@ export function recreateLinks(workspace: string, links: unknown): string[] {
       )
       continue
     }
-    const reason = recreateLink(workspace, realWorkspace, path, target)
+    let reason: string | undefined
+    try {
+      reason = recreateLink(workspace, realWorkspace, path, target)
+    } catch (error) {
+      // A name the file system refuses, e.g. one with a NUL byte or too long for Windows.
+      reason = error instanceof Error ? error.message : String(error)
+    }
     if (reason) warnings.push(`Skipped link ${path}: ${reason}`)
   }
   return warnings
@@ -417,7 +423,8 @@ function plainSegments(path: string): string[] | undefined {
       segment !== '' &&
       segment !== '.' &&
       segment !== '..' &&
-      !segment.includes('\\') &&
+      // A Windows path separator, or an NTFS stream: .git::$INDEX_ALLOCATION is .git.
+      !/[\\:]/.test(segment) &&
       !isGitDirectory(segment)
   )
   return plain ? segments : undefined
@@ -434,11 +441,17 @@ function recreateLink(
   if (!at || !to) return 'it leaves the checkout or enters .git'
   if (!at.slice(0, -1).includes('node_modules'))
     return 'it is not in a node_modules directory'
+  // The scanner would take a directory by that name for a module's settings.
+  if (
+    at.some((segment) => segment.toLowerCase() === 'sonar-project.properties')
+  )
+    return 'it makes a sonar-project.properties'
   const destination = join(workspace, ...to)
   const real = existsSync(destination) ? realpathSync(destination) : undefined
   if (
     !real ||
     !statSync(real).isDirectory() ||
+    real === realWorkspace ||
     !isWithin(real, realWorkspace) ||
     relative(realWorkspace, real).split(sep).some(isGitDirectory)
   )
@@ -456,8 +469,15 @@ function recreateLink(
   // Committed, or made by an earlier entry: the checkout's own stays.
   if (lstatSync(location, { throwIfNoEntry: false })) return undefined
   // Windows makes directory links as junctions, which need no privilege but an absolute target.
+  // Elsewhere the link is relative to where it really sits: the workspace's path may itself run
+  // through a link, e.g. macOS's /tmp, while the directories made above never do.
   if (process.platform === 'win32') symlinkSync(real, location, 'junction')
-  else symlinkSync(relative(directory, real), location, 'dir')
+  else
+    symlinkSync(
+      relative(join(realWorkspace, ...at.slice(0, -1)), real),
+      location,
+      'dir'
+    )
   return undefined
 }
 

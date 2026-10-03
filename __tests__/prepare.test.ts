@@ -312,7 +312,8 @@ describe('typeInformation', () => {
     )
     expect(typeInformation(workspace, workspace)).toEqual({
       files: [],
-      links: [{ path: 'node_modules/@app/shared', target: 'packages/shared' }]
+      links: [{ path: 'node_modules/@app/shared', target: 'packages/shared' }],
+      outside: 0
     })
   })
 
@@ -325,7 +326,8 @@ describe('typeInformation', () => {
     )
     expect(typeInformation(workspace, workspace)).toEqual({
       files: [declaration],
-      links: [{ path: 'node_modules/express', target: `${store}/express` }]
+      links: [{ path: 'node_modules/express', target: `${store}/express` }],
+      outside: 0
     })
   })
 
@@ -339,7 +341,29 @@ describe('typeInformation', () => {
       join(workspace, 'node_modules/.bin/tsc')
     )
     symlinkSync('missing', join(workspace, 'node_modules/dangling'))
-    expect(typeInformation(workspace, workspace).links).toEqual([])
+    const found = typeInformation(workspace, workspace)
+    expect(found.links).toEqual([])
+    // Only the directory outside counts as left out, not the file or the broken link.
+    expect(found.outside).toBe(1)
+  })
+
+  it("takes a linked workspace package's own dependencies, which pnpm doesn't hoist", () => {
+    const app = join(workspace, 'packages/app')
+    mkdirSync(join(app, 'node_modules/@app'), { recursive: true })
+    symlinkSync('../../../shared', join(app, 'node_modules/@app/shared'))
+    const zod = file(
+      join(workspace, 'packages/shared/node_modules/zod/index.d.ts')
+    )
+    expect(typeInformation(app, workspace)).toEqual({
+      files: [zod],
+      links: [
+        {
+          path: 'packages/app/node_modules/@app/shared',
+          target: 'packages/shared'
+        }
+      ],
+      outside: 0
+    })
   })
 
   it('skips a directory it cannot read', () => {

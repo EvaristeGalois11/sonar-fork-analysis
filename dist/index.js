@@ -127843,7 +127843,14 @@ function recreateLinks(workspace, links) {
             warnings.push(`Skipped a link: ${JSON.stringify(link)} names no path and target`);
             continue;
         }
-        const reason = recreateLink(workspace, realWorkspace, path, target);
+        let reason;
+        try {
+            reason = recreateLink(workspace, realWorkspace, path, target);
+        }
+        catch (error) {
+            // A name the file system refuses, e.g. one with a NUL byte or too long for Windows.
+            reason = error instanceof Error ? error.message : String(error);
+        }
         if (reason)
             warnings.push(`Skipped link ${path}: ${reason}`);
     }
@@ -127857,7 +127864,8 @@ function plainSegments(path) {
     const plain = segments.every((segment) => segment !== '' &&
         segment !== '.' &&
         segment !== '..' &&
-        !segment.includes('\\') &&
+        // A Windows path separator, or an NTFS stream: .git::$INDEX_ALLOCATION is .git.
+        !/[\\:]/.test(segment) &&
         !isGitDirectory(segment));
     return plain ? segments : undefined;
 }
@@ -127868,10 +127876,14 @@ function recreateLink(workspace, realWorkspace, path, target) {
         return 'it leaves the checkout or enters .git';
     if (!at.slice(0, -1).includes('node_modules'))
         return 'it is not in a node_modules directory';
+    // The scanner would take a directory by that name for a module's settings.
+    if (at.some((segment) => segment.toLowerCase() === 'sonar-project.properties'))
+        return 'it makes a sonar-project.properties';
     const destination = join(workspace, ...to);
     const real = existsSync$1(destination) ? realpathSync(destination) : undefined;
     if (!real ||
         !statSync(real).isDirectory() ||
+        real === realWorkspace ||
         !isWithin(real, realWorkspace) ||
         relative(realWorkspace, real).split(sep$2).some(isGitDirectory))
         return 'it does not lead to a directory in the checkout';
@@ -127890,10 +127902,12 @@ function recreateLink(workspace, realWorkspace, path, target) {
     if (lstatSync(location, { throwIfNoEntry: false }))
         return undefined;
     // Windows makes directory links as junctions, which need no privilege but an absolute target.
+    // Elsewhere the link is relative to where it really sits: the workspace's path may itself run
+    // through a link, e.g. macOS's /tmp, while the directories made above never do.
     if (process.platform === 'win32')
         symlinkSync(real, location, 'junction');
     else
-        symlinkSync(relative(directory, real), location, 'dir');
+        symlinkSync(relative(join(realWorkspace, ...at.slice(0, -1)), real), location, 'dir');
     return undefined;
 }
 // The scanner reads one from every module directory, unchecked, so none may come from the pull
@@ -128394,12 +128408,16 @@ function missingDump(tool) {
 // from the project's node_modules and those of the directories above it up to the workspace, where
 // npm and Yarn workspaces install. Links are not followed but recorded, when they lead to a directory
 // in the workspace, so the analysis can make them again: workspaces link their own packages, pnpm
-// every package. A directory the build can't read is skipped.
+// every package. A workspace package a link leads to keeps its own dependencies in its node_modules,
+// unhoisted with pnpm, so that is read too. A directory the build can't read is skipped.
 function typeInformation(directory, workspace) {
     const files = [];
     const links = [];
+    let outside = 0;
     const realWorkspace = realpathSync(workspace);
     const posix = (path) => path.split(sep$2).join('/');
+    const seen = new Set();
+    const packages = [];
     const visit = (path, inPackages) => {
         let entries;
         try {
@@ -128411,16 +128429,27 @@ function typeInformation(directory, workspace) {
         for (const entry of entries) {
             const child = join(path, entry.name);
             if (entry.isDirectory()) {
-                if (entry.name !== '.git')
-                    visit(child, inPackages || entry.name === 'node_modules');
+                if (entry.name === '.git')
+                    continue;
+                if (!inPackages && entry.name === 'node_modules') {
+                    if (seen.has(realpathSync(child)))
+                        continue;
+                    seen.add(realpathSync(child));
+                }
+                visit(child, inPackages || entry.name === 'node_modules');
             }
             else if (inPackages && entry.isSymbolicLink()) {
-                const target = inPackageLink(child, realWorkspace);
-                if (target)
+                const target = linkTarget(child, realWorkspace);
+                if (target === 'outside')
+                    outside++;
+                else if (target) {
                     links.push({
                         path: posix(relative(workspace, child)),
                         target: posix(target)
                     });
+                    if (!target.split(sep$2).includes('node_modules'))
+                        packages.push(join(realWorkspace, target, 'node_modules'));
+                }
             }
             else if (inPackages &&
                 entry.isFile() &&
@@ -128429,24 +128458,36 @@ function typeInformation(directory, workspace) {
             }
         }
     };
+    const visitPackages = (path) => {
+        if (!lstatSync(path, { throwIfNoEntry: false })?.isDirectory())
+            return;
+        const real = realpathSync(path);
+        if (seen.has(real))
+            return;
+        seen.add(real);
+        visit(path, true);
+    };
     visit(directory, false);
     for (let above = dirname(directory); locate(above, { workspace, home: workspace }); above = dirname(above)) {
-        const packages = join(above, 'node_modules');
-        if (lstatSync(packages, { throwIfNoEntry: false })?.isDirectory())
-            visit(packages, true);
+        visitPackages(join(above, 'node_modules'));
         if (above === dirname(above))
             break;
     }
-    return { files, links };
+    for (let next = packages.shift(); next; next = packages.shift())
+        visitPackages(join(workspace, relative(realWorkspace, next)));
+    return { files, links, outside };
 }
-// Where a link leads, relative to the workspace, if that is a directory inside it.
-function inPackageLink(link, realWorkspace) {
+// Where a link leads, relative to the workspace, if that is a directory inside it; 'outside' for a
+// directory elsewhere. Links to files, such as node_modules/.bin, and broken ones don't count.
+function linkTarget(link, realWorkspace) {
     try {
         const target = realpathSync(link);
-        const rel = relative(realWorkspace, target);
-        if (rel === '' || rel.startsWith('..') || isAbsolute(rel))
+        if (!statSync(target).isDirectory())
             return undefined;
-        return statSync(target).isDirectory() ? rel : undefined;
+        const rel = relative(realWorkspace, target);
+        if (rel === '')
+            return undefined;
+        return rel.startsWith('..') || isAbsolute(rel) ? 'outside' : rel;
     }
     catch {
         return undefined;
@@ -132111,10 +132152,13 @@ async function prepare(inputs) {
     const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
     const types = tool.name === 'scanner'
         ? typeInformation(workingDirectory, workspace)
-        : { files: [], links: [] };
+        : { files: [], links: [], outside: 0 };
     if (types.files.length > 0 || types.links.length > 0) {
         const bytes = types.files.reduce((sum, path) => sum + statSync(path).size, 0);
-        info(`Shipping ${types.files.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) and ${types.links.length} links from node_modules`);
+        const outside = types.outside > 0
+            ? `, leaving out ${types.outside} links that lead outside the workspace`
+            : '';
+        info(`Shipping ${types.files.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) and ${types.links.length} links from node_modules${outside}`);
     }
     else if (tool.name === 'scanner' &&
         existsSync$1(join(workingDirectory, 'package.json'))) {
