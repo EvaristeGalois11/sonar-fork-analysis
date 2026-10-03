@@ -28,8 +28,10 @@ jobs:
             name: Maven
           - fixture: gradle
             name: Gradle
-          - fixture: node
-            name: Node
+          - fixture: npm
+            name: npm
+          - fixture: pnpm
+            name: pnpm
     env:
       # Forks and Dependabot get no Actions secrets, and a forced direct analysis fails without the
       # token, so skip it there.
@@ -45,7 +47,7 @@ jobs:
           fetch-depth: 0
 
       - name: 'Set up Java'
-        if: matrix.fixture != 'node'
+        if: matrix.fixture == 'maven' || matrix.fixture == 'gradle'
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
@@ -54,19 +56,31 @@ jobs:
 
       # The action runs no build for the scanner, so the workflow builds and tests first, as users do.
       - name: 'Set up Node'
-        if: matrix.fixture == 'node'
+        if: matrix.fixture == 'npm' || matrix.fixture == 'pnpm'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: fixtures/node/package-lock.json
 
-      - name: 'Test the Node fixture'
-        if: matrix.fixture == 'node'
-        working-directory: fixtures/node
+      - name: 'Test the npm fixture'
+        if: matrix.fixture == 'npm'
+        working-directory: fixtures/npm
         run: |
           npm ci
           npm test
+
+      # The pnpm the fixture's packageManager names.
+      - name: 'Set up pnpm'
+        if: matrix.fixture == 'pnpm'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: fixtures/pnpm/package.json
+
+      - name: 'Test the pnpm fixture'
+        if: matrix.fixture == 'pnpm'
+        working-directory: fixtures/pnpm
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r test
 
       # What the Sonar plugin downloads from SonarCloud (engine, Java runtime, analyzers), as Sonar's own
       # CI examples cache it. A fresh entry each week, so it doesn't fill up with old engines. Never in
@@ -105,7 +119,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture: [maven, gradle, node]
+        fixture: [maven, gradle, npm, pnpm]
     steps:
       # The head, like analyze checks out, so the shipped build output matches the analysed sources.
       - name: 'Checkout project'
@@ -115,7 +129,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: 'Set up Java'
-        if: matrix.fixture != 'node'
+        if: matrix.fixture == 'maven' || matrix.fixture == 'gradle'
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
@@ -124,19 +138,31 @@ jobs:
 
       # The action runs no build for the scanner, so the workflow builds and tests first, as users do.
       - name: 'Set up Node'
-        if: matrix.fixture == 'node'
+        if: matrix.fixture == 'npm' || matrix.fixture == 'pnpm'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: fixtures/node/package-lock.json
 
-      - name: 'Test the Node fixture'
-        if: matrix.fixture == 'node'
-        working-directory: fixtures/node
+      - name: 'Test the npm fixture'
+        if: matrix.fixture == 'npm'
+        working-directory: fixtures/npm
         run: |
           npm ci
           npm test
+
+      # The pnpm the fixture's packageManager names.
+      - name: 'Set up pnpm'
+        if: matrix.fixture == 'pnpm'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: fixtures/pnpm/package.json
+
+      - name: 'Test the pnpm fixture'
+        if: matrix.fixture == 'pnpm'
+        working-directory: fixtures/pnpm
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r test
 
       - name: 'Prepare the analysis'
         uses: $/
@@ -160,8 +186,10 @@ jobs:
             name: Maven
           - fixture: gradle
             name: Gradle
-          - fixture: node
-            name: Node
+          - fixture: npm
+            name: npm
+          - fixture: pnpm
+            name: pnpm
     env:
       HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
     # No checkout step: the action checks out the analysed commit itself, as it does for users.
@@ -187,7 +215,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture: [maven, gradle, node]
+        fixture: [maven, gradle, npm, pnpm]
     env:
       HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
     steps:

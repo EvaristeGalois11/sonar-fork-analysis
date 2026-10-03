@@ -29,8 +29,10 @@ jobs:
             name: Maven
           - fixture: gradle
             name: Gradle
-          - fixture: node
-            name: Node
+          - fixture: npm
+            name: npm
+          - fixture: pnpm
+            name: pnpm
     steps:
       # The analysis must never run the analysed code, whatever the scanner or Sonar adds: build tools
       # on the PATH and the fixtures' own wrappers record any run and fail it.

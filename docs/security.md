@@ -55,8 +55,8 @@ the [features that stay off](#what-stays-off-on-the-fork-path).
 tested against Sonar's real analyzer with a project that tried every way to get
 its own code run. The analyzer used its own Node.js and TypeScript and ignored
 the project's configuration files (ESLint, Babel, TypeScript and others) and
-everything in its `node_modules`. A Node test fixture keeps checking this
-against SonarQube Cloud's analyzer, see
+everything in its `node_modules`. Two Node test fixtures, one installed with npm
+and one with pnpm, keep checking this against SonarQube Cloud's analyzer, see
 [keeping up with the scanner](#keeping-up-with-the-scanner). Analyzers for other
 languages haven't been tested this way.
 
@@ -153,7 +153,7 @@ haven't changed since they were last reviewed.
 
 The analysis of the test fixtures also sets traps. Fake build tools on the
 `PATH` fail the run if the analysis ever starts one, and so do booby-trapped
-wrappers and Gradle settings in the fixtures. The Node fixture adds
+wrappers and Gradle settings in the fixtures. The Node fixtures add
 booby-trapped configuration files and packages, which fail the run if the
 JavaScript analyzer ever loads them.
 

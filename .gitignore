@@ -108,5 +108,5 @@ target/
 build/
 .gradle/
 
-# Fake packages for the Node fixture's traps; npm never manages this directory.
+# Fake packages for the Node fixtures' traps; no package manager touches this directory.
 !fixtures/node_modules
