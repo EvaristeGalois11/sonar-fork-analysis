@@ -487,6 +487,10 @@ the scanner and SonarQube's engines. They need Java and `unzip`. If Sonar ships
 an engine that starts processes in new places, they fail until someone reviews
 `__tests__/java/engine-processes-*.txt`.
 
+The action pins the scanner CLI by hash. When the weekly Scanner run reports a
+newer one, run `npm run scanner:update`, which pins it with the digests Sonar
+publishes, then `npm run bundle`, and open a pull request.
+
 To run the action locally, copy `.env.example` to `.env`, edit it and run
 `npm run local`.
 
