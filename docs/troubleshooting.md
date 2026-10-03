@@ -6,150 +6,64 @@ as annotations on the run, and errors fail the step.
 
 ## Inputs
 
-- **Input required: project-key**\
-  Set `project-key` in both workflows.
-- **Invalid project key '…'**\
-  Project keys can only contain letters, digits, `.`, `_`, `:` and `-`.
-- **Unknown mode '…'**, **Unknown build tool '…'**, **Input … must be true or
-  false**\
-  There's a typo in `mode`, `build-tool` or `checkout`. See
-  [inputs](../README.md#inputs).
+| Message                                                                     | What it means                                                                            |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Input required: project-key                                                 | Set `project-key` in both workflows.                                                     |
+| Invalid project key '…'                                                     | Project keys can only contain letters, digits, `.`, `_`, `:` and `-`.                    |
+| Unknown mode '…'<br>Unknown build tool '…'<br>Input … must be true or false | There's a typo in `mode`, `build-tool` or `checkout`. See [inputs](../README.md#inputs). |
 
 ## Build workflow
 
-- **Refusing to build on …, which runs with the repository's secrets; trigger
-  the build on pull_request instead.**\
-  The build workflow runs on `pull_request_target` or `issue_comment`, where a
-  fork's code would run with your secrets. Use `pull_request`.
-- **No Sonar token available, set the sonar-token input. On pull requests from
-  forks, use mode auto.**\
-  `mode: direct` needs a token, and pull requests from forks never have one. Use
-  `auto`.
-- **Direct analysis on workflow_run builds the checked-out code with the Sonar
-  token; make sure it is not code from a fork.**\
-  You set `mode: direct` in a `workflow_run` workflow. Only do that for code you
-  trust.
-- **No Maven or Gradle build found in '…', set the working-directory input**,
-  **Both Maven and Gradle build files found in '…', set the build-tool input**\
-  Point `working-directory` at the build, or choose the tool with `build-tool`.
-- **The Maven build failed with exit code …**, **The Gradle build failed with
-  exit code …**\
-  The build failed. Its output is in the log above.
-- **The Gradle build has no 'sonar' task: apply the org.sonarqube plugin**,
-  **The Gradle build succeeded but no Sonar analysis ran: apply the
-  org.sonarqube plugin**\
-  Apply the
-  [Gradle plugin](https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/ci-based-analysis/sonarscanner-for-gradle/).
-- **The Maven build succeeded but no Sonar analysis ran: check that sonar.skip
-  is not set**\
-  Something in the build sets `sonar.skip`.
-- **The … build succeeded but its Sonar plugin wrote no analysis settings; the
-  plugin may be too old to support simulation mode**\
-  The fork path needs a recent Sonar plugin. Update the plugin in your build.
-- **The analysis of pull requests leaves out these settings: …**\
-  These settings don't reach the Sonar workflow, see
-  [what the fork path carries](security.md#what-the-fork-path-carries). If the
-  analysis needs one of them, pass it with `build-arguments` in the Sonar
-  workflow.
-- **The build sets sonar.organization, which the analysis of pull requests takes
-  only from the sonar-organization input: set it in both workflows.**\
-  Your build sets the organization, for example in the pom, but the Sonar
-  workflow only reads the input. Add `sonar-organization` to the action in both
-  workflows.
-- **Dropped … entry outside the workspace: …**\
-  A path in the build's settings leads outside the workspace and the runner's
-  home directory, so the Sonar workflow won't get those files.
-- **This repository keeps artifacts … days: if this build completes more than …
-  days after its analysis, e.g. after a deployment approval, the fork path will
-  report that it left nothing to analyse.**\
-  After a direct analysis, the build leaves a marker telling the Sonar workflow
-  there's nothing to do. The marker expires with your repository's artifact
-  retention. If a build can finish later than that, for example because it waits
-  for an approval, raise the retention to 35 days, the longest a run can last.
-- **Could not note the direct analysis for the fork path: …**\
-  The marker couldn't be uploaded, so the Sonar workflow will report that the
-  build left nothing to analyse. If the message also says that analyses in one
-  workflow need distinct project keys, two steps in the same run used the same
-  project key. Give each its own.
+| Message                                                                                                                                                                                           | What it means                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Refusing to build on …, which runs with the repository's secrets; trigger the build on pull_request instead.                                                                                      | The build workflow runs on `pull_request_target` or `issue_comment`, where a fork's code would run with your secrets. Use `pull_request`.                                                                                                                                                                           |
+| No Sonar token available, set the sonar-token input. On pull requests from forks, use mode auto.                                                                                                  | `mode: direct` needs a token, and pull requests from forks never have one. Use `auto`.                                                                                                                                                                                                                              |
+| Direct analysis on workflow_run builds the checked-out code with the Sonar token; make sure it is not code from a fork.                                                                           | You set `mode: direct` in a `workflow_run` workflow. Only do that for code you trust.                                                                                                                                                                                                                               |
+| No Maven or Gradle build found in '…', set the working-directory input<br>Both Maven and Gradle build files found in '…', set the build-tool input                                                | Point `working-directory` at the build, or choose the tool with `build-tool`.                                                                                                                                                                                                                                       |
+| The Maven build failed with exit code …<br>The Gradle build failed with exit code …                                                                                                               | The build failed. Its output is in the log above.                                                                                                                                                                                                                                                                   |
+| The Gradle build has no 'sonar' task: apply the org.sonarqube plugin<br>The Gradle build succeeded but no Sonar analysis ran: apply the org.sonarqube plugin                                      | Apply the [Gradle plugin](https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/ci-based-analysis/sonarscanner-for-gradle/).                                                                                                                                                                                  |
+| The Maven build succeeded but no Sonar analysis ran: check that sonar.skip is not set                                                                                                             | Something in the build sets `sonar.skip`.                                                                                                                                                                                                                                                                           |
+| The … build succeeded but its Sonar plugin wrote no analysis settings; the plugin may be too old to support simulation mode                                                                       | The fork path needs a recent Sonar plugin. Update the plugin in your build.                                                                                                                                                                                                                                         |
+| The analysis of pull requests leaves out these settings: …                                                                                                                                        | These settings don't reach the Sonar workflow, see [what the fork path carries](security.md#what-the-fork-path-carries). If the analysis needs one of them, pass it with `build-arguments` in the Sonar workflow.                                                                                                   |
+| The build sets sonar.organization, which the analysis of pull requests takes only from the sonar-organization input: set it in both workflows.                                                    | Your build sets the organization, for example in the pom, but the Sonar workflow only reads the input. Add `sonar-organization` to the action in both workflows.                                                                                                                                                    |
+| Dropped … entry outside the workspace: …                                                                                                                                                          | A path in the build's settings leads outside the workspace and the runner's home directory, so the Sonar workflow won't get those files.                                                                                                                                                                            |
+| This repository keeps artifacts … days: if this build completes more than … days after its analysis, e.g. after a deployment approval, the fork path will report that it left nothing to analyse. | After a direct analysis, the build leaves a marker telling the Sonar workflow there's nothing to do. The marker expires with your repository's artifact retention. If a build can finish later than that, for example because it waits for an approval, raise the retention to 35 days, the longest a run can last. |
+| Could not note the direct analysis for the fork path: …                                                                                                                                           | The marker couldn't be uploaded, so the Sonar workflow will report that the build left nothing to analyse. If the message also says that analyses in one workflow need distinct project keys, two steps in the same run used the same project key. Give each its own.                                               |
 
 ## Sonar workflow
 
-- **No … artifact: the build left nothing to analyse.**\
-  The build didn't run the action for this project key. Check that both
-  workflows use the same `project-key` and that the Sonar workflow only runs
-  after builds that ran the action. See
-  [builds that don't always run the action](../README.md#builds-that-dont-always-run-the-action).
-- **No open pull request has … as its head any more; a newer run analyses it.**\
-  The pull request got new commits, or was closed, before the analysis started.
-  Nothing to do.
-- **The run analyses …, not this repository, and is not for a pull request.**\
-  A run from a fork's branch that wasn't triggered by a pull request started the
-  Sonar workflow. That can happen when a pull request adds its own workflow with
-  the same name as your build. The action ignores it, so there's nothing to do.
-- **… open pull requests have this head, analysing #…**\
-  Several pull requests share the analysed commit. The action picks the one the
-  build ran for, when it can tell.
-- **No Sonar token available, set the sonar-token input.**\
-  Pass `sonar-token` to the action in the Sonar workflow.
-- **… was prepared by an incompatible version of this action**\
-  Use the same version of the action in both workflows.
-- **The workspace is not empty: remove your checkout step, or set checkout to
-  false to keep it**\
-  The action checks out the pull request itself, into an empty workspace. Remove
-  your checkout step, or see
-  [your own checkout](../README.md#your-own-checkout).
-- **The checkout is at … but the analysis is for …**, **The checkout is shallow
-  …**, **The checkout stored credentials in .git/config …**\
-  With `checkout: false`, your checkout must meet the
-  [requirements](../README.md#your-own-checkout).
-- **git … failed with exit code …**\
-  The action couldn't check out the pull request. Git's own message follows.
-- **Could not look up the pull request: GitHub answered …**\
-  Give the Sonar job `pull-requests: read`.
-- **The artifact contains a link or special file: …**\
-  Someone tampered with the artifact, so the action analyses nothing.
-- **The artifact gives … no base directory in the checkout**, **Invalid module
-  id …**\
-  The artifact describes modules the action can't check safely, or someone
-  tampered with it. Real Maven and Gradle builds don't produce this, so if yours
-  does, please open an issue.
-- **Dropped settings a build never ships: …**\
-  Someone tampered with the artifact, or the two workflows run different
-  versions of the action.
-- **Dropped …: it holds a placeholder the scanner would expand**, **Dropped …:
-  it holds half of a character**, **Dropped …: the scanner reads it as one
-  path**, **Dropped … entry: …**\
-  The setting holds something the scanner might read differently from how the
-  action checked it, such as a `${…}` placeholder, or one of its paths leads
-  outside the checkout. The analysis goes on without it. See
-  [what the Sonar workflow does](security.md#what-the-sonar-workflow-does).
-- **Removed …: a link leading out of the checkout**\
-  A link in the pull request leads outside the checkout or nowhere. The analysis
-  goes on without it.
-- **Skipped …: …**\
-  A file from the artifact wasn't unpacked, because it would land in `.git`, in
-  the sources, over an existing file or through a link, or because it's a
-  `sonar-project.properties` file.
-- **The downloaded scanner has SHA-256 …, expected …**\
-  The scanner download was corrupted or tampered with, so the run stops. Run it
-  again, and report it if it keeps happening.
-- **The Sonar scanner failed with exit code …**\
-  The analysis failed. The scanner's output above says why.
-- **Could not post the … status: …**\
-  The job lacks `statuses: write`, or GitHub refused the status. The analysis
-  itself isn't affected.
+| Message                                                                                                                                                                    | What it means                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No … artifact: the build left nothing to analyse.                                                                                                                          | The build didn't run the action for this project key. Check that both workflows use the same `project-key` and that the Sonar workflow only runs after builds that ran the action. See [builds that don't always run the action](../README.md#builds-that-dont-always-run-the-action).      |
+| No open pull request has … as its head any more; a newer run analyses it.                                                                                                  | The pull request got new commits, or was closed, before the analysis started. Nothing to do.                                                                                                                                                                                                |
+| The run analyses …, not this repository, and is not for a pull request.                                                                                                    | A run from a fork's branch that wasn't triggered by a pull request started the Sonar workflow. That can happen when a pull request adds its own workflow with the same name as your build. The action ignores it, so there's nothing to do.                                                 |
+| … open pull requests have this head, analysing #…                                                                                                                          | Several pull requests share the analysed commit. The action picks the one the build ran for, when it can tell.                                                                                                                                                                              |
+| No Sonar token available, set the sonar-token input.                                                                                                                       | Pass `sonar-token` to the action in the Sonar workflow.                                                                                                                                                                                                                                     |
+| … was prepared by an incompatible version of this action                                                                                                                   | Use the same version of the action in both workflows.                                                                                                                                                                                                                                       |
+| The workspace is not empty: remove your checkout step, or set checkout to false to keep it                                                                                 | The action checks out the pull request itself, into an empty workspace. Remove your checkout step, or see [your own checkout](../README.md#your-own-checkout).                                                                                                                              |
+| The checkout is at … but the analysis is for …<br>The checkout is shallow …<br>The checkout stored credentials in .git/config …                                            | With `checkout: false`, your checkout must meet the [requirements](../README.md#your-own-checkout).                                                                                                                                                                                         |
+| git … failed with exit code …                                                                                                                                              | The action couldn't check out the pull request. Git's own message follows.                                                                                                                                                                                                                  |
+| Could not look up the pull request: GitHub answered …                                                                                                                      | Give the Sonar job `pull-requests: read`.                                                                                                                                                                                                                                                   |
+| The artifact contains a link or special file: …                                                                                                                            | Someone tampered with the artifact, so the action analyses nothing.                                                                                                                                                                                                                         |
+| The artifact gives … no base directory in the checkout<br>Invalid module id …                                                                                              | The artifact describes modules the action can't check safely, or someone tampered with it. Real Maven and Gradle builds don't produce this, so if yours does, please open an issue.                                                                                                         |
+| Dropped settings a build never ships: …                                                                                                                                    | Someone tampered with the artifact, or the two workflows run different versions of the action.                                                                                                                                                                                              |
+| Dropped …: it holds a placeholder the scanner would expand<br>Dropped …: it holds half of a character<br>Dropped …: the scanner reads it as one path<br>Dropped … entry: … | The setting holds something the scanner might read differently from how the action checked it, such as a `${…}` placeholder, or one of its paths leads outside the checkout. The analysis goes on without it. See [what the Sonar workflow does](security.md#what-the-sonar-workflow-does). |
+| Removed …: a link leading out of the checkout                                                                                                                              | A link in the pull request leads outside the checkout or nowhere. The analysis goes on without it.                                                                                                                                                                                          |
+| Skipped …: …                                                                                                                                                               | A file from the artifact wasn't unpacked, because it would land in `.git`, in the sources, over an existing file or through a link, or because it's a `sonar-project.properties` file.                                                                                                      |
+| The downloaded scanner has SHA-256 …, expected …                                                                                                                           | The scanner download was corrupted or tampered with, so the run stops. Run it again, and report it if it keeps happening.                                                                                                                                                                   |
+| The Sonar scanner failed with exit code …                                                                                                                                  | The analysis failed. The scanner's output above says why.                                                                                                                                                                                                                                   |
+| Could not post the … status: …                                                                                                                                             | The job lacks `statuses: write`, or GitHub refused the status. The analysis itself isn't affected.                                                                                                                                                                                          |
 
 ## Commit status
 
-- **Analysing**, **Analysed**\
-  The analysis is running or has finished. The status links to the run.
-- **The build left nothing to analyse**\
-  See _No … artifact_ under [Sonar workflow](#sonar-workflow).
-- **The analysis failed, see the run**\
-  Something else went wrong. The run's log says what.
+| Message                           | What it means                                                         |
+| --------------------------------- | --------------------------------------------------------------------- |
+| Analysing<br>Analysed             | The analysis is running or has finished. The status links to the run. |
+| The build left nothing to analyse | See _No … artifact_ under [Sonar workflow](#sonar-workflow).          |
+| The analysis failed, see the run  | Something else went wrong. The run's log says what.                   |
 
 ## Running locally
 
-- **Not running in GitHub Actions, …**\
-  The action ran outside a workflow, for example with `npm run local`, so it
-  kept the artifact or the analysis on your machine.
+| Message                          | What it means                                                                                                                 |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Not running in GitHub Actions, … | The action ran outside a workflow, for example with `npm run local`, so it kept the artifact or the analysis on your machine. |
