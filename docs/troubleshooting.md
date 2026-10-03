@@ -76,7 +76,7 @@ as annotations on the run, and errors fail the step.
 
 - **No … artifact: the build left nothing to analyse.**\
   The build didn't run the action for this project key. Check that both
-  workflows use the same `project-key`, and that the Sonar workflow only runs
+  workflows use the same `project-key` and that the Sonar workflow only runs
   after builds that ran the action. See
   [builds that don't always run the action](../README.md#builds-that-dont-always-run-the-action).
 - **No open pull request has … as its head any more; a newer run analyses it.**\
@@ -124,8 +124,8 @@ as annotations on the run, and errors fail the step.
   outside the checkout. The analysis goes on without it. See
   [what the Sonar workflow does](security.md#what-the-sonar-workflow-does).
 - **Removed …: a link leading out of the checkout**\
-  A link in the pull request leads outside the checkout, or nowhere. The
-  analysis goes on without it.
+  A link in the pull request leads outside the checkout or nowhere. The analysis
+  goes on without it.
 - **Skipped …: …**\
   A file from the artifact wasn't unpacked, because it would land in `.git`, in
   the sources, over an existing file or through a link, or because it's a
@@ -142,7 +142,7 @@ as annotations on the run, and errors fail the step.
 ## Commit status
 
 - **Analysing**, **Analysed**\
-  The analysis is running, or has finished. The status links to the run.
+  The analysis is running or has finished. The status links to the run.
 - **The build left nothing to analyse**\
   See _No … artifact_ under [Sonar workflow](#sonar-workflow).
 - **The analysis failed, see the run**\

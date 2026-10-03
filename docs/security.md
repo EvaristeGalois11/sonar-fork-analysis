@@ -2,18 +2,18 @@
 
 Code in a pull request from a fork hasn't been reviewed, so GitHub builds it
 without your secrets. This action keeps it that way. The build runs without the
-Sonar token. The Sonar workflow has the token, but never runs anything from the
+Sonar token. The Sonar workflow has the token but never runs anything from the
 pull request.
 
 Everything the Sonar workflow gets from the pull request could be hostile: the
 files in the checkout and the artifact the pull request's build left behind.
-This page explains how the action handles them, and what's left for you to
+This page explains how the action handles them and what's left for you to
 decide.
 
 ## What the Sonar workflow does
 
 It never runs Maven, Gradle or a wrapper script. It checks out the pull request,
-unpacks the artifact, and runs the Sonar scanner, which only reads files.
+unpacks the artifact and runs the Sonar scanner, which only reads files.
 
 **The checkout.** The action checks out the pull request itself, without ever
 writing the GitHub token to disk. `origin` points at your repository, because
@@ -40,7 +40,7 @@ same reason. Modules are worked out the same way the scanner's engine does it,
 and each one needs its own base directory inside the checkout.
 
 Then the action sets the settings that matter for safety itself, whatever the
-artifact says: the project key, the analysed commit, the working directory, and
+artifact says: the project key, the analysed commit, the working directory and
 the [features that stay off](#what-stays-off-on-the-fork-path).
 
 **The scanner.** It runs in an empty directory of its own. Its environment holds
@@ -125,19 +125,19 @@ dismiss the alert. Just make sure any step you add doesn't run it either.
 ## Keeping up with the scanner
 
 Sonar updates its scanner on its own schedule, and some updates matter here.
-Dependency analysis, build-system autoconfiguration, and the engine's habit of
+Dependency analysis, build-system autoconfiguration and the engine's habit of
 running `dotnet` to collect analytics all arrived that way.
 
 So this project tests against the real thing, on every pull request and once a
 week: the scanner CLI it pins, together with the engines that SonarQube Cloud
 and the latest SonarQube Community Build currently serve. The tests check that
 the scanner reads settings exactly as the action checked them, that the engine
-builds the same modules, and that the parts of the engine able to start a
-program haven't changed since they were last reviewed.
+builds the same modules and that the parts of the engine able to start a program
+haven't changed since they were last reviewed.
 
 The analysis of the test fixtures also sets traps. Fake build tools on the
-`PATH`, and booby-trapped wrappers and Gradle settings in the fixtures, fail the
-run if the analysis ever starts one.
+`PATH` fail the run if the analysis ever starts one, and so do booby-trapped
+wrappers and Gradle settings in the fixtures.
 
 Older SonarQube Server versions and commercial editions aren't tested.
 
