@@ -37,5 +37,25 @@ jobs:
       - name: 'Install dependencies'
         run: npm ci
 
+      # Keyed by what the engines are today, so a new engine is a new cache entry. The checks verify a
+      # restored engine like a downloaded one; the CLI is never cached, so the action's installer always
+      # checks its hash.
+      - name: 'Identify the current engines'
+        id: engines
+        run: |
+          cloud="$(curl -sfS https://api.sonarcloud.io/analysis/engine | jq -r .sha256)"
+          latest="$(curl -sfS -o /dev/null -w '%{redirect_url}' https://github.com/SonarSource/sonarqube/releases/latest)"
+          qube="${latest##*/}"
+          [[ "$cloud" =~ ^[0-9a-f]{64}$ && "$qube" =~ ^[0-9.]+$ ]]
+          echo "key=scanner-engines-$cloud-$qube" >> "$GITHUB_OUTPUT"
+
+      - name: 'Restore the engines'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/engines
+          key: ${{ steps.engines.outputs.key }}
+
       - name: 'Check against the real scanner'
         run: npm run test:scanner
+        env:
+          SCANNER_ENGINES: ${{ runner.temp }}/engines
