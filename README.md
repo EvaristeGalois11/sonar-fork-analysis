@@ -397,13 +397,18 @@ branch.
     # …
 ```
 
-## Real-world example
+## Real-world examples
 
 [Instancio](https://github.com/instancio/instancio) analyses its pull requests
 from forks with this action, on a Maven build with 38 modules. See its
 [build workflow](https://github.com/instancio/instancio/blob/main/.github/workflows/build.yml)
 and
 [Sonar workflow](https://github.com/instancio/instancio/blob/main/.github/workflows/sonar.yml).
+
+This repository analyses itself with the action too. It's a TypeScript project
+that runs the scanner after its tests, with a `sonar-project.properties` file.
+See its [build workflow](.github/workflows/ci.yml) and
+[Sonar workflow](.github/workflows/sonar.yml).
 
 ## Limitations
 
