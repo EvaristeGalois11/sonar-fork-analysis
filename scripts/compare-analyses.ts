@@ -74,7 +74,7 @@ async function api<T>(
         `${url.pathname} answered ${response.status}: ${await response.text()}` // NOSONAR
       )
     }
-    await sleep(5)
+    await sleep(5) // NOSONAR
   }
 }
 
@@ -122,7 +122,7 @@ async function processed(project: string): Promise<void> {
       (!commit || (await analysedCommit(project)) === commit) // NOSONAR
     )
       return
-    await sleep(5)
+    await sleep(5) // NOSONAR
   }
   throw new Error(
     commit
