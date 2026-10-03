@@ -46,10 +46,10 @@ import https$1 from 'node:https';
 import { createHmac, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
-import fs$1, { realpathSync, unlinkSync, lstatSync, existsSync as existsSync$1, rmSync, readdirSync, statSync, mkdirSync, copyFileSync, constants as constants$8, symlinkSync, accessSync, globSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
+import fs$1, { realpathSync, unlinkSync, lstatSync, existsSync as existsSync$1, rmSync, readdirSync, statSync, copyFileSync, constants as constants$8, symlinkSync, mkdirSync, accessSync, cpSync, writeFileSync, globSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
-import require$$1$7, { join, relative, sep as sep$2, isAbsolute, resolve as resolve$1, basename, dirname } from 'node:path';
+import require$$1$7, { join, relative, sep as sep$2, basename, dirname, isAbsolute, resolve as resolve$1 } from 'node:path';
 import require$$5$6 from 'node:fs/promises';
 import require$$2$1 from 'node:string_decoder';
 import require$$0$e from 'zlib';
@@ -127575,8 +127575,52 @@ const LONE_SURROGATE = /\p{Cs}/u;
 // Paths are compared by their real location, since the checkout may contain links.
 function resolveSettings(settings, workspace, home) {
     const warnings = [];
-    // First of all, so the allowlist and everything after it read the same module tree: a value
-    // could quote the token, and sonar.modules decides how every other key is read.
+    const kept = allowedSettings(settings, warnings);
+    const tree = moduleTree(kept);
+    const places = {
+        workspace,
+        home,
+        realWorkspace: realpathSync(workspace),
+        realHome: existsSync$1(home) ? realpathSync(home) : home
+    };
+    const bases = moduleBases(kept, tree, places);
+    let sourceRoots = [];
+    let reports = [];
+    const properties = new Map();
+    const withSources = new Set();
+    for (const [key, value] of kept) {
+        const { prefix, bareKey } = tree.split(key);
+        if (!isShippedPath(bareKey) &&
+            !OUTPUT_PATH_KEYS.has(bareKey) &&
+            !CHECKOUT_PATH_KEYS.has(bareKey)) {
+            properties.set(key, value);
+            continue;
+        }
+        const base = bases.get(prefix);
+        const paths = resolvePaths(key, bareKey, value, base, places, warnings);
+        if (!paths)
+            continue;
+        properties.set(key, paths.join(','));
+        if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests') {
+            withSources.add(prefix);
+            // concat, as a spread would put every entry on the stack, which a long list overflows.
+            sourceRoots = sourceRoots.concat(paths.map((path) => realpathSync(path)));
+        }
+        if (isReport(bareKey))
+            reports = reports.concat(paths
+                .filter((path) => isWithin(path, workspace))
+                .map((path) => join(places.realWorkspace, relative(workspace, path))));
+    }
+    // Without either setting the scanner analyses the whole base directory.
+    for (const [prefix, base] of bases) {
+        if (!withSources.has(prefix))
+            sourceRoots.push(realpathSync(base));
+    }
+    return { properties, sourceRoots, reports, warnings };
+}
+// First of all, so the allowlist and everything after it read the same module tree: a value
+// could quote the token, and sonar.modules decides how every other key is read.
+function allowedSettings(settings, warnings) {
     const expandable = new Map();
     for (const [key, value] of Object.entries(settings)) {
         if (PLACEHOLDER.test(value))
@@ -127593,86 +127637,70 @@ function resolveSettings(settings, workspace, home) {
     const unexpected = [...dropped, ...replaced, ...ignored];
     if (unexpected.length > 0)
         warnings.push(`Dropped settings a build never ships: ${unexpected.join(', ')}`);
-    const tree = moduleTree(kept);
-    const sourceRoots = [];
-    const reports = [];
-    const properties = new Map();
-    const realWorkspace = realpathSync(workspace);
-    const realHome = existsSync$1(home) ? realpathSync(home) : home;
-    const inCheckout = (path) => existsSync$1(path) && isWithin(realpathSync(path), realWorkspace);
-    // The scanner resolves a module's relative paths against its base directory, and derives a missing
-    // one from the module id, so every module must come with a base checked here.
+    return kept;
+}
+// The scanner resolves a module's relative paths against its base directory, and derives a missing
+// one from the module id, so every module must come with a base checked here.
+function moduleBases(kept, tree, places) {
     const bases = new Map();
     for (const prefix of tree.prefixes) {
         const base = kept.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '');
         const mapped = base === undefined && prefix === ''
-            ? workspace
-            : base && mapPlaceholder(base, workspace, home);
+            ? places.workspace
+            : base && mapPlaceholder(base, places.workspace, places.home);
         // The scanner reads patterns in report paths, and a checkout may hold a directory named **.
         if (!mapped ||
             mapped.includes(',') ||
             WILDCARD.test(mapped) ||
             REREAD_PATH.test(mapped) ||
-            !inCheckout(mapped)) {
+            !existsSync$1(mapped) ||
+            !isWithin(realpathSync(mapped), places.realWorkspace)) {
             const subject = prefix ? `module ${prefix.slice(0, -1)}` : 'the project';
             throw new Error(`The artifact gives ${subject} no base directory in the checkout`);
         }
         bases.set(prefix, mapped);
     }
-    const withSources = new Set();
-    for (const [key, value] of kept) {
-        const { prefix, bareKey } = tree.split(key);
-        const shipped = isShippedPath(bareKey);
-        const output = OUTPUT_PATH_KEYS.has(bareKey);
-        if (!shipped && !output && !CHECKOUT_PATH_KEYS.has(bareKey)) {
-            properties.set(key, value);
-            continue;
-        }
-        // Read as one path, the value would be none of the entries checked below.
-        if (!isPathList(bareKey) && value.includes(',')) {
-            warnings.push(`Dropped ${key}: the scanner reads it as one path`);
-            continue;
-        }
-        const base = bases.get(prefix);
-        if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests')
-            withSources.add(prefix);
-        const entries = [];
-        for (const entry of value.split(',').filter((path) => path !== '')) {
-            const mapped = mapEntry(entry, base, workspace, home);
-            // The build expands patterns into the files it ships; the scanner would expand what is left
-            // over files no check here has seen. Nor may the scanner read the path differently.
-            const path = mapped && (WILDCARD.test(mapped) || REREAD_PATH.test(mapped))
-                ? undefined
-                : mapped;
-            // Shipped paths may live in the private home; output directories appear when unpacking;
-            // checkout paths must already be in the checkout.
-            let accepted = false;
-            if (path !== undefined && existsSync$1(path)) {
-                const real = realpathSync(path);
-                accepted =
-                    isWithin(real, realWorkspace) || (shipped && isWithin(real, realHome));
-            }
-            else if (path !== undefined) {
-                accepted = shipped || (output && isWithin(path, workspace));
-            }
-            if (!accepted) {
-                warnings.push(`Dropped ${key} entry: ${entry}`);
-                continue;
-            }
-            entries.push(path);
-            if (isReport(bareKey) && isWithin(path, workspace))
-                reports.push(join(realWorkspace, relative(workspace, path)));
-            if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests')
-                sourceRoots.push(realpathSync(path));
-        }
-        properties.set(key, entries.join(','));
+    return bases;
+}
+// The entries of a path setting that pass the checks, or nothing when the setting itself fails.
+function resolvePaths(key, bareKey, value, base, places, warnings) {
+    // Read as one path, the value would be none of the entries checked below.
+    if (!isPathList(bareKey) && value.includes(',')) {
+        warnings.push(`Dropped ${key}: the scanner reads it as one path`);
+        return undefined;
     }
-    // Without either setting the scanner analyses the whole base directory.
-    for (const [prefix, base] of bases) {
-        if (!withSources.has(prefix))
-            sourceRoots.push(realpathSync(base));
+    const paths = [];
+    for (const entry of value.split(',').filter((path) => path !== '')) {
+        const path = acceptedPath(entry, bareKey, base, places);
+        if (path === undefined)
+            warnings.push(`Dropped ${key} entry: ${entry}`);
+        else
+            paths.push(path);
     }
-    return { properties, sourceRoots, reports, warnings };
+    return paths;
+}
+function acceptedPath(entry, bareKey, base, places) {
+    const path = mapEntry(entry, base, places.workspace, places.home);
+    // The build expands patterns into the files it ships; the scanner would expand what is left
+    // over files no check here has seen. Nor may the scanner read the path differently.
+    if (!path || WILDCARD.test(path) || REREAD_PATH.test(path))
+        return undefined;
+    // Shipped paths may live in the private home; output directories appear when unpacking;
+    // checkout paths must already be in the checkout.
+    const shipped = isShippedPath(bareKey);
+    let accepted;
+    if (existsSync$1(path)) {
+        const real = realpathSync(path);
+        accepted =
+            isWithin(real, places.realWorkspace) ||
+                (shipped && isWithin(real, places.realHome));
+    }
+    else {
+        accepted =
+            shipped ||
+                (OUTPUT_PATH_KEYS.has(bareKey) && isWithin(path, places.workspace));
+    }
+    return accepted ? path : undefined;
 }
 // Every entry under a directory, links included but never followed: Node's recursive readdir follows
 // links to directories, out of the directory or round in circles.
@@ -127759,20 +127787,11 @@ function unpackFile(source, rel, workspace, protectedRoots, reports) {
     if (insideAny(workspace, rel, protectedRoots) &&
         !mayJoinSources(rel, real, reports))
         return 'inside the sources';
-    // A committed symlink (e.g. target -> /home/runner/.m2) must not redirect the write.
-    let directory = workspace;
-    for (const segment of dirname(rel)
+    const refused = makeDirectories(workspace, dirname(rel)
         .split(sep$2)
-        .filter((s) => s !== '.')) {
-        directory = join(directory, segment);
-        if (!existsSync$1(directory) && !isSymbolicLink(directory)) {
-            mkdirSync(directory);
-            continue;
-        }
-        const stats = lstatSync(directory);
-        if (stats.isSymbolicLink() || !stats.isDirectory())
-            return 'its directory is a link or a file in the checkout';
-    }
+        .filter((s) => s !== '.'));
+    if (refused)
+        return refused;
     try {
         copyFileSync(source, target, constants$8.COPYFILE_EXCL);
     }
@@ -127786,13 +127805,19 @@ function unpackFile(source, rel, workspace, protectedRoots, reports) {
     }
     return undefined;
 }
-function isSymbolicLink(path) {
-    try {
-        return lstatSync(path).isSymbolicLink();
+// A committed symlink (e.g. target -> /home/runner/.m2) must not redirect a write below it, so the
+// directories on the way are made here and never followed.
+function makeDirectories(workspace, segments) {
+    let directory = workspace;
+    for (const segment of segments) {
+        directory = join(directory, segment);
+        const stats = lstatSync(directory, { throwIfNoEntry: false });
+        if (!stats)
+            mkdirSync(directory);
+        else if (stats.isSymbolicLink() || !stats.isDirectory())
+            return 'its directory is a link or a file in the checkout';
     }
-    catch {
-        return false;
-    }
+    return undefined;
 }
 // Unpacks the build output in place, next to the checkout, so default report locations keep working.
 function unpackWorkspace(from, workspace, protectedRoots, reports = []) {
@@ -127897,17 +127922,10 @@ function recreateLink(workspace, realWorkspace, path, target) {
         !isWithin(real, realWorkspace) ||
         relative(realWorkspace, real).split(sep$2).some(isGitDirectory))
         return 'it does not lead to a directory in the checkout';
-    // The directories on the way are made here, never through a link, like unpacked files.
-    let directory = workspace;
-    for (const segment of at.slice(0, -1)) {
-        directory = join(directory, segment);
-        const stats = lstatSync(directory, { throwIfNoEntry: false });
-        if (!stats)
-            mkdirSync(directory);
-        else if (stats.isSymbolicLink() || !stats.isDirectory())
-            return 'its directory is a link or a file in the checkout';
-    }
-    const location = join(directory, at.at(-1));
+    const refused = makeDirectories(workspace, at.slice(0, -1));
+    if (refused)
+        return refused;
+    const location = join(workspace, ...at);
     // Committed, or made by an earlier entry: the checkout's own stays.
     if (lstatSync(location, { throwIfNoEntry: false }))
         return undefined;
@@ -128421,71 +128439,78 @@ function missingDump(tool) {
 // every package. A workspace package a link leads to keeps its own dependencies in its node_modules,
 // unhoisted with pnpm, so that is read too. A directory the build can't read is skipped.
 function typeInformation(directory, workspace) {
-    const files = [];
-    const links = [];
-    let outside = 0;
-    const realWorkspace = realpathSync(workspace);
-    const posix = (path) => path.split(sep$2).join('/');
-    const seen = new Set();
-    const packages = [];
-    const visit = (path, inPackages) => {
-        let entries;
-        try {
-            entries = readdirSync(path, { withFileTypes: true });
-        }
-        catch {
-            return;
-        }
-        for (const entry of entries) {
-            const child = join(path, entry.name);
-            if (entry.isDirectory()) {
-                if (entry.name === '.git')
-                    continue;
-                if (!inPackages && entry.name === 'node_modules') {
-                    if (seen.has(realpathSync(child)))
-                        continue;
-                    seen.add(realpathSync(child));
-                }
-                visit(child, inPackages || entry.name === 'node_modules');
-            }
-            else if (inPackages && entry.isSymbolicLink()) {
-                const target = linkTarget(child, realWorkspace);
-                if (target === 'outside')
-                    outside++;
-                else if (target) {
-                    links.push({
-                        path: posix(relative(workspace, child)),
-                        target: posix(target)
-                    });
-                    if (!target.split(sep$2).includes('node_modules'))
-                        packages.push(join(realWorkspace, target, 'node_modules'));
-                }
-            }
-            else if (inPackages &&
-                entry.isFile() &&
-                isTypeInformation(entry.name)) {
-                files.push(child);
-            }
-        }
+    const walk = {
+        workspace,
+        realWorkspace: realpathSync(workspace),
+        seen: new Set(),
+        packages: [],
+        found: { files: [], links: [], outside: 0 }
     };
-    const visitPackages = (path) => {
-        if (!lstatSync(path, { throwIfNoEntry: false })?.isDirectory())
-            return;
-        const real = realpathSync(path);
-        if (seen.has(real))
-            return;
-        seen.add(real);
-        visit(path, true);
-    };
-    visit(directory, false);
+    visitDirectory(walk, directory, false);
     for (let above = dirname(directory); locate(above, { workspace, home: workspace }); above = dirname(above)) {
-        visitPackages(join(above, 'node_modules'));
+        visitPackages(walk, join(above, 'node_modules'));
         if (above === dirname(above))
             break;
     }
-    for (let next = packages.shift(); next; next = packages.shift())
-        visitPackages(join(workspace, relative(realWorkspace, next)));
-    return { files, links, outside };
+    for (let next = walk.packages.shift(); next; next = walk.packages.shift())
+        visitPackages(walk, join(workspace, relative(walk.realWorkspace, next)));
+    return walk.found;
+}
+function visitDirectory(walk, path, inPackages) {
+    for (const entry of readableEntries(path)) {
+        const child = join(path, entry.name);
+        if (entry.isDirectory()) {
+            if (entry.name === '.git')
+                continue;
+            const isPackages = entry.name === 'node_modules';
+            if (isPackages && !inPackages && !firstVisit(walk, child))
+                continue;
+            visitDirectory(walk, child, inPackages || isPackages);
+        }
+        else if (!inPackages)
+            continue;
+        else if (entry.isSymbolicLink())
+            recordLink(walk, child);
+        else if (entry.isFile() && isTypeInformation(entry.name))
+            walk.found.files.push(child);
+    }
+}
+function visitPackages(walk, path) {
+    if (!lstatSync(path, { throwIfNoEntry: false })?.isDirectory())
+        return;
+    if (firstVisit(walk, path))
+        visitDirectory(walk, path, true);
+}
+function firstVisit(walk, path) {
+    const real = realpathSync(path);
+    if (walk.seen.has(real))
+        return false;
+    walk.seen.add(real);
+    return true;
+}
+function readableEntries(path) {
+    try {
+        return readdirSync(path, { withFileTypes: true });
+    }
+    catch {
+        return [];
+    }
+}
+function recordLink(walk, link) {
+    const target = linkTarget(link, walk.realWorkspace);
+    if (target === 'outside')
+        walk.found.outside++;
+    else if (target) {
+        walk.found.links.push({
+            path: posix(relative(walk.workspace, link)),
+            target: posix(target)
+        });
+        if (!target.split(sep$2).includes('node_modules'))
+            walk.packages.push(join(walk.realWorkspace, target, 'node_modules'));
+    }
+}
+function posix(path) {
+    return path.split(sep$2).join('/');
 }
 // Where a link leads, relative to the workspace, if that is a directory inside it; 'outside' for a
 // directory elsewhere. Links to files, such as node_modules/.bin, and broken ones don't count.
@@ -128519,6 +128544,44 @@ function filesUnder(directory) {
         .filter((entry) => entry.isFile())
         .map((entry) => join(entry.parentPath, entry.name));
 }
+// The entries of a path setting as the analysis will read them, and the files they name.
+function stagePaths(key, bareKey, value, base, roots, warnings) {
+    const isShipped = isShippedPath(bareKey);
+    // The scanner reads only lists as comma-separated, any other path setting as one path.
+    const listed = (isPathList(bareKey) ? value.split(',') : [value])
+        .map((path) => path.trim())
+        .filter((path) => path !== '');
+    // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
+    const expanded = listed.flatMap((entry) => isShipped && WILDCARD.test(entry)
+        ? globSync(entry, { cwd: base }).map(posix).sort()
+        : [entry]);
+    const entries = [];
+    const located = [];
+    for (const entry of expanded) {
+        const path = resolve$1(base, entry);
+        if (isShipped && !existsSync$1(path))
+            continue;
+        const where = locate(path, roots);
+        if (!where) {
+            warnings.push(`Dropped ${key} entry outside the workspace: ${entry}`);
+            continue;
+        }
+        located.push(where);
+        // Relative entries stay relative: they resolve against the module the same way on both sides.
+        entries.push(isAbsolute(entry) ? token(...where) : entry);
+    }
+    return { entries, located };
+}
+function implicitReports(base, roots) {
+    const located = [];
+    for (const report of IMPLICIT_REPORTS) {
+        const path = join(base, report);
+        const where = existsSync$1(path) && locate(path, roots);
+        if (where)
+            located.push(where);
+    }
+    return located;
+}
 // Rewrites paths to {workspace}/… and {home}/… so the analysis can map them onto its own
 // directories, and copies the build output they point to into the staging directory.
 function stageAnalysis(settings, roots, staging, buildTool, pullRequest, extraFiles = [], links = []) {
@@ -128540,44 +128603,16 @@ function stageAnalysis(settings, roots, staging, buildTool, pullRequest, extraFi
         }
         const base = settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '') ??
             roots.workspace;
-        const entries = [];
-        // The scanner reads only lists as comma-separated, any other path setting as one path.
-        const listed = (isPathList(bareKey) ? value.split(',') : [value])
-            .map((path) => path.trim())
-            .filter((path) => path !== '');
-        // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
-        const expanded = listed.flatMap((entry) => isShipped && WILDCARD.test(entry)
-            ? globSync(entry, { cwd: base })
-                .map((match) => match.split(sep$2).join('/'))
-                .sort()
-            : [entry]);
-        for (const entry of expanded) {
-            const path = resolve$1(base, entry);
-            if (isShipped && !existsSync$1(path))
-                continue;
-            const located = locate(path, roots);
-            if (!located) {
-                warnings.push(`Dropped ${key} entry outside the workspace: ${entry}`);
-                continue;
-            }
-            if (isShipped)
-                ship(located);
-            // Relative entries stay relative: they resolve against the module the same way on both sides.
-            entries.push(isAbsolute(entry) ? token(...located) : entry);
-        }
+        const { entries, located } = stagePaths(key, bareKey, value, base, roots, warnings);
+        if (isShipped)
+            located.forEach(ship);
         if (entries.length > 0 || !isShipped)
             out[key] = entries.join(',');
     }
     for (const prefix of tree.prefixes) {
         const base = settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '');
-        if (!base)
-            continue;
-        for (const report of IMPLICIT_REPORTS) {
-            const path = join(base, report);
-            const located = existsSync$1(path) && locate(path, roots);
-            if (located)
-                ship(located);
-        }
+        if (base)
+            implicitReports(base, roots).forEach(ship);
     }
     for (const path of extraFiles) {
         const located = locate(path, roots);

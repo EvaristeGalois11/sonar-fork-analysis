@@ -96,68 +96,87 @@ export function typeInformation(
   directory: string,
   workspace: string
 ): TypeInformation {
-  const files: string[] = []
-  const links: PackageLink[] = []
-  let outside = 0
-  const realWorkspace = realpathSync(workspace)
-  const posix = (path: string): string => path.split(sep).join('/')
-  const seen = new Set<string>()
-  const packages: string[] = []
-  const visit = (path: string, inPackages: boolean): void => {
-    let entries: Dirent[]
-    try {
-      entries = readdirSync(path, { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const entry of entries) {
-      const child = join(path, entry.name)
-      if (entry.isDirectory()) {
-        if (entry.name === '.git') continue
-        if (!inPackages && entry.name === 'node_modules') {
-          if (seen.has(realpathSync(child))) continue
-          seen.add(realpathSync(child))
-        }
-        visit(child, inPackages || entry.name === 'node_modules')
-      } else if (inPackages && entry.isSymbolicLink()) {
-        const target = linkTarget(child, realWorkspace)
-        if (target === 'outside') outside++
-        else if (target) {
-          links.push({
-            path: posix(relative(workspace, child)),
-            target: posix(target)
-          })
-          if (!target.split(sep).includes('node_modules'))
-            packages.push(join(realWorkspace, target, 'node_modules'))
-        }
-      } else if (
-        inPackages &&
-        entry.isFile() &&
-        isTypeInformation(entry.name)
-      ) {
-        files.push(child)
-      }
-    }
+  const walk: Walk = {
+    workspace,
+    realWorkspace: realpathSync(workspace),
+    seen: new Set(),
+    packages: [],
+    found: { files: [], links: [], outside: 0 }
   }
-  const visitPackages = (path: string): void => {
-    if (!lstatSync(path, { throwIfNoEntry: false })?.isDirectory()) return
-    const real = realpathSync(path)
-    if (seen.has(real)) return
-    seen.add(real)
-    visit(path, true)
-  }
-  visit(directory, false)
+  visitDirectory(walk, directory, false)
   for (
     let above = dirname(directory);
     locate(above, { workspace, home: workspace });
     above = dirname(above)
   ) {
-    visitPackages(join(above, 'node_modules'))
+    visitPackages(walk, join(above, 'node_modules'))
     if (above === dirname(above)) break
   }
-  for (let next = packages.shift(); next; next = packages.shift())
-    visitPackages(join(workspace, relative(realWorkspace, next)))
-  return { files, links, outside }
+  for (let next = walk.packages.shift(); next; next = walk.packages.shift())
+    visitPackages(walk, join(workspace, relative(walk.realWorkspace, next)))
+  return walk.found
+}
+
+type Walk = {
+  workspace: string
+  realWorkspace: string
+  // The node_modules directories visited, by real path, so links to one don't visit it again.
+  seen: Set<string>
+  // Workspace packages' own node_modules, by real path, still to visit.
+  packages: string[]
+  found: TypeInformation
+}
+
+function visitDirectory(walk: Walk, path: string, inPackages: boolean): void {
+  for (const entry of readableEntries(path)) {
+    const child = join(path, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === '.git') continue
+      const isPackages = entry.name === 'node_modules'
+      if (isPackages && !inPackages && !firstVisit(walk, child)) continue
+      visitDirectory(walk, child, inPackages || isPackages)
+    } else if (!inPackages) continue
+    else if (entry.isSymbolicLink()) recordLink(walk, child)
+    else if (entry.isFile() && isTypeInformation(entry.name))
+      walk.found.files.push(child)
+  }
+}
+
+function visitPackages(walk: Walk, path: string): void {
+  if (!lstatSync(path, { throwIfNoEntry: false })?.isDirectory()) return
+  if (firstVisit(walk, path)) visitDirectory(walk, path, true)
+}
+
+function firstVisit(walk: Walk, path: string): boolean {
+  const real = realpathSync(path)
+  if (walk.seen.has(real)) return false
+  walk.seen.add(real)
+  return true
+}
+
+function readableEntries(path: string): Dirent[] {
+  try {
+    return readdirSync(path, { withFileTypes: true })
+  } catch {
+    return []
+  }
+}
+
+function recordLink(walk: Walk, link: string): void {
+  const target = linkTarget(link, walk.realWorkspace)
+  if (target === 'outside') walk.found.outside++
+  else if (target) {
+    walk.found.links.push({
+      path: posix(relative(walk.workspace, link)),
+      target: posix(target)
+    })
+    if (!target.split(sep).includes('node_modules'))
+      walk.packages.push(join(walk.realWorkspace, target, 'node_modules'))
+  }
+}
+
+function posix(path: string): string {
+  return path.split(sep).join('/')
 }
 
 // Where a link leads, relative to the workspace, if that is a directory inside it; 'outside' for a
@@ -191,6 +210,53 @@ function filesUnder(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true, recursive: true })
     .filter((entry) => entry.isFile())
     .map((entry) => join(entry.parentPath, entry.name))
+}
+
+// The entries of a path setting as the analysis will read them, and the files they name.
+function stagePaths(
+  key: string,
+  bareKey: string,
+  value: string,
+  base: string,
+  roots: Roots,
+  warnings: string[]
+): { entries: string[]; located: [Root, string][] } {
+  const isShipped = isShippedPath(bareKey)
+  // The scanner reads only lists as comma-separated, any other path setting as one path.
+  const listed = (isPathList(bareKey) ? value.split(',') : [value])
+    .map((path) => path.trim())
+    .filter((path) => path !== '')
+  // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
+  const expanded = listed.flatMap((entry) =>
+    isShipped && WILDCARD.test(entry)
+      ? globSync(entry, { cwd: base }).map(posix).sort()
+      : [entry]
+  )
+  const entries: string[] = []
+  const located: [Root, string][] = []
+  for (const entry of expanded) {
+    const path = resolve(base, entry)
+    if (isShipped && !existsSync(path)) continue
+    const where = locate(path, roots)
+    if (!where) {
+      warnings.push(`Dropped ${key} entry outside the workspace: ${entry}`)
+      continue
+    }
+    located.push(where)
+    // Relative entries stay relative: they resolve against the module the same way on both sides.
+    entries.push(isAbsolute(entry) ? token(...where) : entry)
+  }
+  return { entries, located }
+}
+
+function implicitReports(base: string, roots: Roots): [Root, string][] {
+  const located: [Root, string][] = []
+  for (const report of IMPLICIT_REPORTS) {
+    const path = join(base, report)
+    const where = existsSync(path) && locate(path, roots)
+    if (where) located.push(where)
+  }
+  return located
 }
 
 export type Staged = {
@@ -233,42 +299,21 @@ export function stageAnalysis(
     const base =
       settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '') ??
       roots.workspace
-    const entries: string[] = []
-    // The scanner reads only lists as comma-separated, any other path setting as one path.
-    const listed = (isPathList(bareKey) ? value.split(',') : [value])
-      .map((path) => path.trim())
-      .filter((path) => path !== '')
-    // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
-    const expanded = listed.flatMap((entry) =>
-      isShipped && WILDCARD.test(entry)
-        ? globSync(entry, { cwd: base })
-            .map((match) => match.split(sep).join('/'))
-            .sort()
-        : [entry]
+    const { entries, located } = stagePaths(
+      key,
+      bareKey,
+      value,
+      base,
+      roots,
+      warnings
     )
-    for (const entry of expanded) {
-      const path = resolve(base, entry)
-      if (isShipped && !existsSync(path)) continue
-      const located = locate(path, roots)
-      if (!located) {
-        warnings.push(`Dropped ${key} entry outside the workspace: ${entry}`)
-        continue
-      }
-      if (isShipped) ship(located)
-      // Relative entries stay relative: they resolve against the module the same way on both sides.
-      entries.push(isAbsolute(entry) ? token(...located) : entry)
-    }
+    if (isShipped) located.forEach(ship)
     if (entries.length > 0 || !isShipped) out[key] = entries.join(',')
   }
 
   for (const prefix of tree.prefixes) {
     const base = settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '')
-    if (!base) continue
-    for (const report of IMPLICIT_REPORTS) {
-      const path = join(base, report)
-      const located = existsSync(path) && locate(path, roots)
-      if (located) ship(located)
-    }
+    if (base) implicitReports(base, roots).forEach(ship)
   }
 
   for (const path of extraFiles) {
