@@ -60,9 +60,9 @@ On a pull request from a fork:
    project with Maven or Gradle and has Sonar's build plugin work out the
    analysis settings without running the analysis. For other projects, the
    action doesn't build anything: it runs after your own build and test steps
-   and reads your `sonar-project.properties`. It uploads what the analysis
-   needs, together with those settings, as an artifact: compiled classes,
-   libraries, coverage and test reports, and for a Node project the type
+   and reads your `sonar-project.properties`. It uploads what the analysis needs
+   as an artifact, together with those settings: compiled classes, libraries,
+   coverage and test reports. For a Node project, that includes the type
    declarations from `node_modules`.
 2. When the build finishes, GitHub starts your Sonar workflow through
    `workflow_run`. It runs in your repository, so it has the Sonar token.
@@ -164,11 +164,11 @@ advice.
 
 ### Other projects
 
-For anything that isn't a Maven or Gradle build, such as JavaScript, TypeScript,
-Python, Go or PHP, add the action after your own build and test steps. It
-doesn't build anything: it runs Sonar's scanner, which takes its settings from
-your `sonar-project.properties`, as with Sonar's own scan action. The action
-recognises such a project by that file, or by a `package.json`. For a Node
+For other projects, such as JavaScript, TypeScript, Python, Go or PHP, add the
+action after your own build and test steps. The action doesn't build anything.
+It runs Sonar's scanner, which reads its settings from your
+`sonar-project.properties`, just like Sonar's own scan action. The action
+recognises these projects by that file or by a `package.json`. For a Node
 project:
 
 ```yaml
@@ -198,7 +198,7 @@ sonar.tests=test
 sonar.javascript.lcov.reportPaths=coverage/lcov.info
 ```
 
-Other languages name their reports the same way, for example
+Other languages have their own report settings, such as
 `sonar.python.coverage.reportPaths=coverage.xml` for Python. The Sonar workflow
 doesn't change. For a Node project, the action also passes the type declarations
 from your `node_modules` to the Sonar workflow, so rules that need types work on
@@ -405,19 +405,19 @@ and
 
 ## Limitations
 
-- .NET projects need Sonar's own scanner for .NET, and C and C++ projects need
-  the output of Sonar's build wrapper, so neither works with this action.
+- .NET projects need Sonar's scanner for .NET, and C and C++ projects need
+  Sonar's build wrapper. Neither works with this action.
 - When the action runs the scanner, it reads settings only from
   `sonar-project.properties` and `build-arguments`. Unlike Sonar's npm scanner,
   it doesn't guess any from `package.json`, so set your coverage report path
   yourself.
 - The action doesn't follow links in `node_modules`, so type declarations behind
-  them don't reach pull requests from forks. That covers all of pnpm's packages,
-  and the workspace packages npm and Yarn link. Rules that need types may find
-  less there.
-- On the fork path, the build collects its settings through simulation mode
-  (`sonar.scanner.internal.dumpToFile`), in the Sonar plugins for Maven and
-  Gradle and in the pinned scanner otherwise. Sonar uses it in its own tests but
+  them don't reach pull requests from forks. That covers all of pnpm's packages
+  and the workspace packages that npm and Yarn link. Rules that need types may
+  find less there.
+- On the fork path, the build collects its settings with simulation mode
+  (`sonar.scanner.internal.dumpToFile`), a feature of the Sonar plugins for
+  Maven and Gradle and of the pinned scanner. Sonar uses it in its own tests but
   doesn't document it, so a release could change it. If it stops working, the
   build fails with _its Sonar plugin wrote no analysis settings_ or _the Sonar
   scanner succeeded but wrote no analysis settings_. This project's tests keep

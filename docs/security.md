@@ -32,7 +32,7 @@ it. It unpacks the build output next to the sources, never over an existing file
 or through a link. It adds only two kinds of files to the source directories:
 report files that the settings name and type information in `node_modules`
 (declaration, `package.json` and `tsconfig` files). The analyzers read the type
-information to learn the types the code uses, and by default never report on it
+information to learn the types the code uses and by default never report on it
 as part of the project.
 
 **The settings.** The build's settings go through the same
