@@ -20,10 +20,10 @@ inputs:
     default: ''
   build-arguments:
     description: >
-      Extra build flags (not goals or tasks), one per line. In analyze mode they
-      go to the Sonar scanner instead, e.g. -Dsonar.projectName=App, which runs
-      in a directory of the action's: relative paths there do not point into the
-      checkout.
+      Extra build flags (not goals or tasks), one per line. In analyze mode
+      they're passed to the Sonar scanner instead, for example
+      -Dsonar.projectName=App. The scanner doesn't run in the checkout there, so
+      use absolute paths.
     default: ''
   project-key:
     description: >
@@ -35,7 +35,8 @@ inputs:
   sonar-host-url:
     description: >
       The Sonar server. Leave empty for SonarQube Cloud, or to use
-      SONAR_HOST_URL or the build's own sonar.host.url.
+      SONAR_HOST_URL. Direct analyses also fall back to the build's own
+      sonar.host.url, analyze mode doesn't.
     default: ''
   sonar-token:
     description:

@@ -128227,8 +128227,13 @@ function artifactName(projectKey) {
 function directArtifactName(projectKey) {
     return `${artifactName(projectKey)}+direct`;
 }
+// The first releases whose simulation mode writes the settings (checked 2026-10-03).
+const MINIMUM_PLUGIN = {
+    maven: 'sonar-maven-plugin 3.2',
+    gradle: 'the org.sonarqube plugin 2.1'
+};
 function missingDump(tool) {
-    return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the plugin may be too old to support simulation mode`;
+    return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the fork path needs ${MINIMUM_PLUGIN[tool.name]} or later`;
 }
 function locate(path, roots) {
     for (const root of ['workspace', 'home']) {
