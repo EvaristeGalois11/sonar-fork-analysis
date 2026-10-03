@@ -1,5 +1,7 @@
 name: 'Sonar Fork Analysis'
-description: 'Sonar scan external forks of your project'
+description:
+  'Sonar analysis, with coverage, for pull requests from forks, without exposing
+  your Sonar token. For Maven and Gradle.'
 inputs:
   mode:
     description: >
