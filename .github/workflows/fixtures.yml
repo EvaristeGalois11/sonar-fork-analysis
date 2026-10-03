@@ -8,6 +8,12 @@ on:
     branches:
       - main
   pull_request:
+# A pull request's comparison waits for SonarCloud's analysis of its commit, which a newer push replaces:
+# the older run could only time out.
+concurrency:
+  group:
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
