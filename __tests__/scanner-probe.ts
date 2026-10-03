@@ -218,7 +218,7 @@ export class Probe {
       [
         '-cp',
         this.jars.join(delimiter),
-        resolve('__tests__/java/ScannerProbe.java'),
+        resolve('__tests__/java/probe/ScannerProbe.java'),
         mode,
         input
       ],

@@ -1,3 +1,5 @@
+package probe;
+
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -77,7 +79,9 @@ public class ScannerProbe {
                 walk.invoke(null, byModule, "", "", new HashMap<>(settings));
             } catch (InvocationTargetException failed) {
                 // Only the engine's own refusal of a project; anything else is a failure of the check.
-                if (!failed.getCause().getClass().getName().equals("org.sonar.api.utils.MessageException")) throw failed;
+                // By name, like every Sonar class here: the same file also runs with only the scanner CLI's
+                // jar on the class path, which doesn't have this class, and Java compiles it either way.
+                if (!failed.getCause().getClass().getName().equals("org.sonar.api.utils.MessageException")) throw failed; // NOSONAR
                 System.out.println("refused " + hex(String.valueOf(failed.getCause().getMessage())));
                 continue;
             }

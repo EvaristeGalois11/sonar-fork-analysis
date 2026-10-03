@@ -43,7 +43,7 @@ import require$$0$d, { Buffer as Buffer$1 } from 'buffer';
 import os$1, { EOL as EOL$1, homedir, tmpdir } from 'node:os';
 import process$2 from 'node:process';
 import https$1 from 'node:https';
-import { createHmac, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
+import { createHmac, randomInt, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
 import fs$1, { realpathSync, unlinkSync, lstatSync, existsSync as existsSync$1, rmSync, readdirSync, statSync, copyFileSync, constants as constants$8, symlinkSync, mkdirSync, accessSync, cpSync, writeFileSync, globSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
@@ -128078,17 +128078,18 @@ const CHECKOUT_POLICY = {
     sleep: (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000))
 };
 async function retry(action, policy = CHECKOUT_POLICY) {
+    // Each attempt waits for the one before, which is the point: Sonar's rule against awaiting in a
+    // loop is about work that could run in parallel.
     for (let attempt = 1; attempt < policy.attempts; attempt++) {
         try {
-            return await action();
+            return await action(); // NOSONAR
         }
         catch (error) {
             info(error instanceof Error ? error.message : String(error));
         }
-        const seconds = Math.floor(Math.random() * (policy.maxSeconds - policy.minSeconds + 1)) +
-            policy.minSeconds;
+        const seconds = randomInt(policy.minSeconds, policy.maxSeconds + 1);
         info(`Waiting ${seconds} seconds before trying again`);
-        await policy.sleep(seconds);
+        await policy.sleep(seconds); // NOSONAR
     }
     return action();
 }
