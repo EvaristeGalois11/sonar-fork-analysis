@@ -49,7 +49,7 @@ import require$$5$5 from 'url';
 import fs$1, { realpathSync, unlinkSync, lstatSync, existsSync as existsSync$1, rmSync, readdirSync, statSync, mkdirSync, copyFileSync, constants as constants$8, symlinkSync, accessSync, globSync, cpSync, writeFileSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
-import require$$1$7, { join, relative, isAbsolute, resolve as resolve$1, sep as sep$2, basename, dirname } from 'node:path';
+import require$$1$7, { join, relative, sep as sep$2, isAbsolute, resolve as resolve$1, basename, dirname } from 'node:path';
 import require$$5$6 from 'node:fs/promises';
 import require$$2$1 from 'node:string_decoder';
 import require$$0$e from 'zlib';
@@ -127478,7 +127478,7 @@ function moduleTree(settings) {
             .split(',')
             .map((module) => module.trim())
             .filter((module) => module.length > 0);
-        for (const module of modules.sort().reverse()) {
+        for (const module of modules.toSorted().reverse()) {
             // The scanner turns a module id into a directory under its parent's, and moves every key
             // starting with the id out of the parent: 'sonar.sca' would take the trusted sonar.sca.enabled.
             if (module === '.' ||
@@ -127559,6 +127559,14 @@ function mapPlaceholder(entry, workspace, home) {
         return inside(home, `.${entry.slice('{home}'.length)}`);
     return undefined;
 }
+// Relative paths resolve against the module's base; an absolute one could point anywhere.
+function mapEntry(entry, base, workspace, home) {
+    if (entry.startsWith('{'))
+        return mapPlaceholder(entry, workspace, home);
+    if (isAbsolute(entry))
+        return undefined;
+    return inside(workspace, resolve$1(base, entry));
+}
 // The scanner replaces ${env.NAME} in a setting with that environment variable, where the Sonar token
 // is, and ${name} with another setting, before using it; there is no way to escape either.
 const PLACEHOLDER = /\$\{[\w.]+\}/;
@@ -127606,7 +127614,8 @@ function resolveSettings(settings, workspace, home) {
             WILDCARD.test(mapped) ||
             REREAD_PATH.test(mapped) ||
             !inCheckout(mapped)) {
-            throw new Error(`The artifact gives ${prefix ? `module ${prefix.slice(0, -1)}` : 'the project'} no base directory in the checkout`);
+            const subject = prefix ? `module ${prefix.slice(0, -1)}` : 'the project';
+            throw new Error(`The artifact gives ${subject} no base directory in the checkout`);
         }
         bases.set(prefix, mapped);
     }
@@ -127629,11 +127638,7 @@ function resolveSettings(settings, workspace, home) {
             withSources.add(prefix);
         const entries = [];
         for (const entry of value.split(',').filter((path) => path !== '')) {
-            const mapped = entry.startsWith('{')
-                ? mapPlaceholder(entry, workspace, home)
-                : isAbsolute(entry)
-                    ? undefined
-                    : inside(workspace, resolve$1(base, entry));
+            const mapped = mapEntry(entry, base, workspace, home);
             // The build expands patterns into the files it ships; the scanner would expand what is left
             // over files no check here has seen. Nor may the scanner read the path differently.
             const path = mapped && (WILDCARD.test(mapped) || REREAD_PATH.test(mapped))
@@ -127698,7 +127703,12 @@ function checkNoLinks(directory) {
 // Git would take a planted repository's config and history when Sonar runs it on the checkout.
 // Case and Windows aliases (trailing dots, 8.3 short names) matter on some runners.
 function isGitDirectory(segment) {
-    return /^(\.git|git~\d+)$/i.test(segment.replace(/[. ]+$/, ''));
+    // Trimmed by hand: a regular expression anchored at the end takes quadratic time on a long run of
+    // dots and spaces, and the segments come from the artifact.
+    let end = segment.length;
+    while (end > 0 && (segment[end - 1] === '.' || segment[end - 1] === ' '))
+        end--;
+    return /^(\.git|git~\d+)$/i.test(segment.slice(0, end));
 }
 // Type information prepare ships from node_modules, which the analyzers read but by default don't
 // report on.
@@ -127897,7 +127907,7 @@ function recreateLink(workspace, realWorkspace, path, target) {
         else if (stats.isSymbolicLink() || !stats.isDirectory())
             return 'its directory is a link or a file in the checkout';
     }
-    const location = join(directory, at[at.length - 1]);
+    const location = join(directory, at.at(-1));
     // Committed, or made by an earlier entry: the checkout's own stays.
     if (lstatSync(location, { throwIfNoEntry: false }))
         return undefined;
@@ -127927,17 +127937,17 @@ function removeProjectSettings(workspace) {
 }
 function escape(text, isKey) {
     let escaped = text
-        .replace(/\\/g, '\\\\')
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r')
-        .replace(/\t/g, '\\t')
-        .replace(/\f/g, '\\f')
+        .replaceAll('\\', String.raw `\\`)
+        .replaceAll('\n', String.raw `\n`)
+        .replaceAll('\r', String.raw `\r`)
+        .replaceAll('\t', String.raw `\t`)
+        .replaceAll('\f', String.raw `\f`)
         // Correct whichever encoding the scanner reads the file with.
-        .replace(/[^\x20-\x7e]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+        .replaceAll(/[^\x20-\x7e]/g, (char) => String.raw `\u${char.codePointAt(0).toString(16).padStart(4, '0')}`);
     if (isKey)
-        escaped = escaped.replace(/[:= #!]/g, '\\$&');
+        escaped = escaped.replaceAll(/[:= #!]/g, String.raw `\$&`);
     else
-        escaped = escaped.replace(/^ /, '\\ ');
+        escaped = escaped.replace(/^ /, String.raw `\ `);
     return escaped;
 }
 // Refuses a placeholder from any source, e.g. a pull request's branch name, which its author chooses.
@@ -128123,7 +128133,7 @@ async function verifyCheckout(workspace, sha) {
         '--local',
         '--includes',
         '--get-regexp',
-        '^http\\..*\\.extraheader$'
+        String.raw `^http\..*\.extraheader$`
     ]);
     if (stdout.trim() !== '') {
         throw new Error('The checkout stored credentials in .git/config: check out with persist-credentials false');
@@ -128236,7 +128246,7 @@ function readInputs() {
 const MODES = ['auto', 'direct', 'prepare', 'analyze'];
 // Events that run with the base repository's secrets and write token. Building a pull request
 // there would hand those to its code, which is exactly what this action exists to avoid.
-const PRIVILEGED_EVENTS = ['pull_request_target', 'issue_comment'];
+const PRIVILEGED_EVENTS = new Set(['pull_request_target', 'issue_comment']);
 function resolveMode(requested, eventName, token) {
     if (!MODES.includes(requested)) {
         throw new Error(`Unknown mode '${requested}', expected one of: ${MODES.join(', ')}`);
@@ -128253,7 +128263,7 @@ function resolveMode(requested, eventName, token) {
     }
     if (mode === 'analyze')
         return { mode };
-    if (PRIVILEGED_EVENTS.includes(eventName) ||
+    if (PRIVILEGED_EVENTS.has(eventName) ||
         (mode === 'prepare' && eventName === 'workflow_run')) {
         throw new Error(`Refusing to build on ${eventName}, which runs with the repository's secrets; trigger the build on pull_request instead.`);
     }
@@ -128623,7 +128633,7 @@ function splitEntry(line) {
 const ESCAPES = { t: '\t', n: '\n', r: '\r', f: '\f' };
 function unescape(text) {
     return text.replace(/\\(u[0-9a-fA-F]{4}|.)/g, (_, escaped) => escaped.length === 5
-        ? String.fromCharCode(parseInt(escaped.slice(1), 16))
+        ? String.fromCodePoint(Number.parseInt(escaped.slice(1), 16))
         : (ESCAPES[escaped] ?? escaped));
 }
 
@@ -132013,7 +132023,7 @@ function statusReporter(target) {
         return response.ok;
     };
 }
-const noReporter = async () => false;
+const noReporter = () => Promise.resolve(false);
 const NOTE = 'pending-status';
 const INTERRUPTED = 'The analysis ended without reporting its result';
 // The note is from the main step to the post step, which runs even when the job is cancelled or
@@ -132074,14 +132084,14 @@ async function direct(inputs) {
     await leaveDirectNote(inputs.projectKey);
 }
 const NOTE_DAYS = 35;
-const RUNNER_FILES = [
+const RUNNER_FILES = new Set([
     'GITHUB_ENV',
     'GITHUB_OUTPUT',
     'GITHUB_PATH',
     'GITHUB_STATE',
     'GITHUB_STEP_SUMMARY',
     'GITHUB_TOKEN'
-];
+]);
 // Tells a fork path's analysis, which runs after every build, that this one already analysed.
 async function leaveDirectNote(projectKey) {
     if (!process.env.ACTIONS_RUNTIME_TOKEN)
@@ -132354,7 +132364,7 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     // tokens, nor the files through which a step talks to the runner.
     const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('INPUT_') &&
         !name.startsWith('ACTIONS_') &&
-        !RUNNER_FILES.includes(name)));
+        !RUNNER_FILES.has(name)));
     env.SONAR_TOKEN = inputs.token;
     // Java names files in the locale's encoding; without a UTF-8 one, e.g. in a bare container, it reads
     // a non-ASCII name as '?', which is not the path checked here.
@@ -132433,5 +132443,5 @@ async function run() {
 }
 
 /* istanbul ignore next */
-run();
+void run();
 //# sourceMappingURL=index.js.map

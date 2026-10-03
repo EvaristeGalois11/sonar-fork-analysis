@@ -54,7 +54,11 @@ function report(path: string, result: TemplateParseResult): void {
 }
 
 // The inputs of each action, by the `uses: $/…` reference that names it. Input names ignore case.
-const reference = (uses: string): string => uses.replace(/\/+$/, '')
+function reference(uses: string): string {
+  let trimmed = uses
+  while (trimmed.endsWith('/')) trimmed = trimmed.slice(0, -1)
+  return trimmed
+}
 const inputs = new Map<string, Set<string>>()
 for (const path of actions) {
   const result = parseAction(

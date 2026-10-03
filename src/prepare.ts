@@ -162,10 +162,7 @@ export function typeInformation(
 
 // Where a link leads, relative to the workspace, if that is a directory inside it; 'outside' for a
 // directory elsewhere. Links to files, such as node_modules/.bin, and broken ones don't count.
-function linkTarget(
-  link: string,
-  realWorkspace: string
-): string | 'outside' | undefined {
+function linkTarget(link: string, realWorkspace: string): string | undefined {
   try {
     const target = realpathSync(link)
     if (!statSync(target).isDirectory()) return undefined

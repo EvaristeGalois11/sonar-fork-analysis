@@ -8,10 +8,8 @@
 // Pull request analyses only keep issues on changed lines, list only changed files and have no blame,
 // so the comparison is complete on the main branch only.
 
-const host = (process.env.SONAR_HOST_URL || 'https://sonarcloud.io').replace(
-  /\/+$/,
-  ''
-)
+let host = process.env.SONAR_HOST_URL || 'https://sonarcloud.io'
+while (host.endsWith('/')) host = host.slice(0, -1)
 const pullRequest = process.env.PULL_REQUEST
 const commit = process.env.COMMIT
 const [first, second] = process.argv.slice(2)
