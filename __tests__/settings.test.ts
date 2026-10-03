@@ -1,4 +1,5 @@
 import {
+  byCodeUnit,
   filterSettings,
   isAllowed,
   isShippedPath,
@@ -27,6 +28,16 @@ const settings = new Map([
   ['env.GITHUB_TOKEN', 'ghs_secret'],
   ['java.home', '/usr/lib/jvm']
 ])
+
+describe('byCodeUnit', () => {
+  it('sorts as .sort() does without a compare function', () => {
+    fc.assert(
+      fc.property(fc.array(fc.string({ unit: 'binary' })), (strings) => {
+        expect(strings.toSorted(byCodeUnit)).toEqual(strings.toSorted())
+      })
+    )
+  })
+})
 
 describe('moduleTree', () => {
   it('follows nested modules whose ids contain dots', () => {

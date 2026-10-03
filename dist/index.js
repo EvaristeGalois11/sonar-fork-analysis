@@ -127460,6 +127460,13 @@ function isAllowed(bareKey) {
 // The modules and their keys, assigned the way the engine does (ProjectReactorBuilder, now
 // ProjectStructureBuilder.extractPropertiesByModule): each level's sonar.modules, in reverse sorted
 // order, and each module takes the keys starting with its id from what its earlier siblings left.
+// The order of .sort() without a compare function, and of Java's String.compareTo: the same on every
+// runner, unlike localeCompare, and the order the scanner's engine takes module ids in.
+function byCodeUnit(a, b) {
+    if (a < b)
+        return -1;
+    return a > b ? 1 : 0;
+}
 // Module ids may contain dots (groupId:artifactId), so a key's longest matching prefix can name a
 // different module than the engine's; see real-scanner.test.ts.
 function moduleTree(settings) {
@@ -127478,7 +127485,7 @@ function moduleTree(settings) {
             .split(',')
             .map((module) => module.trim())
             .filter((module) => module.length > 0);
-        for (const module of modules.toSorted().reverse()) {
+        for (const module of modules.toSorted(byCodeUnit).reverse()) {
             // The scanner turns a module id into a directory under its parent's, and moves every key
             // starting with the id out of the parent: 'sonar.sca' would take the trusted sonar.sca.enabled.
             if (module === '.' ||
@@ -128553,7 +128560,7 @@ function stagePaths(key, bareKey, value, base, roots, warnings) {
         .filter((path) => path !== '');
     // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
     const expanded = listed.flatMap((entry) => isShipped && WILDCARD.test(entry)
-        ? globSync(entry, { cwd: base }).map(posix).sort()
+        ? globSync(entry, { cwd: base }).map(posix).sort(byCodeUnit)
         : [entry]);
     const entries = [];
     const located = [];

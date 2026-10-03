@@ -16,6 +16,7 @@ import {
   CHECKOUT_PATH_KEYS,
   OUTPUT_PATH_KEYS,
   WILDCARD,
+  byCodeUnit,
   isPathList,
   isShippedPath,
   isTypeInformation,
@@ -229,7 +230,7 @@ function stagePaths(
   // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
   const expanded = listed.flatMap((entry) =>
     isShipped && WILDCARD.test(entry)
-      ? globSync(entry, { cwd: base }).map(posix).sort()
+      ? globSync(entry, { cwd: base }).map(posix).sort(byCodeUnit)
       : [entry]
   )
   const entries: string[] = []

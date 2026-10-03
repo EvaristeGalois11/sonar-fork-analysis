@@ -77,6 +77,12 @@ async function api<T>(
   }
 }
 
+// Code-unit order, the same on every machine, unlike localeCompare.
+function byCodeUnit(a: string, b: string): number {
+  if (a < b) return -1
+  return a > b ? 1 : 0
+}
+
 function complete<T>(items: T[], { paging }: Paging, what: string): T[] {
   if (paging.total > items.length)
     throw new Error(
@@ -178,7 +184,7 @@ async function results(project: string): Promise<Results> {
         '/api/sources/scm',
         { key: file.key, ...scope }
       )
-      const commits = [...new Set(scm.map((line) => line[3]))].sort()
+      const commits = [...new Set(scm.map((line) => line[3]))].sort(byCodeUnit)
       return `${file.path} ${commits.join(',') || '-'}`
     })
   )
@@ -201,8 +207,8 @@ const [expected, actual] = await Promise.all([results(first), results(second)])
 
 let different = false
 for (const kind of ['measures', 'issues', 'files', 'blame'] as const) {
-  const missing = difference(expected[kind], actual[kind]).sort()
-  const extra = difference(actual[kind], expected[kind]).sort()
+  const missing = difference(expected[kind], actual[kind]).sort(byCodeUnit)
+  const extra = difference(actual[kind], expected[kind]).sort(byCodeUnit)
   if (missing.length === 0 && extra.length === 0) {
     console.log(`${kind}: ${expected[kind].length} identical`)
     continue
