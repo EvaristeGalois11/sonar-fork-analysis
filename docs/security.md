@@ -6,7 +6,7 @@ Sonar token. The Sonar workflow has the token, but never runs anything from the
 pull request.
 
 Everything the Sonar workflow gets from the pull request could be hostile: the
-files in the checkout, and the artifact the pull request's build left behind.
+files in the checkout and the artifact the pull request's build left behind.
 This page explains how the action handles them, and what's left for you to
 decide.
 
