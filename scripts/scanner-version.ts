@@ -48,11 +48,17 @@ source = source
     `const CACHE_VERSION = '${major}.${minor}.${patch}-build.${build}'`
   )
 // Each build's digest follows its suffix in the source.
-for (const [, suffix] of source.matchAll(/suffix: '([^']*)'/g)) {
-  const published = await text(
-    `${DOWNLOADS}/sonar-scanner-cli-${latest}${suffix}.zip.sha256`
+const suffixes = Array.from(
+  source.matchAll(/suffix: '([^']*)'/g),
+  ([, suffix]) => suffix
+)
+const published = await Promise.all(
+  suffixes.map((suffix) =>
+    text(`${DOWNLOADS}/sonar-scanner-cli-${latest}${suffix}.zip.sha256`)
   )
-  const sha256 = published.trim().split(/\s+/)[0]
+)
+for (const [index, suffix] of suffixes.entries()) {
+  const sha256 = published[index].trim().split(/\s+/)[0]
   if (!/^[0-9a-f]{64}$/.test(sha256))
     throw new Error(`No SHA-256 published for the ${suffix || 'plain'} build`)
   source = source.replace(

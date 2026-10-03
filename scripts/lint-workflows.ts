@@ -110,7 +110,8 @@ for (const path of workflows) {
   )
   // Conversion checks what the schema cannot, e.g. needs: naming a job that does not exist.
   if (result.value) {
-    await convertWorkflowTemplate(result.context, result.value)
+    // One file at a time, so the report follows the order of the files.
+    await convertWorkflowTemplate(result.context, result.value) // NOSONAR
     checkInputs(path, result.value)
   }
   report(path, result)

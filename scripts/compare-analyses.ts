@@ -60,17 +60,18 @@ async function api<T>(
   const headers = process.env.SONAR_TOKEN
     ? { Authorization: `Bearer ${process.env.SONAR_TOKEN}` }
     : {}
+  // Retries wait for each other, so the awaits are in the loop on purpose.
   for (let attempt = 1; ; attempt++) {
     let response: Response | undefined
     try {
-      response = await fetch(url, { headers })
+      response = await fetch(url, { headers }) // NOSONAR
     } catch (error) {
       if (attempt === 3) throw error
     }
-    if (response?.ok) return (await response.json()) as T
+    if (response?.ok) return (await response.json()) as T // NOSONAR
     if (response && (response.status < 500 || attempt === 3)) {
       throw new Error(
-        `${url.pathname} answered ${response.status}: ${await response.text()}`
+        `${url.pathname} answered ${response.status}: ${await response.text()}` // NOSONAR
       )
     }
     await sleep(5)
@@ -111,13 +112,14 @@ async function analysedCommit(project: string): Promise<string | undefined> {
 // The analyses were submitted before this runs, but the server may still be processing them, and a
 // project's latest results may be older ones, e.g. when the fork path skipped its analysis.
 async function processed(project: string): Promise<void> {
+  // Polling: each attempt waits for the one before.
   for (let attempt = 0; attempt < 60; attempt++) {
     const { queue } = await api<{ queue: unknown[] }>('/api/ce/component', {
       component: project
     })
     if (
       queue.length === 0 &&
-      (!commit || (await analysedCommit(project)) === commit)
+      (!commit || (await analysedCommit(project)) === commit) // NOSONAR
     )
       return
     await sleep(5)
