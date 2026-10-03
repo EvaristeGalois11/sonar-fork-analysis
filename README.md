@@ -163,7 +163,7 @@ advice.
 ### Node projects
 
 For a Node project, add the action after your own install and test steps. It
-doesn't build anything, and it takes its settings from your
+doesn't build anything and takes its settings from your
 `sonar-project.properties`, the same file Sonar's own scan action reads:
 
 ```yaml
@@ -403,7 +403,7 @@ and
   `sonar-project.properties` and `build-arguments`. Unlike Sonar's npm scanner,
   it doesn't guess any from `package.json`, so set your coverage report path
   yourself.
-- With pnpm, the type declarations don't reach pull requests from forks, because
+- With pnpm, the type declarations don't reach pull requests from forks because
   pnpm installs packages as links, which the action doesn't follow. Rules that
   need types may find less there.
 - On the fork path, the build collects its settings through the Sonar plugins'

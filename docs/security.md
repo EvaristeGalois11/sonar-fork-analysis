@@ -30,9 +30,9 @@ the scanner would otherwise trust:
 **The artifact.** The action refuses an artifact with links or special files in
 it. It unpacks the build output next to the sources, never over an existing file
 or through a link. It adds only two kinds of files to the source directories:
-report files that the settings name, and a Node project's type declarations in
+report files that the settings name and a Node project's type declarations in
 `node_modules`. The analyzers read the declarations to learn the types the code
-uses, but never report on them as part of the project.
+uses but never report on them as part of the project.
 
 **The settings.** The build's settings go through the same
 [allowlist](#what-the-fork-path-carries) again, and every path in them must lead
@@ -49,7 +49,7 @@ the [features that stay off](#what-stays-off-on-the-fork-path).
 
 **The analyzers.** They only read files. For JavaScript and TypeScript, this was
 tested against Sonar's real analyzer with a project that tried every way to get
-its own code run. The analyzer used its own Node.js and TypeScript, and ignored
+its own code run. The analyzer used its own Node.js and TypeScript and ignored
 the project's configuration files (ESLint, Babel, TypeScript and others) and
 everything in its `node_modules`.
 
