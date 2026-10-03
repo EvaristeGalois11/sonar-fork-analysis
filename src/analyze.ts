@@ -245,8 +245,8 @@ function isPackageTypeFile(rel: string): boolean {
   )
 }
 
-// What may land in the sources: the files the settings name as reports, which Node projects keep next
-// to their sources when they analyse the whole project, and type information. Never a source file of
+// What may land in the sources: the files the settings name as reports, which projects analysing
+// their whole directory keep among their sources, and type information. Never a source file of
 // the pull request.
 function mayJoinSources(rel: string, real: string, reports: string[]): boolean {
   return reports.includes(real) || isPackageTypeFile(rel)

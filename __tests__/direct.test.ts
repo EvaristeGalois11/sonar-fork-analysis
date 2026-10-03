@@ -7,7 +7,7 @@ import {
 
 const maven = { name: 'maven' as const, executable: './mvnw', prefix: [] }
 const gradle = { name: 'gradle' as const, executable: './gradlew', prefix: [] }
-const node = { name: 'node' as const, executable: '', prefix: [] }
+const scanner = { name: 'scanner' as const, executable: '', prefix: [] }
 const properties = ['-Dsonar.projectKey=key']
 
 describe('sonarProperties', () => {
@@ -73,21 +73,23 @@ describe('sonarBuildArguments', () => {
   })
 })
 
-describe('sonarBuildArguments for Node', () => {
+describe('sonarBuildArguments for the scanner', () => {
   it('only starts the scanner, which reads the build-arguments too', () => {
     expect(
-      sonarBuildArguments(node, [], properties, ['-Dsonar.projectName=App'])
+      sonarBuildArguments(scanner, [], properties, ['-Dsonar.projectName=App'])
     ).toEqual(['-Dsonar.projectKey=key', '-Dsonar.projectName=App'])
   })
 
   it('refuses build goals, as the action runs after the build', () => {
-    expect(() => sonarBuildArguments(node, ['test'], properties, [])).toThrow(
-      'build-goals does not apply to Node projects: install and test in your own steps before the action'
+    expect(() =>
+      sonarBuildArguments(scanner, ['test'], properties, [])
+    ).toThrow(
+      'build-goals does not apply when the action runs the scanner: build and test in your own steps before the action'
     )
   })
 
   it('reports a failed scanner as such', () => {
-    expect(buildFailure(node, 2, '')).toBe(
+    expect(buildFailure(scanner, 2, '')).toBe(
       'The Sonar scanner failed with exit code 2'
     )
   })
@@ -125,8 +127,8 @@ describe('missingAnalysis', () => {
     )
   })
 
-  it('points Node users at where the scanner wrote its report', () => {
-    expect(missingAnalysis(node)).toMatch(
+  it('points scanner users at where it wrote its report', () => {
+    expect(missingAnalysis(scanner)).toMatch(
       /left no report in the working directory: check that sonar\.projectBaseDir and sonar\.working\.directory/
     )
   })

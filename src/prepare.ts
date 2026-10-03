@@ -68,7 +68,7 @@ const MINIMUM_PLUGIN = {
 }
 
 export function missingDump(tool: BuildTool): string {
-  if (tool.name === 'node')
+  if (tool.name === 'scanner')
     return 'The Sonar scanner succeeded but wrote no analysis settings'
   return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the fork path needs ${MINIMUM_PLUGIN[tool.name]} or later`
 }

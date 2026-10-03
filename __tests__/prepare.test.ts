@@ -337,7 +337,7 @@ describe('typeDeclarations', () => {
       new Map([['sonar.projectBaseDir', workspace]]),
       { workspace, home },
       staging,
-      'node',
+      'scanner',
       undefined,
       [declaration]
     )

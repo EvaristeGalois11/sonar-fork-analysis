@@ -127705,8 +127705,8 @@ function isGitDirectory(segment) {
 function isPackageTypeFile(rel) {
     return (rel.split(sep$2).includes('node_modules') && isTypeInformation(basename(rel)));
 }
-// What may land in the sources: the files the settings name as reports, which Node projects keep next
-// to their sources when they analyse the whole project, and type information. Never a source file of
+// What may land in the sources: the files the settings name as reports, which projects analysing
+// their whole directory keep among their sources, and type information. Never a source file of
 // the pull request.
 function mayJoinSources(rel, real, reports) {
     return reports.includes(real) || isPackageTypeFile(rel);
@@ -127919,26 +127919,30 @@ function detectBuildTool(directory, requested = 'auto') {
     const maven = existsSync$1(join(directory, 'pom.xml'));
     const gradle = GRADLE_BUILD_FILES.some((file) => existsSync$1(join(directory, file)));
     let name;
-    if (requested === 'maven' || requested === 'gradle' || requested === 'node') {
+    if (requested === 'maven' ||
+        requested === 'gradle' ||
+        requested === 'scanner') {
         name = requested;
     }
     else if (requested !== 'auto') {
-        throw new Error(`Unknown build tool '${requested}', expected one of: auto, maven, gradle, node`);
+        throw new Error(`Unknown build tool '${requested}', expected one of: auto, maven, gradle, scanner`);
     }
     else if (maven && gradle) {
         throw new Error(`Both Maven and Gradle build files found in '${directory}', set the build-tool input`);
     }
     else if (maven || gradle) {
-        // A Java project's frontend is analysed with build-tool: node, under its own project key.
+        // A Java project's frontend is analysed with build-tool: scanner, under its own project key.
         name = maven ? 'maven' : 'gradle';
     }
-    else if (existsSync$1(join(directory, 'package.json'))) {
-        name = 'node';
+    else if (existsSync$1(join(directory, 'sonar-project.properties')) ||
+        // A Node project without its settings yet, which the action then warns about.
+        existsSync$1(join(directory, 'package.json'))) {
+        name = 'scanner';
     }
     else {
-        throw new Error(`No Maven, Gradle or Node build found in '${directory}', set the working-directory input`);
+        throw new Error(`No Maven or Gradle build, sonar-project.properties or package.json found in '${directory}', set the working-directory input`);
     }
-    if (name === 'node')
+    if (name === 'scanner')
         return { name, executable: '', prefix: [] };
     const wrapper = name === 'maven' ? 'mvnw' : 'gradlew';
     if (!existsSync$1(join(directory, wrapper))) {
@@ -128057,11 +128061,11 @@ function sonarProperties(settings) {
     return properties;
 }
 function sonarBuildArguments(tool, goals, properties, buildArguments) {
-    if (tool.name === 'node') {
+    if (tool.name === 'scanner') {
         // The settings come from sonar-project.properties, not from a build, so the action runs after the
-        // workflow's own install and test steps and only starts the scanner.
+        // workflow's own build and test steps and only starts the scanner.
         if (goals.length > 0)
-            throw new Error('build-goals does not apply to Node projects: install and test in your own steps before the action');
+            throw new Error('build-goals does not apply when the action runs the scanner: build and test in your own steps before the action');
         return [...properties, ...buildArguments];
     }
     const buildGoals = goals.length > 0 ? goals : DEFAULT_GOALS[tool.name];
@@ -128094,13 +128098,13 @@ function buildFailure(tool, exitCode, errorOutput) {
         /Task 'sonar' (not found|is ambiguous)/.test(errorOutput)) {
         return `The Gradle build has no 'sonar' task: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`;
     }
-    if (tool.name === 'node')
+    if (tool.name === 'scanner')
         return `The Sonar scanner failed with exit code ${exitCode}`;
     return `The ${TOOL_NAMES[tool.name]} build failed with exit code ${exitCode}`;
 }
 function missingAnalysis(tool) {
     // The scanner CLI leaves a report whenever it succeeds, unless it wrote it elsewhere.
-    if (tool.name === 'node')
+    if (tool.name === 'scanner')
         return 'The Sonar scanner succeeded but left no report in the working directory: check that sonar.projectBaseDir and sonar.working.directory stay inside it';
     const message = `The ${TOOL_NAMES[tool.name]} build succeeded but no Sonar analysis ran`;
     // Gradle runs any single task whose name starts with 'sonar' when the plugin is missing.
@@ -128313,7 +128317,7 @@ const MINIMUM_PLUGIN = {
     gradle: 'the org.sonarqube plugin 2.1'
 };
 function missingDump(tool) {
-    if (tool.name === 'node')
+    if (tool.name === 'scanner')
         return 'The Sonar scanner succeeded but wrote no analysis settings';
     return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the fork path needs ${MINIMUM_PLUGIN[tool.name]} or later`;
 }
@@ -132013,12 +132017,13 @@ async function prepare(inputs) {
     if (settings.get('sonar.organization') && !inputs.organization)
         warning(`The build sets sonar.organization, which the analysis of pull requests takes only from the sonar-organization input: set it in both workflows.`);
     const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
-    const declarations = tool.name === 'node' ? typeDeclarations(workingDirectory, workspace) : [];
+    const declarations = tool.name === 'scanner' ? typeDeclarations(workingDirectory, workspace) : [];
     if (declarations.length > 0) {
         const bytes = declarations.reduce((sum, path) => sum + statSync(path).size, 0);
         info(`Shipping ${declarations.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) from node_modules`);
     }
-    else if (tool.name === 'node') {
+    else if (tool.name === 'scanner' &&
+        existsSync$1(join(workingDirectory, 'package.json'))) {
         info('No type declarations found in node_modules: the analysis of pull requests resolves fewer types');
     }
     const staging = join(temp, 'artifact');
@@ -132047,14 +132052,14 @@ function pullRequestNumber() {
 // Without them the scanner analyses the whole directory, which for a project picked by its package.json
 // usually means working-directory points at the wrong place.
 function warnWithoutSettings(tool, directory, buildArguments) {
-    if (tool.name === 'node' &&
+    if (tool.name === 'scanner' &&
         !existsSync$1(join(directory, 'sonar-project.properties')) &&
         !buildArguments.some((arg) => arg.startsWith('-Dsonar.sources=')))
         warning(`No sonar-project.properties in ${directory}, so the scanner analyses the whole directory: set sonar.sources there, or point working-directory at the project`);
 }
-// Node projects have no build to run: the action runs the scanner CLI it pins.
+// Without a build to run, the action runs the scanner CLI it pins.
 async function executable(tool) {
-    return tool.name === 'node' ? installScanner() : tool.executable;
+    return tool.name === 'scanner' ? installScanner() : tool.executable;
 }
 function tempDirectory() {
     return mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-fork-analysis-'));

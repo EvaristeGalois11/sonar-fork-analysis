@@ -188,7 +188,7 @@ async function prepare(inputs: Inputs): Promise<void> {
 
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd()
   const declarations =
-    tool.name === 'node' ? typeDeclarations(workingDirectory, workspace) : []
+    tool.name === 'scanner' ? typeDeclarations(workingDirectory, workspace) : []
   if (declarations.length > 0) {
     const bytes = declarations.reduce(
       (sum, path) => sum + statSync(path).size,
@@ -197,7 +197,10 @@ async function prepare(inputs: Inputs): Promise<void> {
     core.info(
       `Shipping ${declarations.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) from node_modules`
     )
-  } else if (tool.name === 'node') {
+  } else if (
+    tool.name === 'scanner' &&
+    existsSync(join(workingDirectory, 'package.json'))
+  ) {
     core.info(
       'No type declarations found in node_modules: the analysis of pull requests resolves fewer types'
     )
@@ -249,7 +252,7 @@ function warnWithoutSettings(
   buildArguments: string[]
 ): void {
   if (
-    tool.name === 'node' &&
+    tool.name === 'scanner' &&
     !existsSync(join(directory, 'sonar-project.properties')) &&
     !buildArguments.some((arg) => arg.startsWith('-Dsonar.sources='))
   )
@@ -258,9 +261,9 @@ function warnWithoutSettings(
     )
 }
 
-// Node projects have no build to run: the action runs the scanner CLI it pins.
+// Without a build to run, the action runs the scanner CLI it pins.
 async function executable(tool: BuildTool): Promise<string> {
-  return tool.name === 'node' ? installScanner() : tool.executable
+  return tool.name === 'scanner' ? installScanner() : tool.executable
 }
 
 function tempDirectory(): string {

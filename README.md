@@ -21,8 +21,9 @@ build workflow builds the pull request without the Sonar token. A second
 workflow then analyses the result with the token, without running any of the
 pull request's code. It's the split
 [Sonar's documentation describes for forks](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/ci-based-analysis/github-actions-for-sonarcloud#analyzing-fork-pull-requests),
-packaged for Maven, Gradle and Node projects. Binaries, libraries, coverage,
-test reports and the settings your build defines all carry over.
+packaged for Maven, Gradle and any other project Sonar's scanner analyses, such
+as JavaScript, TypeScript or Python. Binaries, libraries, coverage, test reports
+and the settings your build defines all carry over.
 
 If you don't need coverage on fork pull requests, SonarQube Cloud's
 [Automatic Analysis](https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/automatic-analysis/)
@@ -57,12 +58,12 @@ On a pull request from a fork:
 
 1. Your build workflow runs without the Sonar token. The action builds the
    project with Maven or Gradle and has Sonar's build plugin work out the
-   analysis settings without running the analysis. For a Node project, the
-   action doesn't build anything: it runs after your own install and test steps
+   analysis settings without running the analysis. For other projects, the
+   action doesn't build anything: it runs after your own build and test steps
    and reads your `sonar-project.properties`. It uploads what the analysis
    needs, together with those settings, as an artifact: compiled classes,
-   libraries, coverage and test reports, or for a Node project its reports and
-   the type declarations from `node_modules`.
+   libraries, coverage and test reports, and for a Node project the type
+   declarations from `node_modules`.
 2. When the build finishes, GitHub starts your Sonar workflow through
    `workflow_run`. It runs in your repository, so it has the Sonar token.
 3. The action checks out the pull request, checks the artifact's settings
@@ -161,11 +162,14 @@ If you pin your other actions to commit SHAs, pin this one too. The
 [security page](docs/security.md#hardening-your-setup) has more hardening
 advice.
 
-### Node projects
+### Other projects
 
-For a Node project, add the action after your own install and test steps. It
-doesn't build anything and takes its settings from your
-`sonar-project.properties`, the same file Sonar's own scan action reads:
+For anything that isn't a Maven or Gradle build, such as JavaScript, TypeScript,
+Python, Go or PHP, add the action after your own build and test steps. It
+doesn't build anything: it runs Sonar's scanner, which takes its settings from
+your `sonar-project.properties`, as with Sonar's own scan action. The action
+recognises such a project by that file, or by a `package.json`. For a Node
+project:
 
 ```yaml
 steps:
@@ -194,9 +198,11 @@ sonar.tests=test
 sonar.javascript.lcov.reportPaths=coverage/lcov.info
 ```
 
-The Sonar workflow doesn't change. On pull requests from forks, the action also
-passes the type declarations from your `node_modules` to the Sonar workflow, so
-rules that need types work there too.
+Other languages name their reports the same way, for example
+`sonar.python.coverage.reportPaths=coverage.xml` for Python. The Sonar workflow
+doesn't change. For a Node project, the action also passes the type declarations
+from your `node_modules` to the Sonar workflow, so rules that need types work on
+pull requests from forks too.
 
 ### Which commit the build tests
 
@@ -229,9 +235,9 @@ you're happy with that.
 | `sonar-token`        | Yes                  |                    | The Sonar token. It's empty on pull requests from forks, which makes the action take the fork path.                                                                                                     |
 | `sonar-host-url`     | For SonarQube Server |                    | The server URL. Leave it empty for SonarQube Cloud or to use the `SONAR_HOST_URL` environment variable. Direct analyses also fall back to the build's own `sonar.host.url`, the Sonar workflow doesn't. |
 | `mode`               | No                   | `auto`             | `auto`, or `direct`, `prepare`, `analyze` to force one part.                                                                                                                                            |
-| `working-directory`  | No                   | `.`                | The directory holding the Maven, Gradle or Node project.                                                                                                                                                |
-| `build-tool`         | No                   | `auto`             | `auto`, `maven`, `gradle` or `node`.                                                                                                                                                                    |
-| `build-goals`        | No                   | `verify` / `check` | Maven goals or Gradle tasks to run. Not for Node projects.                                                                                                                                              |
+| `working-directory`  | No                   | `.`                | The directory holding the project.                                                                                                                                                                      |
+| `build-tool`         | No                   | `auto`             | `auto`, `maven`, `gradle` or `scanner`, see [other projects](#other-projects).                                                                                                                          |
+| `build-goals`        | No                   | `verify` / `check` | Maven goals or Gradle tasks to run. Not with `scanner`.                                                                                                                                                 |
 | `build-arguments`    | No                   |                    | Extra build flags. In the Sonar workflow they're passed to the scanner instead, for example `-Dsonar.projectName=App`. The scanner doesn't run in the checkout there, so use absolute paths.            |
 | `checkout`           | No                   | `true`             | Whether the Sonar workflow checks out the analysed commit. `false` to do it yourself, see [your own checkout](#your-own-checkout).                                                                      |
 | `github-token`       | No                   | `github.token`     | Used to download the build's artifact and look up the pull request.                                                                                                                                     |
@@ -399,8 +405,9 @@ and
 
 ## Limitations
 
-- Only Maven, Gradle and Node projects are supported.
-- For a Node project, the action reads settings only from
+- .NET projects need Sonar's own scanner for .NET, and C and C++ projects need
+  the output of Sonar's build wrapper, so neither works with this action.
+- When the action runs the scanner, it reads settings only from
   `sonar-project.properties` and `build-arguments`. Unlike Sonar's npm scanner,
   it doesn't guess any from `package.json`, so set your coverage report path
   yourself.
@@ -410,7 +417,7 @@ and
   less there.
 - On the fork path, the build collects its settings through simulation mode
   (`sonar.scanner.internal.dumpToFile`), in the Sonar plugins for Maven and
-  Gradle and in the pinned scanner for Node. Sonar uses it in its own tests but
+  Gradle and in the pinned scanner otherwise. Sonar uses it in its own tests but
   doesn't document it, so a release could change it. If it stops working, the
   build fails with _its Sonar plugin wrote no analysis settings_ or _the Sonar
   scanner succeeded but wrote no analysis settings_. This project's tests keep
