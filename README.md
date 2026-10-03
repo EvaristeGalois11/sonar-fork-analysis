@@ -382,6 +382,8 @@ and
   Alpine images can't run the bundled Java. Projects on a newer Java than the
   scanner's may need `setup-java` and `-Dsonar.java.jdkHome` in
   `build-arguments`.
+- Each release of the action runs one fixed version of the Sonar scanner, which
+  you can't change. To get a newer one, update the action.
 - SonarQube Server needs an edition that supports pull request analysis. The
   action is tested against SonarQube Cloud and the latest SonarQube Community
   Build.
