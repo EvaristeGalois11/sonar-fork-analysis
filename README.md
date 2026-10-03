@@ -80,11 +80,11 @@ chooses the right part from where the action runs and whether it has a token.
 ## Setup
 
 1. Create a Sonar token and save it as the repository secret `SONAR_TOKEN`.
-   SonarQube Cloud's free plan only has personal tokens, so create a dedicated
-   one named after your repository, with an expiry date. Paid plans can use a
+   SonarQube Cloud's free plan only has personal tokens, so use a dedicated one
+   named after your repository. Paid plans can use a
    [scoped organization token](https://docs.sonarsource.com/sonarqube-cloud/administering-sonarcloud/managing-organization/scoped-organization-tokens)
-   with only _Execute analysis_ on the project. A scoped token without an expiry
-   date lapses after 60 days without use.
+   with only _Execute analysis_ on the project. An expiry date is optional, but
+   a token without one is removed after 60 days without use.
 2. Gradle builds need the `org.sonarqube` plugin, 2.1 or later. Maven builds
    need nothing: the action runs the latest `sonar-maven-plugin` or the version
    your pom pins in `<plugins>` or `<pluginManagement>`, which must be 3.2 or
