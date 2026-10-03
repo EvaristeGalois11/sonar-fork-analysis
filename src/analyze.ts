@@ -4,6 +4,7 @@ import {
   copyFileSync,
   existsSync,
   lstatSync,
+  statSync,
   mkdirSync,
   readdirSync,
   realpathSync,
@@ -29,12 +30,14 @@ import {
   isPathList,
   isReport,
   isShippedPath,
+  isTypeInformation,
   moduleTree
 } from './settings.js'
 
 // Everything here handles an artifact built by code from a pull request, possibly a fork's, in a job
 // that holds the Sonar token. Nothing in it is trusted: no path may leave the workspace or the
-// private home, nothing may be overwritten, and no source may be added.
+// private home, nothing may be overwritten, and no source may be added: only reports and type
+// information join the source directories.
 
 function inside(root: string, path: string): string | undefined {
   const resolved = resolve(root, path)
@@ -234,25 +237,56 @@ function isGitDirectory(segment: string): boolean {
   return /^(\.git|git~\d+)$/i.test(segment.replace(/[. ]+$/, ''))
 }
 
-const DECLARATION = /\.d\.[cm]?ts$/
+// Type information prepare ships from node_modules, which the analyzers read but by default don't
+// report on.
+function isPackageTypeFile(rel: string): boolean {
+  return (
+    rel.split(sep).includes('node_modules') && isTypeInformation(basename(rel))
+  )
+}
 
 // What may land in the sources: the files the settings name as reports, which Node projects keep next
-// to their sources when they analyse the whole project, and the type declarations prepare ships from
-// node_modules, which the analyzers don't count as sources. Never a source file of the pull request.
+// to their sources when they analyse the whole project, and type information. Never a source file of
+// the pull request.
 function mayJoinSources(rel: string, real: string, reports: string[]): boolean {
-  if (reports.includes(real)) return true
-  const name = basename(rel)
-  return (
-    rel.split(sep).includes('node_modules') &&
-    (name === 'package.json' || DECLARATION.test(name))
-  )
+  return reports.includes(real) || isPackageTypeFile(rel)
+}
+
+// A directory's identity rather than its path: on case-insensitive file systems (macOS, Windows) SRC
+// and src are the same directory under different names.
+function identity(path: string, followLinks = false): string | undefined {
+  const stats = (followLinks ? statSync : lstatSync)(path, {
+    bigint: true,
+    throwIfNoEntry: false
+  })
+  return stats?.isDirectory() ? `${stats.dev}:${stats.ino}` : undefined
+}
+
+// Whether a file at rel would land in one of the given directories, by walking the directories on
+// the way that already exist; links among them are refused later anyway.
+function insideAny(
+  workspace: string,
+  rel: string,
+  roots: Set<string>
+): boolean {
+  let directory = workspace
+  const segments = dirname(rel)
+    .split(sep)
+    .filter((segment) => segment !== '.')
+  for (let i = 0; ; i++) {
+    const id = identity(directory)
+    if (id === undefined) return false
+    if (roots.has(id)) return true
+    if (i === segments.length) return false
+    directory = join(directory, segments[i])
+  }
 }
 
 function unpackFile(
   source: string,
   rel: string,
   workspace: string,
-  protectedRoots: string[],
+  protectedRoots: Set<string>,
   reports: string[]
 ): string | undefined {
   const target = join(workspace, rel)
@@ -262,7 +296,7 @@ function unpackFile(
   // Directories on the way are never links (checked below), so this is where the file really lands.
   const real = join(realpathSync(workspace), rel)
   if (
-    protectedRoots.some((root) => isWithin(real, root)) &&
+    insideAny(workspace, rel, protectedRoots) &&
     !mayJoinSources(rel, real, reports)
   )
     return 'inside the sources'
@@ -284,7 +318,10 @@ function unpackFile(
     copyFileSync(source, target, constants.COPYFILE_EXCL)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST')
-      return 'it already exists in the checkout'
+      // A repository committing node_modules fixtures would get a warning for each of them.
+      return isPackageTypeFile(rel)
+        ? undefined
+        : 'it already exists in the checkout'
     throw error
   }
   return undefined
@@ -307,10 +344,15 @@ export function unpackWorkspace(
 ): string[] {
   const warnings: string[] = []
   if (!existsSync(from)) return warnings
+  const roots = new Set(
+    protectedRoots
+      .map((root) => identity(root, true))
+      .filter((id) => id !== undefined)
+  )
   for (const source of walk(from)) {
     if (!lstatSync(source).isFile()) continue
     const rel = relative(from, source)
-    const reason = unpackFile(source, rel, workspace, protectedRoots, reports)
+    const reason = unpackFile(source, rel, workspace, roots, reports)
     if (reason) warnings.push(`Skipped ${rel}: ${reason}`)
   }
   removeProjectSettings(workspace)

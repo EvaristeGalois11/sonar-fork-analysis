@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  chmodSync,
   rmSync,
   symlinkSync,
   writeFileSync
@@ -275,14 +276,59 @@ describe('typeDeclarations', () => {
       file(join(workspace, 'node_modules/a/node_modules/b/lib/x.d.mts')),
       file(join(workspace, 'packages/web/node_modules/c/index.d.cts'))
     ]
-    expect(typeDeclarations(workspace).sort()).toEqual(found.sort())
+    expect(typeDeclarations(workspace, workspace).sort()).toEqual(found.sort())
   })
 
   it('does not follow links, out of the workspace or anywhere', () => {
     file(join(home, 'elsewhere/index.d.ts'))
     mkdirSync(join(workspace, 'node_modules'))
     symlinkSync(join(home, 'elsewhere'), join(workspace, 'node_modules/linked'))
-    expect(typeDeclarations(workspace)).toEqual([])
+    expect(typeDeclarations(workspace, workspace)).toEqual([])
+  })
+
+  it('takes the tsconfig files projects extend, and nothing else of a package', () => {
+    const tsconfig = file(
+      join(workspace, 'node_modules/@tsconfig/node22/tsconfig.json')
+    )
+    file(join(workspace, 'node_modules/@tsconfig/node22/README.md'))
+    expect(typeDeclarations(workspace, workspace)).toEqual([tsconfig])
+  })
+
+  it("skips pnpm's store, reachable only through links, but not other dot-directories", () => {
+    file(
+      join(
+        workspace,
+        'node_modules/.pnpm/express@5/node_modules/express/index.d.ts'
+      )
+    )
+    const prisma = file(
+      join(workspace, 'node_modules/.prisma/client/index.d.ts')
+    )
+    expect(typeDeclarations(workspace, workspace)).toEqual([prisma])
+  })
+
+  it('takes the node_modules above the project up to the workspace, where workspaces install', () => {
+    const project = join(workspace, 'packages/web')
+    const own = file(join(project, 'node_modules/local/index.d.ts'))
+    const hoisted = file(join(workspace, 'node_modules/express/index.d.ts'))
+    file(join(root, 'node_modules/outside/index.d.ts'))
+    expect(typeDeclarations(project, workspace).sort()).toEqual(
+      [own, hoisted].sort()
+    )
+  })
+
+  it('skips a directory it cannot read', () => {
+    // Root reads anything, so the directory can't be locked against it.
+    if (process.getuid?.() === 0) return
+    const locked = join(workspace, 'data')
+    file(join(locked, 'x'))
+    const found = file(join(workspace, 'node_modules/x/index.d.ts'))
+    chmodSync(locked, 0o000)
+    try {
+      expect(typeDeclarations(workspace, workspace)).toEqual([found])
+    } finally {
+      chmodSync(locked, 0o755)
+    }
   })
 
   it('are shipped with the settings', () => {

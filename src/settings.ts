@@ -29,6 +29,17 @@ export const REREAD_IN_LIST = /["\x00-\x1f]|[^\S ]/
 // eslint-disable-next-line no-control-regex
 export const REREAD_PATH = /["\x00-\x1f]|^\s|\s$/
 
+// What TypeScript reads from node_modules to know a project's types: declarations, the package.json
+// files that lead to them, and the tsconfig files projects extend. Prepare ships these and analyze
+// lets them in; both must agree.
+export function isTypeInformation(fileName: string): boolean {
+  return (
+    fileName === 'package.json' ||
+    /\.d\.[cm]?ts$/.test(fileName) ||
+    /^tsconfig.*\.json$/.test(fileName)
+  )
+}
+
 export function isReport(bareKey: string): boolean {
   return REPORT_KEY.test(bareKey)
 }

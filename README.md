@@ -59,9 +59,10 @@ On a pull request from a fork:
    project with Maven or Gradle and has Sonar's build plugin work out the
    analysis settings without running the analysis. For a Node project, the
    action doesn't build anything: it runs after your own install and test steps
-   and reads your `sonar-project.properties`. It uploads the compiled classes,
-   libraries, coverage and test reports, together with those settings, as an
-   artifact.
+   and reads your `sonar-project.properties`. It uploads what the analysis
+   needs, together with those settings, as an artifact: compiled classes,
+   libraries, coverage and test reports, or for a Node project its reports and
+   the type declarations from `node_modules`.
 2. When the build finishes, GitHub starts your Sonar workflow through
    `workflow_run`. It runs in your repository, so it has the Sonar token.
 3. The action checks out the pull request, checks the artifact's settings
@@ -403,15 +404,17 @@ and
   `sonar-project.properties` and `build-arguments`. Unlike Sonar's npm scanner,
   it doesn't guess any from `package.json`, so set your coverage report path
   yourself.
-- With pnpm, the type declarations don't reach pull requests from forks because
-  pnpm installs packages as links, which the action doesn't follow. Rules that
-  need types may find less there.
-- On the fork path, the build collects its settings through the Sonar plugins'
-  simulation mode (`sonar.scanner.internal.dumpToFile`). Sonar uses it in its
-  own tests but doesn't document it, so a plugin release could change it. If it
-  stops working, the build fails with _its Sonar plugin wrote no analysis
-  settings_. This project's tests keep up with the latest plugins, so such a
-  change should show up here first.
+- The action doesn't follow links in `node_modules`, so type declarations behind
+  them don't reach pull requests from forks. That covers all of pnpm's packages,
+  and the workspace packages npm and Yarn link. Rules that need types may find
+  less there.
+- On the fork path, the build collects its settings through simulation mode
+  (`sonar.scanner.internal.dumpToFile`), in the Sonar plugins for Maven and
+  Gradle and in the pinned scanner for Node. Sonar uses it in its own tests but
+  doesn't document it, so a release could change it. If it stops working, the
+  build fails with _its Sonar plugin wrote no analysis settings_ or _the Sonar
+  scanner succeeded but wrote no analysis settings_. This project's tests keep
+  up with the latest plugins, so such a change should show up here first.
 - Dependency analysis (SCA) and the engine's build-system autoconfiguration are
   off on fork pull requests, because both run the project's build tools. See
   [what stays off](docs/security.md#what-stays-off-on-the-fork-path).

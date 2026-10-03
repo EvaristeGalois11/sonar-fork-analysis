@@ -2,11 +2,13 @@ import {
   cpSync,
   existsSync,
   globSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
-  writeFileSync
+  writeFileSync,
+  type Dirent
 } from 'node:fs'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { BuildTool } from './build-tool.js'
 import {
   CHECKOUT_PATH_KEYS,
@@ -14,6 +16,7 @@ import {
   WILDCARD,
   isPathList,
   isShippedPath,
+  isTypeInformation,
   moduleTree
 } from './settings.js'
 
@@ -70,30 +73,49 @@ export function missingDump(tool: BuildTool): string {
   return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the fork path needs ${MINIMUM_PLUGIN[tool.name]} or later`
 }
 
-const DECLARATION = /\.d\.[cm]?ts$/
-
 // The analysis has no node_modules, as nothing may install the pull request's dependencies there, so
-// TypeScript would resolve fewer types and type-aware rules report less. Their declarations, and the
-// package.json files that lead to them, are all it reads. Links are not followed: pnpm's
-// node_modules/<package> links are left out, along with the types behind them.
-export function typeDeclarations(directory: string): string[] {
+// TypeScript would resolve fewer types and type-aware rules report less. This is what it reads there,
+// from the project's node_modules and those of the directories above it up to the workspace, where
+// npm and Yarn workspaces install. Links are not followed, nor is pnpm's store, whose packages are
+// only reachable through links. A directory the build can't read is skipped.
+export function typeDeclarations(
+  directory: string,
+  workspace: string
+): string[] {
   const found: string[] = []
   const visit = (path: string, inPackages: boolean): void => {
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
+    let entries: Dirent[]
+    try {
+      entries = readdirSync(path, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
       const child = join(path, entry.name)
       if (entry.isDirectory()) {
-        if (entry.name !== '.git')
-          visit(child, inPackages || entry.name === 'node_modules')
+        if (entry.name === '.git' || (inPackages && entry.name === '.pnpm'))
+          continue
+        visit(child, inPackages || entry.name === 'node_modules')
       } else if (
         inPackages &&
         entry.isFile() &&
-        (entry.name === 'package.json' || DECLARATION.test(entry.name))
+        isTypeInformation(entry.name)
       ) {
         found.push(child)
       }
     }
   }
   visit(directory, false)
+  for (
+    let above = dirname(directory);
+    locate(above, { workspace, home: workspace });
+    above = dirname(above)
+  ) {
+    const packages = join(above, 'node_modules')
+    if (lstatSync(packages, { throwIfNoEntry: false })?.isDirectory())
+      visit(packages, true)
+    if (above === dirname(above)) break
+  }
   return found
 }
 

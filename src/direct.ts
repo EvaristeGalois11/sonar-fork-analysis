@@ -6,7 +6,7 @@ export type SonarSettings = {
   organization: string
 }
 
-const DEFAULT_GOALS = { maven: ['verify'], gradle: ['check'], node: [] }
+const DEFAULT_GOALS = { maven: ['verify'], gradle: ['check'] }
 
 const GRADLE_PLUGIN_GUIDE =
   'https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/ci-based-analysis/sonarscanner-for-gradle'
@@ -61,7 +61,7 @@ export function sonarBuildArguments(
   ]
 }
 
-const TOOL_NAMES = { maven: 'Maven', gradle: 'Gradle', node: 'Node' }
+const TOOL_NAMES = { maven: 'Maven', gradle: 'Gradle' }
 
 export function buildFailure(
   tool: BuildTool,
@@ -80,10 +80,10 @@ export function buildFailure(
 }
 
 export function missingAnalysis(tool: BuildTool): string {
-  const message =
-    tool.name === 'node'
-      ? 'The Sonar scanner succeeded but no analysis ran'
-      : `The ${TOOL_NAMES[tool.name]} build succeeded but no Sonar analysis ran`
+  // The scanner CLI leaves a report whenever it succeeds, unless it wrote it elsewhere.
+  if (tool.name === 'node')
+    return 'The Sonar scanner succeeded but left no report in the working directory: check that sonar.projectBaseDir and sonar.working.directory stay inside it'
+  const message = `The ${TOOL_NAMES[tool.name]} build succeeded but no Sonar analysis ran`
   // Gradle runs any single task whose name starts with 'sonar' when the plugin is missing.
   return tool.name === 'gradle'
     ? `${message}: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`

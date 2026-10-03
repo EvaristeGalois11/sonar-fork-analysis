@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 
 const SKIPPED = new Set(['.git', 'node_modules', '.gradle'])
@@ -7,13 +7,20 @@ const SKIPPED = new Set(['.git', 'node_modules', '.gradle'])
 export type Reports = Map<string, string>
 
 // The scanner writes report-task.txt after every analysis it uploads (target/sonar for Maven,
-// build/sonar for Gradle). Searching instead of checking those paths copes with custom build
+// build/sonar for Gradle, .scannerwork for the scanner CLI). Searching instead of checking those paths copes with custom build
 // directories.
 export function snapshotReports(
   directory: string,
   reports: Reports = new Map()
 ): Reports {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(directory, { withFileTypes: true })
+  } catch {
+    // E.g. a database a test left in the workspace through a container's bind mount.
+    return reports
+  }
+  for (const entry of entries) {
     const path = join(directory, entry.name)
     if (entry.isDirectory() && !SKIPPED.has(entry.name)) {
       snapshotReports(path, reports)

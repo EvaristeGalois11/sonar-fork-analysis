@@ -125,6 +125,12 @@ describe('missingAnalysis', () => {
     )
   })
 
+  it('points Node users at where the scanner wrote its report', () => {
+    expect(missingAnalysis(node)).toMatch(
+      /left no report in the working directory: check that sonar\.projectBaseDir and sonar\.working\.directory/
+    )
+  })
+
   it('points Maven users at sonar.skip', () => {
     expect(missingAnalysis(maven)).toMatch(/sonar\.skip/)
   })

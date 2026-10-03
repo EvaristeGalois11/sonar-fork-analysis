@@ -60,6 +60,7 @@ async function direct(inputs: Inputs): Promise<void> {
   if (!inputs.projectKey) throw new Error('Input required: project-key')
   const workingDirectory = resolve(inputs.workingDirectory)
   const tool = detectBuildTool(workingDirectory, inputs.buildTool)
+  warnWithoutSettings(tool, workingDirectory, inputs.buildArguments)
   const args = sonarBuildArguments(
     tool,
     inputs.buildGoals,
@@ -137,6 +138,7 @@ async function prepare(inputs: Inputs): Promise<void> {
   const name = artifactName(inputs.projectKey)
   const workingDirectory = resolve(inputs.workingDirectory)
   const tool = detectBuildTool(workingDirectory, inputs.buildTool)
+  warnWithoutSettings(tool, workingDirectory, inputs.buildArguments)
   const temp = tempDirectory()
   const dump = join(temp, 'dump.properties')
   const args = sonarBuildArguments(
@@ -184,8 +186,9 @@ async function prepare(inputs: Inputs): Promise<void> {
       `The build sets sonar.organization, which the analysis of pull requests takes only from the sonar-organization input: set it in both workflows.`
     )
 
+  const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd()
   const declarations =
-    tool.name === 'node' ? typeDeclarations(workingDirectory) : []
+    tool.name === 'node' ? typeDeclarations(workingDirectory, workspace) : []
   if (declarations.length > 0) {
     const bytes = declarations.reduce(
       (sum, path) => sum + statSync(path).size,
@@ -194,12 +197,16 @@ async function prepare(inputs: Inputs): Promise<void> {
     core.info(
       `Shipping ${declarations.length} type declaration files (${Math.ceil(bytes / 1_048_576)} MB) from node_modules`
     )
+  } else if (tool.name === 'node') {
+    core.info(
+      'No type declarations found in node_modules: the analysis of pull requests resolves fewer types'
+    )
   }
   const staging = join(temp, 'artifact')
   const staged = stageAnalysis(
     kept,
     {
-      workspace: process.env.GITHUB_WORKSPACE ?? process.cwd(),
+      workspace,
       home: homedir()
     },
     staging,
@@ -232,6 +239,23 @@ function pullRequestNumber(): number | undefined {
   if (process.env.GITHUB_EVENT_NAME !== 'pull_request' || !eventPath)
     return undefined
   return JSON.parse(readFileSync(eventPath, 'utf8')).pull_request?.number
+}
+
+// Without them the scanner analyses the whole directory, which for a project picked by its package.json
+// usually means working-directory points at the wrong place.
+function warnWithoutSettings(
+  tool: BuildTool,
+  directory: string,
+  buildArguments: string[]
+): void {
+  if (
+    tool.name === 'node' &&
+    !existsSync(join(directory, 'sonar-project.properties')) &&
+    !buildArguments.some((arg) => arg.startsWith('-Dsonar.sources='))
+  )
+    core.warning(
+      `No sonar-project.properties in ${directory}, so the scanner analyses the whole directory: set sonar.sources there, or point working-directory at the project`
+    )
 }
 
 // Node projects have no build to run: the action runs the scanner CLI it pins.

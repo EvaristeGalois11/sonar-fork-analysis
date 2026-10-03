@@ -392,12 +392,34 @@ describe('unpackWorkspace', () => {
     ])
   })
 
+  it('knows the sources by identity, not by the name they are reached through', () => {
+    // As on a case-insensitive file system, where SRC is src.
+    const sources = join(workspace, 'src')
+    mkdirSync(sources)
+    symlinkSync(sources, join(outside, 'alias'))
+    file(join(artifact, 'src/Evil.ts'))
+    expect(
+      unpackWorkspace(artifact, workspace, [join(outside, 'alias')])
+    ).toEqual([`Skipped ${join('src', 'Evil.ts')}: inside the sources`])
+  })
+
+  it('stays quiet about type information the checkout already has', () => {
+    file(join(workspace, 'node_modules/fixture/index.d.ts'), 'committed')
+    file(join(workspace, 'node_modules/fixture/index.js'), 'committed')
+    file(join(artifact, 'node_modules/fixture/index.d.ts'))
+    file(join(artifact, 'node_modules/fixture/index.js'))
+    expect(unpackWorkspace(artifact, workspace, [])).toEqual([
+      `Skipped ${join('node_modules', 'fixture', 'index.js')}: it already exists in the checkout`
+    ])
+  })
+
   it('lets only reports and type declarations join the sources', () => {
     // A Node project analysing the whole of it: sonar.sources=.
     const real = realpathSync(workspace)
     file(join(artifact, 'coverage/lcov.info'))
     file(join(artifact, 'node_modules/express/index.d.ts'))
     file(join(artifact, 'node_modules/express/package.json'))
+    file(join(artifact, 'node_modules/@tsconfig/node22/tsconfig.json'))
     file(join(artifact, 'node_modules/express/index.js'))
     file(join(artifact, 'src/global.d.ts'))
     file(join(artifact, 'src/package.json'))

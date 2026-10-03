@@ -403,6 +403,30 @@ describe('run in prepare mode', () => {
     expect(core.info).toHaveBeenCalledWith(
       expect.stringContaining('Shipping 1 type declaration files')
     )
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'No sonar-project.properties in ' +
+          project +
+          ', so the scanner analyses the whole directory'
+      )
+    )
+  })
+
+  it('says when a Node project has no type declarations to ship', async () => {
+    rmSync(join(project, 'pom.xml'))
+    writeFileSync(join(project, 'package.json'), '{}')
+    writeFileSync(join(project, 'sonar-project.properties'), 'sonar.sources=.')
+    simulate([`sonar.projectBaseDir=${project}`, 'sonar.sources=.'].join('\n'))
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.info).toHaveBeenCalledWith(
+      'No type declarations found in node_modules: the analysis of pull requests resolves fewer types'
+    )
+    expect(core.warning).not.toHaveBeenCalledWith(
+      expect.stringContaining('No sonar-project.properties')
+    )
   })
 
   it('needs the project key, which names the artifact', async () => {
