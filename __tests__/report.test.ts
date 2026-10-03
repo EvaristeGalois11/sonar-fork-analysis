@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { findNewReport, snapshotReports } from '../src/report.js'
@@ -44,6 +50,20 @@ describe('findNewReport', () => {
     report('target/sonar/report-task.txt')
     const before = snapshotReports(directory)
     expect(findNewReport(directory, before)).toBeUndefined()
+  })
+
+  it('skips a directory it cannot read', () => {
+    // Root reads anything, so the directory can't be locked against it.
+    if (process.getuid?.() === 0) return
+    const before = snapshotReports(directory)
+    mkdirSync(join(directory, 'data'))
+    chmodSync(join(directory, 'data'), 0o000)
+    const path = report('.scannerwork/report-task.txt')
+    try {
+      expect(findNewReport(directory, before)).toBe(path)
+    } finally {
+      chmodSync(join(directory, 'data'), 0o755)
+    }
   })
 
   it('skips .git, node_modules and .gradle', () => {

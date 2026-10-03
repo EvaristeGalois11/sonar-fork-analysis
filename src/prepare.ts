@@ -2,11 +2,13 @@ import {
   cpSync,
   existsSync,
   globSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
-  writeFileSync
+  writeFileSync,
+  type Dirent
 } from 'node:fs'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { BuildTool } from './build-tool.js'
 import {
   CHECKOUT_PATH_KEYS,
@@ -14,6 +16,7 @@ import {
   WILDCARD,
   isPathList,
   isShippedPath,
+  isTypeInformation,
   moduleTree
 } from './settings.js'
 
@@ -65,7 +68,55 @@ const MINIMUM_PLUGIN = {
 }
 
 export function missingDump(tool: BuildTool): string {
+  if (tool.name === 'scanner')
+    return 'The Sonar scanner succeeded but wrote no analysis settings'
   return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the fork path needs ${MINIMUM_PLUGIN[tool.name]} or later`
+}
+
+// The analysis has no node_modules, as nothing may install the pull request's dependencies there, so
+// TypeScript would resolve fewer types and type-aware rules report less. This is what it reads there,
+// from the project's node_modules and those of the directories above it up to the workspace, where
+// npm and Yarn workspaces install. Links are not followed, nor is pnpm's store, whose packages are
+// only reachable through links. A directory the build can't read is skipped.
+export function typeDeclarations(
+  directory: string,
+  workspace: string
+): string[] {
+  const found: string[] = []
+  const visit = (path: string, inPackages: boolean): void => {
+    let entries: Dirent[]
+    try {
+      entries = readdirSync(path, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const child = join(path, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name === '.git' || (inPackages && entry.name === '.pnpm'))
+          continue
+        visit(child, inPackages || entry.name === 'node_modules')
+      } else if (
+        inPackages &&
+        entry.isFile() &&
+        isTypeInformation(entry.name)
+      ) {
+        found.push(child)
+      }
+    }
+  }
+  visit(directory, false)
+  for (
+    let above = dirname(directory);
+    locate(above, { workspace, home: workspace });
+    above = dirname(above)
+  ) {
+    const packages = join(above, 'node_modules')
+    if (lstatSync(packages, { throwIfNoEntry: false })?.isDirectory())
+      visit(packages, true)
+    if (above === dirname(above)) break
+  }
+  return found
 }
 
 function locate(path: string, roots: Roots): [Root, string] | undefined {
@@ -100,7 +151,8 @@ export function stageAnalysis(
   roots: Roots,
   staging: string,
   buildTool: BuildTool['name'],
-  pullRequest?: number
+  pullRequest?: number,
+  extraFiles: string[] = []
 ): Staged {
   const tree = moduleTree(settings)
   const shipped = new Map<string, [Root, string]>()
@@ -161,6 +213,11 @@ export function stageAnalysis(
       const located = existsSync(path) && locate(path, roots)
       if (located) ship(located)
     }
+  }
+
+  for (const path of extraFiles) {
+    const located = locate(path, roots)
+    if (located) ship(located)
   }
 
   mkdirSync(staging, { recursive: true })

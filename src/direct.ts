@@ -27,6 +27,15 @@ export function sonarBuildArguments(
   properties: string[],
   buildArguments: string[]
 ): string[] {
+  if (tool.name === 'scanner') {
+    // The settings come from sonar-project.properties, not from a build, so the action runs after the
+    // workflow's own build and test steps and only starts the scanner.
+    if (goals.length > 0)
+      throw new Error(
+        'build-goals does not apply when the action runs the scanner: build and test in your own steps before the action'
+      )
+    return [...properties, ...buildArguments]
+  }
   const buildGoals = goals.length > 0 ? goals : DEFAULT_GOALS[tool.name]
   if (tool.name === 'maven') {
     // One invocation on purpose: a separate `sonar:sonar` run cannot resolve the reactor's own modules
@@ -65,10 +74,15 @@ export function buildFailure(
   ) {
     return `The Gradle build has no 'sonar' task: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`
   }
+  if (tool.name === 'scanner')
+    return `The Sonar scanner failed with exit code ${exitCode}`
   return `The ${TOOL_NAMES[tool.name]} build failed with exit code ${exitCode}`
 }
 
 export function missingAnalysis(tool: BuildTool): string {
+  // The scanner CLI leaves a report whenever it succeeds, unless it wrote it elsewhere.
+  if (tool.name === 'scanner')
+    return 'The Sonar scanner succeeded but left no report in the working directory: check that sonar.projectBaseDir and sonar.working.directory stay inside it'
   const message = `The ${TOOL_NAMES[tool.name]} build succeeded but no Sonar analysis ran`
   // Gradle runs any single task whose name starts with 'sonar' when the plugin is missing.
   return tool.name === 'gradle'

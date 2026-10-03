@@ -77,6 +77,27 @@ describe('detectBuildTool', () => {
     ).toBe('gradle')
   })
 
+  it('runs the scanner on a project with sonar-project.properties', () => {
+    expect(detectBuildTool(project('sonar-project.properties'))).toEqual({
+      name: 'scanner',
+      executable: '',
+      prefix: []
+    })
+  })
+
+  it('runs the scanner on a Node project not configured yet', () => {
+    expect(detectBuildTool(project('package.json')).name).toBe('scanner')
+  })
+
+  it('prefers the Java build to the scanner settings next to it', () => {
+    expect(
+      detectBuildTool(project('pom.xml', 'sonar-project.properties')).name
+    ).toBe('maven')
+    expect(
+      detectBuildTool(project('pom.xml', 'package.json'), 'scanner').name
+    ).toBe('scanner')
+  })
+
   it('rejects an unknown build tool', () => {
     expect(() => detectBuildTool(project('pom.xml'), 'ant')).toThrow(
       /Unknown build tool 'ant'/

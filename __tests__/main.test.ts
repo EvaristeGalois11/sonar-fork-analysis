@@ -82,6 +82,26 @@ describe('run', () => {
     expect(options!.env!.SONAR_TOKEN).toBe(TOKEN)
   })
 
+  it('analyses a Node project with the scanner it pins', async () => {
+    rmSync(join(project, 'pom.xml'))
+    writeFileSync(join(project, 'package.json'), '{}')
+    exec.mockImplementation(async (_tool, _args, options) => {
+      const work = join(options!.cwd!, '.scannerwork')
+      mkdirSync(work, { recursive: true })
+      writeFileSync(join(work, 'report-task.txt'), `ceTaskId=${++analyses}\n`)
+      return 0
+    })
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    const [tool, args, options] = exec.mock.calls[0]
+    expect(tool).toBe('/opt/sonar-scanner/bin/sonar-scanner')
+    expect(args).toEqual(['-Dsonar.projectKey=key'])
+    expect(options!.cwd).toBe(project)
+    expect(options!.env!.SONAR_TOKEN).toBe(TOKEN)
+  })
+
   it('reports a failed build with its exit code', async () => {
     exec.mockResolvedValue(1)
 
@@ -351,6 +371,62 @@ describe('run in prepare mode', () => {
 
     expect(core.setFailed).not.toHaveBeenCalled()
     expect(core.warning).not.toHaveBeenCalled()
+  })
+
+  it('reads a Node project with the scanner it pins, and ships its type declarations', async () => {
+    rmSync(join(project, 'pom.xml'))
+    writeFileSync(join(project, 'package.json'), '{}')
+    mkdirSync(join(project, 'src'))
+    mkdirSync(join(project, 'coverage'))
+    writeFileSync(join(project, 'coverage', 'lcov.info'), 'TN:')
+    mkdirSync(join(project, 'node_modules', 'express'), { recursive: true })
+    writeFileSync(join(project, 'node_modules', 'express', 'index.d.ts'), '')
+    simulate(
+      [
+        `sonar.projectBaseDir=${project}`,
+        'sonar.sources=src',
+        'sonar.javascript.lcov.reportPaths=coverage/lcov.info'
+      ].join('\n')
+    )
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    const [tool, args] = exec.mock.calls[0]
+    expect(tool).toBe('/opt/sonar-scanner/bin/sonar-scanner')
+    expect(args).not.toContain('verify')
+    const [, files, staging] = artifact.uploadArtifact.mock.calls[0]
+    expect(files).toContain(
+      join(staging, 'workspace', 'node_modules', 'express', 'index.d.ts')
+    )
+    expect(files).toContain(join(staging, 'workspace', 'coverage', 'lcov.info'))
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('Shipping 1 type declaration files')
+    )
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'No sonar-project.properties in ' +
+          project +
+          ', so the scanner analyses the whole directory'
+      )
+    )
+  })
+
+  it('says when a Node project has no type declarations to ship', async () => {
+    rmSync(join(project, 'pom.xml'))
+    writeFileSync(join(project, 'package.json'), '{}')
+    writeFileSync(join(project, 'sonar-project.properties'), 'sonar.sources=.')
+    simulate([`sonar.projectBaseDir=${project}`, 'sonar.sources=.'].join('\n'))
+
+    await run()
+
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.info).toHaveBeenCalledWith(
+      'No type declarations found in node_modules: the analysis of pull requests resolves fewer types'
+    )
+    expect(core.warning).not.toHaveBeenCalledWith(
+      expect.stringContaining('No sonar-project.properties')
+    )
   })
 
   it('needs the project key, which names the artifact', async () => {

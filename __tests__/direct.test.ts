@@ -7,6 +7,7 @@ import {
 
 const maven = { name: 'maven' as const, executable: './mvnw', prefix: [] }
 const gradle = { name: 'gradle' as const, executable: './gradlew', prefix: [] }
+const scanner = { name: 'scanner' as const, executable: '', prefix: [] }
 const properties = ['-Dsonar.projectKey=key']
 
 describe('sonarProperties', () => {
@@ -72,6 +73,28 @@ describe('sonarBuildArguments', () => {
   })
 })
 
+describe('sonarBuildArguments for the scanner', () => {
+  it('only starts the scanner, which reads the build-arguments too', () => {
+    expect(
+      sonarBuildArguments(scanner, [], properties, ['-Dsonar.projectName=App'])
+    ).toEqual(['-Dsonar.projectKey=key', '-Dsonar.projectName=App'])
+  })
+
+  it('refuses build goals, as the action runs after the build', () => {
+    expect(() =>
+      sonarBuildArguments(scanner, ['test'], properties, [])
+    ).toThrow(
+      'build-goals does not apply when the action runs the scanner: build and test in your own steps before the action'
+    )
+  })
+
+  it('reports a failed scanner as such', () => {
+    expect(buildFailure(scanner, 2, '')).toBe(
+      'The Sonar scanner failed with exit code 2'
+    )
+  })
+})
+
 describe('buildFailure', () => {
   it('explains a Gradle build without the Sonar plugin', () => {
     const output =
@@ -101,6 +124,12 @@ describe('missingAnalysis', () => {
   it('points Gradle users at the plugin', () => {
     expect(missingAnalysis(gradle)).toMatch(
       /^The Gradle build succeeded but no Sonar analysis ran: apply the org\.sonarqube plugin/
+    )
+  })
+
+  it('points scanner users at where it wrote its report', () => {
+    expect(missingAnalysis(scanner)).toMatch(
+      /left no report in the working directory: check that sonar\.projectBaseDir and sonar\.working\.directory/
     )
   })
 

@@ -12,8 +12,9 @@ decide.
 
 ## What the Sonar workflow does
 
-It never runs Maven, Gradle or a wrapper script. It checks out the pull request,
-unpacks the artifact and runs the Sonar scanner, which only reads files.
+It never runs Maven, Gradle, npm or a wrapper script. It checks out the pull
+request, unpacks the artifact and runs the Sonar scanner, which only reads
+files.
 
 **The checkout.** The action checks out the pull request itself, without ever
 writing the GitHub token to disk. `origin` points at your repository, because
@@ -28,7 +29,11 @@ the scanner would otherwise trust:
 
 **The artifact.** The action refuses an artifact with links or special files in
 it. It unpacks the build output next to the sources, never over an existing file
-or through a link.
+or through a link. It adds only two kinds of files to the source directories:
+report files that the settings name and type information in `node_modules`
+(declaration, `package.json` and `tsconfig` files). The analyzers read the type
+information to learn the types the code uses and by default never report on it
+as part of the project.
 
 **The settings.** The build's settings go through the same
 [allowlist](#what-the-fork-path-carries) again, and every path in them must lead
@@ -42,6 +47,13 @@ and each one needs its own base directory inside the checkout.
 Then the action sets the settings that matter for safety itself, whatever the
 artifact says: the project key, the analysed commit, the working directory and
 the [features that stay off](#what-stays-off-on-the-fork-path).
+
+**The analyzers.** They only read files. For JavaScript and TypeScript, this was
+tested against Sonar's real analyzer with a project that tried every way to get
+its own code run. The analyzer used its own Node.js and TypeScript and ignored
+the project's configuration files (ESLint, Babel, TypeScript and others) and
+everything in its `node_modules`. Analyzers for other languages haven't been
+tested this way.
 
 **The scanner.** It runs in an empty directory of its own. Its environment holds
 the Sonar token, but not the action's inputs, the runner's own tokens, or

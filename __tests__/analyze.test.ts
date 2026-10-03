@@ -74,6 +74,20 @@ describe('resolveSettings', () => {
     expect(resolved.sourceRoots).toEqual([join(workspace, 'app/src/main/java')])
   })
 
+  it('lists the report files where they land in the checkout', () => {
+    const resolved = resolveSettings(
+      {
+        'sonar.sources': '.',
+        'sonar.javascript.lcov.reportPaths': 'coverage/lcov.info'
+      },
+      workspace,
+      home
+    )
+    expect(resolved.reports).toEqual([
+      join(realpathSync(workspace), 'coverage/lcov.info')
+    ])
+  })
+
   it('drops settings the analysis decides itself', () => {
     const resolved = resolveSettings(
       {
@@ -376,6 +390,55 @@ describe('unpackWorkspace', () => {
       `Skipped ${join('.git', 'hooks', 'post-checkout')}: inside .git`,
       `Skipped ${join('src', 'Evil.java')}: inside the sources`
     ])
+  })
+
+  it('knows the sources by identity, not by the name they are reached through', () => {
+    // As on a case-insensitive file system, where SRC is src.
+    const sources = join(workspace, 'src')
+    mkdirSync(sources)
+    symlinkSync(sources, join(outside, 'alias'))
+    file(join(artifact, 'src/Evil.ts'))
+    expect(
+      unpackWorkspace(artifact, workspace, [join(outside, 'alias')])
+    ).toEqual([`Skipped ${join('src', 'Evil.ts')}: inside the sources`])
+  })
+
+  it('stays quiet about type information the checkout already has', () => {
+    file(join(workspace, 'node_modules/fixture/index.d.ts'), 'committed')
+    file(join(workspace, 'node_modules/fixture/index.js'), 'committed')
+    file(join(artifact, 'node_modules/fixture/index.d.ts'))
+    file(join(artifact, 'node_modules/fixture/index.js'))
+    expect(unpackWorkspace(artifact, workspace, [])).toEqual([
+      `Skipped ${join('node_modules', 'fixture', 'index.js')}: it already exists in the checkout`
+    ])
+  })
+
+  it('lets only reports and type declarations join the sources', () => {
+    // A Node project analysing the whole of it: sonar.sources=.
+    const real = realpathSync(workspace)
+    file(join(artifact, 'coverage/lcov.info'))
+    file(join(artifact, 'node_modules/express/index.d.ts'))
+    file(join(artifact, 'node_modules/express/package.json'))
+    file(join(artifact, 'node_modules/@tsconfig/node22/tsconfig.json'))
+    file(join(artifact, 'node_modules/express/index.js'))
+    file(join(artifact, 'src/global.d.ts'))
+    file(join(artifact, 'src/package.json'))
+    expect(
+      unpackWorkspace(
+        artifact,
+        workspace,
+        [real],
+        [join(real, 'coverage/lcov.info')]
+      ).sort()
+    ).toEqual([
+      `Skipped ${join('node_modules', 'express', 'index.js')}: inside the sources`,
+      `Skipped ${join('src', 'global.d.ts')}: inside the sources`,
+      `Skipped ${join('src', 'package.json')}: inside the sources`
+    ])
+    expect(existsSync(join(workspace, 'coverage/lcov.info'))).toBe(true)
+    expect(existsSync(join(workspace, 'node_modules/express/index.d.ts'))).toBe(
+      true
+    )
   })
 
   it.each([

@@ -1,7 +1,7 @@
 name: 'Sonar Fork Analysis'
 description:
   'Sonar analysis, with coverage, for pull requests from forks, without exposing
-  your Sonar token. For Maven and Gradle.'
+  your Sonar token. For Maven, Gradle and more.'
 inputs:
   mode:
     description: >
@@ -10,15 +10,16 @@ inputs:
       and analyze force one of those steps.
     default: auto
   working-directory:
-    description: 'Directory containing the Maven or Gradle build.'
+    description: 'Directory containing the project.'
     default: .
   build-tool:
-    description: 'auto, maven or gradle.'
+    description: 'auto, maven, gradle or scanner.'
     default: auto
   build-goals:
     description: >
       Maven goals or Gradle tasks to run before the analysis, one per line.
-      Defaults to verify for Maven and check for Gradle.
+      Defaults to verify for Maven and check for Gradle. Not with scanner, where
+      the action runs after your own build and test steps.
     default: ''
   build-arguments:
     description: >
