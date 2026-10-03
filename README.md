@@ -190,10 +190,22 @@ you're happy with that.
 | `mode`               | No                   | `auto`             | `auto`, or `direct`, `prepare`, `analyze` to force one part.                                                                                                                                             |
 | `working-directory`  | No                   | `.`                | The directory holding the Maven or Gradle build.                                                                                                                                                         |
 | `build-tool`         | No                   | `auto`             | `auto`, `maven` or `gradle`.                                                                                                                                                                             |
-| `build-goals`        | No                   | `verify` / `check` | Maven goals or Gradle tasks to run, one per line.                                                                                                                                                        |
-| `build-arguments`    | No                   |                    | Extra build flags, one per line. In the Sonar workflow they go to the scanner instead, such as `-Dsonar.projectName=App`, and relative paths don't point into the checkout.                              |
+| `build-goals`        | No                   | `verify` / `check` | Maven goals or Gradle tasks to run.                                                                                                                                                                      |
+| `build-arguments`    | No                   |                    | Extra build flags. In the Sonar workflow they go to the scanner instead, such as `-Dsonar.projectName=App`, and relative paths don't point into the checkout.                                            |
 | `checkout`           | No                   | `true`             | Whether the Sonar workflow checks out the analysed commit. `false` to do it yourself, see [your own checkout](#your-own-checkout).                                                                       |
 | `github-token`       | No                   | `github.token`     | Downloads the upload and finds the pull request.                                                                                                                                                         |
+
+`build-goals` and `build-arguments` take one entry per line, so write several as
+a YAML block:
+
+```yaml
+build-goals: |
+  clean
+  install
+build-arguments: |
+  -Pci
+  -DskipITs
+```
 
 ## Commit statuses and required checks
 
