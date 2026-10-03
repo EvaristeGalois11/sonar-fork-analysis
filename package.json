@@ -26,7 +26,6 @@
   "scripts": {
     "bundle": "npm run format:write && npm run package",
     "ci-test": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 npx jest",
-    "coverage": "npx make-coverage-badge --output-path ./badges/coverage.svg",
     "format:write": "npx prettier --write .",
     "format:check": "npx prettier --check .",
     "lint": "npx eslint .",
@@ -39,7 +38,7 @@
     "test": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 npx jest",
     "test:scanner": "SCANNER_CHECKS=1 NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 npx jest __tests__/real-scanner.test.ts --coverage=false",
     "typecheck": "npx tsc --project scripts",
-    "all": "npm run format:write && npm run lint && npm run lint:workflows && npm run typecheck && npm run test && npm run coverage && npm run package"
+    "all": "npm run format:write && npm run lint && npm run lint:workflows && npm run typecheck && npm run test && npm run package"
   },
   "license": "MIT",
   "dependencies": {
@@ -67,7 +66,6 @@
     "eslint-plugin-prettier": "^5.5.5",
     "fast-check": "^4.10.2",
     "jest": "^30.2.0",
-    "make-coverage-badge": "^1.2.0",
     "prettier": "^3.8.1",
     "rollup": "^4.57.1",
     "rollup-plugin-license": "^3.7.1",

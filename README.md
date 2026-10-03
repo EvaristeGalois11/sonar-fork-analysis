@@ -5,7 +5,8 @@
 [![Scanner](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
 [![CodeQL](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvaristeGalois11/sonar-fork-analysis/badge)](https://scorecard.dev/viewer/?uri=github.com/EvaristeGalois11/sonar-fork-analysis)
-![Coverage](./badges/coverage.svg)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=evaristegalois11_sonar-fork-analysis&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=evaristegalois11_sonar-fork-analysis)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=evaristegalois11_sonar-fork-analysis&metric=coverage)](https://sonarcloud.io/summary/new_code?id=evaristegalois11_sonar-fork-analysis)
 
 <!-- prettier-ignore -->
 > [!NOTE]
@@ -396,13 +397,18 @@ branch.
     # …
 ```
 
-## Real-world example
+## Real-world examples
 
 [Instancio](https://github.com/instancio/instancio) analyses its pull requests
 from forks with this action, on a Maven build with 38 modules. See its
 [build workflow](https://github.com/instancio/instancio/blob/main/.github/workflows/build.yml)
 and
 [Sonar workflow](https://github.com/instancio/instancio/blob/main/.github/workflows/sonar.yml).
+
+This repository analyses itself with the action too. It's a TypeScript project
+that runs the scanner after its tests, with a `sonar-project.properties` file.
+See its [build workflow](.github/workflows/ci.yml) and
+[Sonar workflow](.github/workflows/sonar.yml).
 
 ## Limitations
 

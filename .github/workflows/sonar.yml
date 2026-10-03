@@ -1,0 +1,32 @@
+# Analyses this repository's pull requests from forks and Dependabot, which the CI workflow prepared
+# without the Sonar token: the action's own fork path, set up as the README describes.
+#
+# This job holds the token, so it must never run code from the analysed commit: the action comes from
+# main, and it checks out the analysed commit itself, which the scanner then only reads.
+name: 'Sonar'
+# The fork path needs this trigger, and nothing here runs the analysed code (see above).
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: [CI]
+    types:
+      - completed
+permissions: {}
+jobs:
+  analyze:
+    name: 'Analyse on the fork path'
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      # Lets the action report the analysis on the analysed commit, where the pull request shows it.
+      statuses: write
+    steps:
+      - name: 'Analyse with Sonar'
+        # This repository at the commit the workflow runs from, which for workflow_run is main's.
+        uses: $/
+        with:
+          project-key: evaristegalois11_sonar-fork-analysis
+          sonar-organization: evaristegalois11
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
