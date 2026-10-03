@@ -497,8 +497,14 @@ artifact the failed run uploads.
 Third-party actions added to a workflow must also be added to the repository's
 allowed actions.
 
-Report vulnerabilities as described in [SECURITY.md](SECURITY.md). Licensed
-under [MIT](LICENSE).
+## Security
+
+Report vulnerabilities as described in [SECURITY.md](SECURITY.md). How the
+action protects your token is explained in [security](docs/security.md).
+
+## License
+
+[MIT](LICENSE).
 
 This project is not affiliated with or endorsed by SonarSource. Sonar, SonarQube
 and SonarCloud are trademarks of SonarSource.
