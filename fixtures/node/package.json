@@ -1,0 +1,13 @@
+{
+  "name": "fixture-node",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "pretest": "node -e \"require('node:fs').mkdirSync('coverage', { recursive: true })\"",
+    "test": "node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0"
+  }
+}

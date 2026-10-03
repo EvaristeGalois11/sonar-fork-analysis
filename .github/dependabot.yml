@@ -36,6 +36,17 @@ updates:
         update-types: ['minor', 'patch']
 
   - package-ecosystem: 'npm'
+    directory: '/fixtures/node'
+    schedule:
+      interval: 'weekly'
+    cooldown:
+      default-days: 7
+    groups:
+      fixture-node:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+
+  - package-ecosystem: 'npm'
     directory: '/'
     schedule:
       interval: 'weekly'

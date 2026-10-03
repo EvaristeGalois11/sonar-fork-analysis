@@ -28,6 +28,8 @@ jobs:
             name: Maven
           - fixture: gradle
             name: Gradle
+          - fixture: node
+            name: Node
     env:
       # Forks and Dependabot get no Actions secrets, and a forced direct analysis fails without the
       # token, so skip it there.
@@ -43,11 +45,28 @@ jobs:
           fetch-depth: 0
 
       - name: 'Set up Java'
+        if: matrix.fixture != 'node'
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: 21
           cache: ${{ matrix.fixture }}
+
+      # The action runs no build for the scanner, so the workflow builds and tests first, as users do.
+      - name: 'Set up Node'
+        if: matrix.fixture == 'node'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: fixtures/node/package-lock.json
+
+      - name: 'Test the Node fixture'
+        if: matrix.fixture == 'node'
+        working-directory: fixtures/node
+        run: |
+          npm ci
+          npm test
 
       # What the Sonar plugin downloads from SonarCloud (engine, Java runtime, analyzers), as Sonar's own
       # CI examples cache it. A fresh entry each week, so it doesn't fill up with old engines. Never in
@@ -86,7 +105,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture: [maven, gradle]
+        fixture: [maven, gradle, node]
     steps:
       # The head, like analyze checks out, so the shipped build output matches the analysed sources.
       - name: 'Checkout project'
@@ -96,11 +115,28 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: 'Set up Java'
+        if: matrix.fixture != 'node'
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: 21
           cache: ${{ matrix.fixture }}
+
+      # The action runs no build for the scanner, so the workflow builds and tests first, as users do.
+      - name: 'Set up Node'
+        if: matrix.fixture == 'node'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: fixtures/node/package-lock.json
+
+      - name: 'Test the Node fixture'
+        if: matrix.fixture == 'node'
+        working-directory: fixtures/node
+        run: |
+          npm ci
+          npm test
 
       - name: 'Prepare the analysis'
         uses: $/
@@ -124,6 +160,8 @@ jobs:
             name: Maven
           - fixture: gradle
             name: Gradle
+          - fixture: node
+            name: Node
     env:
       HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
     # No checkout step: the action checks out the analysed commit itself, as it does for users.
@@ -149,7 +187,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture: [maven, gradle]
+        fixture: [maven, gradle, node]
     env:
       HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
     steps:

@@ -107,3 +107,6 @@ __tests__/runner/*
 target/
 build/
 .gradle/
+
+# Fake packages for the Node fixture's traps; npm never manages this directory.
+!fixtures/node_modules
