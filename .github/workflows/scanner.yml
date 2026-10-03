@@ -1,5 +1,6 @@
 # Checks what the analysis assumes about the scanner against the real one: the CLI the action pins,
-# and the engine SonarCloud serves, which changes on Sonar's schedule, hence the weekly run.
+# and the engines SonarCloud and SonarQube serve, which change on Sonar's schedule, hence the weekly
+# run, which also reports a newer CLI.
 name: 'Scanner'
 on:
   push:
@@ -59,3 +60,11 @@ jobs:
         run: npm run test:scanner
         env:
           SCANNER_ENGINES: ${{ runner.temp }}/engines
+
+      # Nothing else notices a new CLI, as the action pins it by hash. Not on pull requests, which a
+      # release elsewhere shouldn't fail.
+      - name: 'Check for a newer scanner CLI'
+        if:
+          github.event_name == 'schedule' || github.event_name ==
+          'workflow_dispatch'
+        run: npm run scanner:check

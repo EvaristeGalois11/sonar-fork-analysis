@@ -34,6 +34,8 @@
     "local": "npm run package && node --env-file=.env dist/index.js",
     "package": "npx rimraf ./dist && npx rollup --config rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "package:watch": "npm run package -- --watch",
+    "scanner:check": "node scripts/scanner-version.ts",
+    "scanner:update": "node scripts/scanner-version.ts --update",
     "test": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 npx jest",
     "test:scanner": "SCANNER_CHECKS=1 NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 npx jest __tests__/real-scanner.test.ts --coverage=false",
     "typecheck": "npx tsc --project scripts",
