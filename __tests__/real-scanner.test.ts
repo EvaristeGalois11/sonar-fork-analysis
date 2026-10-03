@@ -41,6 +41,8 @@ const work =
   process.env.RUNNER_TEMP ??
   join(homedir(), '.cache', 'sonar-fork-analysis', 'scanner-checks')
 process.env.RUNNER_TOOL_CACHE ??= join(work, 'tools')
+// The Scanner workflow caches the engines in a directory of their own.
+const engines = process.env.SCANNER_ENGINES ?? work
 const runnerTemp = process.env.RUNNER_TEMP
 if (!runnerTemp)
   process.env.RUNNER_TEMP = mkdtempSync(join(tmpdir(), 'scanner-'))
@@ -96,8 +98,8 @@ describeScanner.each([
   let probe: Probe
 
   beforeAll(async () => {
-    mkdirSync(work, { recursive: true })
-    engine = await download(work)
+    mkdirSync(engines, { recursive: true })
+    engine = await download(engines)
     console.info(`Checking against ${engine}`)
     probe = new Probe([engine])
   }, 600_000)
