@@ -57,10 +57,11 @@ On a pull request from a fork:
 
 1. Your build workflow runs without the Sonar token. The action builds the
    project with Maven or Gradle and has Sonar's build plugin work out the
-   analysis settings without running the analysis. For a Node project, it runs
-   after your own install and test steps and reads `sonar-project.properties`
-   with Sonar's scanner instead. It uploads the compiled classes, libraries,
-   coverage and test reports, together with those settings, as an artifact.
+   analysis settings without running the analysis. For a Node project, the
+   action doesn't build anything: it runs after your own install and test steps
+   and reads your `sonar-project.properties`. It uploads the compiled classes,
+   libraries, coverage and test reports, together with those settings, as an
+   artifact.
 2. When the build finishes, GitHub starts your Sonar workflow through
    `workflow_run`. It runs in your repository, so it has the Sonar token.
 3. The action checks out the pull request, checks the artifact's settings
@@ -161,9 +162,9 @@ advice.
 
 ### Node projects
 
-A Node project has no build the action could run, so the action goes after your
-own install and test steps, and the settings come from your
-`sonar-project.properties`, as with Sonar's own scan action:
+For a Node project, add the action after your own install and test steps. It
+doesn't build anything, and it takes its settings from your
+`sonar-project.properties`, the same file Sonar's own scan action reads:
 
 ```yaml
 steps:
@@ -192,9 +193,9 @@ sonar.tests=test
 sonar.javascript.lcov.reportPaths=coverage/lcov.info
 ```
 
-The Sonar workflow is the same as for any other project. On pull requests from
-forks, the analysis also gets the type declarations from your `node_modules`, so
-type-aware rules find what they find in a direct analysis.
+The Sonar workflow doesn't change. On pull requests from forks, the action also
+passes the type declarations from your `node_modules` to the Sonar workflow, so
+rules that need types work there too.
 
 ### Which commit the build tests
 
@@ -398,12 +399,13 @@ and
 ## Limitations
 
 - Only Maven, Gradle and Node projects are supported.
-- A Node project's settings come only from `sonar-project.properties` and
-  `build-arguments`. The guesses Sonar's npm scanner makes from `package.json`,
-  such as the project key or `coverage/lcov.info`, don't apply.
-- The type declarations of a Node project installed with pnpm don't reach fork
-  pull requests, because pnpm links its packages and the action doesn't follow
-  links. Type-aware rules may report less there.
+- For a Node project, the action reads settings only from
+  `sonar-project.properties` and `build-arguments`. Unlike Sonar's npm scanner,
+  it doesn't guess any from `package.json`, so set your coverage report path
+  yourself.
+- With pnpm, the type declarations don't reach pull requests from forks, because
+  pnpm installs packages as links, which the action doesn't follow. Rules that
+  need types may find less there.
 - On the fork path, the build collects its settings through the Sonar plugins'
   simulation mode (`sonar.scanner.internal.dumpToFile`). Sonar uses it in its
   own tests but doesn't document it, so a plugin release could change it. If it

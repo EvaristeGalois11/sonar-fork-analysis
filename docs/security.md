@@ -29,10 +29,10 @@ the scanner would otherwise trust:
 
 **The artifact.** The action refuses an artifact with links or special files in
 it. It unpacks the build output next to the sources, never over an existing file
-or through a link. Inside the source directories it only adds two kinds of
-files: the report files the settings name, and the type declarations of a Node
-project's `node_modules`, which the analyzers read to know the types the code
-uses but never report on as the project's own code.
+or through a link. It adds only two kinds of files to the source directories:
+report files that the settings name, and a Node project's type declarations in
+`node_modules`. The analyzers read the declarations to learn the types the code
+uses, but never report on them as part of the project.
 
 **The settings.** The build's settings go through the same
 [allowlist](#what-the-fork-path-carries) again, and every path in them must lead
@@ -47,11 +47,11 @@ Then the action sets the settings that matter for safety itself, whatever the
 artifact says: the project key, the analysed commit, the working directory and
 the [features that stay off](#what-stays-off-on-the-fork-path).
 
-**The analyzers.** They only read files. For JavaScript and TypeScript this was
-checked against the real analyzer with a project that tried every way in: it
-uses its own Node.js and its own TypeScript, and ignores the project's ESLint,
-Babel, TypeScript and other configuration files and everything in its
-`node_modules`.
+**The analyzers.** They only read files. For JavaScript and TypeScript, this was
+tested against Sonar's real analyzer with a project that tried every way to get
+its own code run. The analyzer used its own Node.js and TypeScript, and ignored
+the project's configuration files (ESLint, Babel, TypeScript and others) and
+everything in its `node_modules`.
 
 **The scanner.** It runs in an empty directory of its own. Its environment holds
 the Sonar token, but not the action's inputs, the runner's own tokens, or
