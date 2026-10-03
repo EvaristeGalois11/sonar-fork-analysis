@@ -68,6 +68,7 @@
     "make-coverage-badge": "^1.2.0",
     "prettier": "^3.8.1",
     "rollup": "^4.57.1",
+    "rollup-plugin-license": "^3.7.1",
     "ts-jest": "^29.4.6",
     "ts-jest-resolver": "^2.0.1",
     "typescript": "^6.0.3"

@@ -4,6 +4,7 @@ import commonjs from '@rollup/plugin-commonjs'
 import json from '@rollup/plugin-json'
 import nodeResolve from '@rollup/plugin-node-resolve'
 import typescript from '@rollup/plugin-typescript'
+import license from 'rollup-plugin-license'
 
 // The action's main step, and its post step, which runs even when the job is cancelled.
 const config = ['index', 'post'].map((entry) => ({
@@ -19,7 +20,11 @@ const config = ['index', 'post'].map((entry) => ({
     nodeResolve({ preferBuiltins: true }),
     commonjs(),
     // @actions/artifact imports its own package.json.
-    json()
+    json(),
+    // The bundled packages' licences require their notices to travel with the code.
+    license({
+      thirdParty: { output: { file: `dist/${entry}.licenses.txt` } }
+    })
   ]
 }))
 
