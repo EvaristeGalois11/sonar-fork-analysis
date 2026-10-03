@@ -45,6 +45,10 @@ updates:
       fixtures-node:
         patterns: ['*']
         update-types: ['minor', 'patch']
+    ignore:
+      # Types must match the Node the fixtures run on (.node-version), not the newest Node.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: 'npm'
     directory: '/'
