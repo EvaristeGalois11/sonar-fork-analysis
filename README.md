@@ -408,6 +408,9 @@ and
 
 - .NET projects need Sonar's scanner for .NET, and C and C++ projects need
   Sonar's build wrapper. Neither works with this action.
+- Yarn's Plug'n'Play installs, the default since Yarn 2, have no `node_modules`,
+  so no type declarations reach pull requests from forks, and rules that need
+  types find less there. Yarn's `nodeLinker: node-modules` setting avoids it.
 - When the action runs the scanner, it reads settings only from
   `sonar-project.properties` and `build-arguments`. Unlike Sonar's npm scanner,
   it doesn't guess any from `package.json`, so set your coverage report path
