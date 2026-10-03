@@ -29,9 +29,10 @@ the scanner would otherwise trust:
 
 **The artifact.** The action refuses an artifact with links or special files in
 it. It unpacks the build output next to the sources, never over an existing file
-or through a link. Inside the source directories it only adds the report files
-the settings name and the type declarations of a Node project's `node_modules`,
-which the analyzers don't analyse as part of the project.
+or through a link. Inside the source directories it only adds two kinds of
+files: the report files the settings name, and the type declarations of a Node
+project's `node_modules`, which the analyzers read to know the types the code
+uses but never report on as the project's own code.
 
 **The settings.** The build's settings go through the same
 [allowlist](#what-the-fork-path-carries) again, and every path in them must lead
