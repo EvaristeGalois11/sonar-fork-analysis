@@ -9,6 +9,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   unlinkSync
 } from 'node:fs'
 import {
@@ -383,6 +384,101 @@ export function removeOutwardLinks(workspace: string): string[] {
     }
   }
   return warnings
+}
+
+// Makes the links a Node project's node_modules had again, without which TypeScript finds no package
+// a workspace or pnpm links. Each one stays in a node_modules directory, leads to a directory in the
+// checkout and never into .git, which keeps them to what a fork could commit itself.
+export function recreateLinks(workspace: string, links: unknown): string[] {
+  if (!Array.isArray(links)) return []
+  const warnings: string[] = []
+  const realWorkspace = realpathSync(workspace)
+  for (const link of links) {
+    const path = (link as { path?: unknown })?.path
+    const target = (link as { target?: unknown })?.target
+    if (typeof path !== 'string' || typeof target !== 'string') {
+      warnings.push(
+        `Skipped a link: ${JSON.stringify(link)} names no path and target`
+      )
+      continue
+    }
+    let reason: string | undefined
+    try {
+      reason = recreateLink(workspace, realWorkspace, path, target)
+    } catch (error) {
+      // A name the file system refuses, e.g. one with a NUL byte or too long for Windows.
+      reason = error instanceof Error ? error.message : String(error)
+    }
+    if (reason) warnings.push(`Skipped link ${path}: ${reason}`)
+  }
+  return warnings
+}
+
+// The segments of a relative path that stays below where it starts and out of .git.
+function plainSegments(path: string): string[] | undefined {
+  if (isAbsolute(path)) return undefined
+  const segments = path.split('/')
+  const plain = segments.every(
+    (segment) =>
+      segment !== '' &&
+      segment !== '.' &&
+      segment !== '..' &&
+      // A Windows path separator, or an NTFS stream: .git::$INDEX_ALLOCATION is .git.
+      !/[\\:]/.test(segment) &&
+      !isGitDirectory(segment)
+  )
+  return plain ? segments : undefined
+}
+
+function recreateLink(
+  workspace: string,
+  realWorkspace: string,
+  path: string,
+  target: string
+): string | undefined {
+  const at = plainSegments(path)
+  const to = plainSegments(target)
+  if (!at || !to) return 'it leaves the checkout or enters .git'
+  if (!at.slice(0, -1).includes('node_modules'))
+    return 'it is not in a node_modules directory'
+  // The scanner would take a directory by that name for a module's settings.
+  if (
+    at.some((segment) => segment.toLowerCase() === 'sonar-project.properties')
+  )
+    return 'it makes a sonar-project.properties'
+  const destination = join(workspace, ...to)
+  const real = existsSync(destination) ? realpathSync(destination) : undefined
+  if (
+    !real ||
+    !statSync(real).isDirectory() ||
+    real === realWorkspace ||
+    !isWithin(real, realWorkspace) ||
+    relative(realWorkspace, real).split(sep).some(isGitDirectory)
+  )
+    return 'it does not lead to a directory in the checkout'
+  // The directories on the way are made here, never through a link, like unpacked files.
+  let directory = workspace
+  for (const segment of at.slice(0, -1)) {
+    directory = join(directory, segment)
+    const stats = lstatSync(directory, { throwIfNoEntry: false })
+    if (!stats) mkdirSync(directory)
+    else if (stats.isSymbolicLink() || !stats.isDirectory())
+      return 'its directory is a link or a file in the checkout'
+  }
+  const location = join(directory, at[at.length - 1])
+  // Committed, or made by an earlier entry: the checkout's own stays.
+  if (lstatSync(location, { throwIfNoEntry: false })) return undefined
+  // Windows makes directory links as junctions, which need no privilege but an absolute target.
+  // Elsewhere the link is relative to where it really sits: the workspace's path may itself run
+  // through a link, e.g. macOS's /tmp, while the directories made above never do.
+  if (process.platform === 'win32') symlinkSync(real, location, 'junction')
+  else
+    symlinkSync(
+      relative(join(realWorkspace, ...at.slice(0, -1)), real),
+      location,
+      'dir'
+    )
+  return undefined
 }
 
 // The scanner reads one from every module directory, unchecked, so none may come from the pull

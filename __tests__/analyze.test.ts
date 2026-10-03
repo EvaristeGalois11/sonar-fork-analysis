@@ -1,9 +1,11 @@
 import {
   existsSync,
   lstatSync,
+  readlinkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -15,6 +17,7 @@ import fc from 'fast-check'
 import {
   checkNoLinks,
   formatProperties,
+  recreateLinks,
   removeOutwardLinks,
   removeProjectSettings,
   resolveSettings,
@@ -823,3 +826,149 @@ describe('trustedProperties', () => {
     ).toBe('release')
   })
 })
+
+describe('recreateLinks', () => {
+  const link = (path: string): string | undefined =>
+    lstatSync(join(workspace, path), {
+      throwIfNoEntry: false
+    })?.isSymbolicLink()
+      ? readlinkSync(join(workspace, path))
+      : undefined
+
+  it("makes a workspace's and pnpm's links again, relative and inside the checkout", () => {
+    mkdirSync(join(workspace, 'packages/shared'), { recursive: true })
+    const store = 'node_modules/.pnpm/express@5/node_modules/express'
+    mkdirSync(join(workspace, store), { recursive: true })
+    expect(
+      recreateLinks(workspace, [
+        { path: 'node_modules/@app/shared', target: 'packages/shared' },
+        { path: 'node_modules/express', target: store }
+      ])
+    ).toEqual([])
+    expect(link('node_modules/@app/shared')).toBe(
+      join('..', '..', 'packages', 'shared')
+    )
+    expect(link('node_modules/express')).toBe(
+      join('.pnpm', 'express@5', 'node_modules', 'express')
+    )
+  })
+
+  it('refuses links leaving the checkout, entering .git or outside node_modules', () => {
+    mkdirSync(join(workspace, '.git/hooks'), { recursive: true })
+    mkdirSync(join(workspace, 'src'))
+    symlinkSync(outside, join(workspace, 'out'))
+    expect(
+      recreateLinks(workspace, [
+        { path: 'node_modules/a', target: '../outside' },
+        { path: 'node_modules/b', target: '/etc' },
+        { path: 'node_modules/c', target: '.git/hooks' },
+        { path: 'node_modules/d', target: 'out' },
+        { path: 'src/e', target: 'src' },
+        { path: 'node_modules/.git', target: 'src' },
+        { path: 'node_modules/f', target: 'missing' },
+        { path: 'node_modules/g', target: 'node_modules\\..\\..' },
+        { path: 'node_modules/h' }
+      ])
+    ).toEqual([
+      'Skipped link node_modules/a: it leaves the checkout or enters .git',
+      'Skipped link node_modules/b: it leaves the checkout or enters .git',
+      'Skipped link node_modules/c: it leaves the checkout or enters .git',
+      'Skipped link node_modules/d: it does not lead to a directory in the checkout',
+      'Skipped link src/e: it is not in a node_modules directory',
+      'Skipped link node_modules/.git: it leaves the checkout or enters .git',
+      'Skipped link node_modules/f: it does not lead to a directory in the checkout',
+      'Skipped link node_modules/g: it leaves the checkout or enters .git',
+      'Skipped a link: {"path":"node_modules/h"} names no path and target'
+    ])
+    expect(readdirOrEmpty(join(workspace, 'node_modules'))).toEqual([])
+  })
+
+  it('refuses what only resolving the target reveals: .git through a committed link, a file, the root', () => {
+    mkdirSync(join(workspace, '.git'))
+    symlinkSync('.git', join(workspace, 'g'))
+    file(join(workspace, 'README.md'))
+    symlinkSync('.', join(workspace, 'r'))
+    expect(
+      recreateLinks(workspace, [
+        { path: 'node_modules/a', target: 'g' },
+        { path: 'node_modules/b', target: 'README.md' },
+        { path: 'node_modules/c', target: 'packages/..' },
+        { path: 'node_modules/d', target: 'r' }
+      ])
+    ).toEqual([
+      'Skipped link node_modules/a: it does not lead to a directory in the checkout',
+      'Skipped link node_modules/b: it does not lead to a directory in the checkout',
+      'Skipped link node_modules/c: it leaves the checkout or enters .git',
+      'Skipped link node_modules/d: it does not lead to a directory in the checkout'
+    ])
+  })
+
+  it('refuses NTFS streams, settings files and names the file system rejects', () => {
+    mkdirSync(join(workspace, 'packages/app'), { recursive: true })
+    const warnings = recreateLinks(workspace, [
+      { path: 'node_modules/a', target: '.git::$INDEX_ALLOCATION' },
+      { path: '.git::$INDEX_ALLOCATION/node_modules/b', target: 'packages' },
+      {
+        path: 'packages/app/sonar-project.properties/node_modules/c',
+        target: 'packages'
+      },
+      { path: 'node_modules/d\0', target: 'packages' }
+    ])
+    expect(warnings.slice(0, 3)).toEqual([
+      'Skipped link node_modules/a: it leaves the checkout or enters .git',
+      'Skipped link .git::$INDEX_ALLOCATION/node_modules/b: it leaves the checkout or enters .git',
+      'Skipped link packages/app/sonar-project.properties/node_modules/c: it makes a sonar-project.properties'
+    ])
+    expect(warnings[3]).toMatch(/^Skipped link node_modules\/d\0: /)
+    expect(
+      existsSync(join(workspace, 'packages/app/sonar-project.properties'))
+    ).toBe(false)
+  })
+
+  it('points a link at where its target really is, whatever path leads to the workspace', () => {
+    const real = join(root, 'real')
+    mkdirSync(join(real, 'packages/shared'), { recursive: true })
+    symlinkSync(real, join(root, 'via'))
+    const viaLink = join(root, 'via')
+    expect(
+      recreateLinks(viaLink, [
+        { path: 'node_modules/@app/shared', target: 'packages/shared' }
+      ])
+    ).toEqual([])
+    expect(realpathSync(join(viaLink, 'node_modules/@app/shared'))).toBe(
+      realpathSync(join(real, 'packages/shared'))
+    )
+  })
+
+  it('never makes a link through a link the checkout commits', () => {
+    mkdirSync(join(workspace, 'packages/shared'), { recursive: true })
+    symlinkSync(outside, join(workspace, 'node_modules'))
+    expect(
+      recreateLinks(workspace, [
+        { path: 'node_modules/shared', target: 'packages/shared' }
+      ])
+    ).toEqual([
+      'Skipped link node_modules/shared: its directory is a link or a file in the checkout'
+    ])
+    expect(existsSync(join(outside, 'shared'))).toBe(false)
+  })
+
+  it("leaves the checkout's own entries alone", () => {
+    mkdirSync(join(workspace, 'packages/shared'), { recursive: true })
+    file(join(workspace, 'node_modules/shared/package.json'), 'committed')
+    expect(
+      recreateLinks(workspace, [
+        { path: 'node_modules/shared', target: 'packages/shared' }
+      ])
+    ).toEqual([])
+    expect(link('node_modules/shared')).toBeUndefined()
+  })
+
+  it('ignores a manifest without links', () => {
+    expect(recreateLinks(workspace, undefined)).toEqual([])
+  })
+})
+
+function readdirOrEmpty(directory: string): string[] {
+  return existsSync(directory) ? readdirSync(directory) : []
+}

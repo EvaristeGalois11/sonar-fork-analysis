@@ -5,6 +5,8 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  realpathSync,
+  statSync,
   writeFileSync,
   type Dirent
 } from 'node:fs'
@@ -73,16 +75,34 @@ export function missingDump(tool: BuildTool): string {
   return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the fork path needs ${MINIMUM_PLUGIN[tool.name]} or later`
 }
 
+// A link in node_modules, both paths relative to the workspace, with forward slashes.
+export type PackageLink = { path: string; target: string }
+
+export type TypeInformation = {
+  files: string[]
+  links: PackageLink[]
+  // Links to directories outside the workspace, e.g. npm link or pnpm's global store, left out.
+  outside: number
+}
+
 // The analysis has no node_modules, as nothing may install the pull request's dependencies there, so
 // TypeScript would resolve fewer types and type-aware rules report less. This is what it reads there,
 // from the project's node_modules and those of the directories above it up to the workspace, where
-// npm and Yarn workspaces install. Links are not followed, nor is pnpm's store, whose packages are
-// only reachable through links. A directory the build can't read is skipped.
-export function typeDeclarations(
+// npm and Yarn workspaces install. Links are not followed but recorded, when they lead to a directory
+// in the workspace, so the analysis can make them again: workspaces link their own packages, pnpm
+// every package. A workspace package a link leads to keeps its own dependencies in its node_modules,
+// unhoisted with pnpm, so that is read too. A directory the build can't read is skipped.
+export function typeInformation(
   directory: string,
   workspace: string
-): string[] {
-  const found: string[] = []
+): TypeInformation {
+  const files: string[] = []
+  const links: PackageLink[] = []
+  let outside = 0
+  const realWorkspace = realpathSync(workspace)
+  const posix = (path: string): string => path.split(sep).join('/')
+  const seen = new Set<string>()
+  const packages: string[] = []
   const visit = (path: string, inPackages: boolean): void => {
     let entries: Dirent[]
     try {
@@ -93,17 +113,38 @@ export function typeDeclarations(
     for (const entry of entries) {
       const child = join(path, entry.name)
       if (entry.isDirectory()) {
-        if (entry.name === '.git' || (inPackages && entry.name === '.pnpm'))
-          continue
+        if (entry.name === '.git') continue
+        if (!inPackages && entry.name === 'node_modules') {
+          if (seen.has(realpathSync(child))) continue
+          seen.add(realpathSync(child))
+        }
         visit(child, inPackages || entry.name === 'node_modules')
+      } else if (inPackages && entry.isSymbolicLink()) {
+        const target = linkTarget(child, realWorkspace)
+        if (target === 'outside') outside++
+        else if (target) {
+          links.push({
+            path: posix(relative(workspace, child)),
+            target: posix(target)
+          })
+          if (!target.split(sep).includes('node_modules'))
+            packages.push(join(realWorkspace, target, 'node_modules'))
+        }
       } else if (
         inPackages &&
         entry.isFile() &&
         isTypeInformation(entry.name)
       ) {
-        found.push(child)
+        files.push(child)
       }
     }
+  }
+  const visitPackages = (path: string): void => {
+    if (!lstatSync(path, { throwIfNoEntry: false })?.isDirectory()) return
+    const real = realpathSync(path)
+    if (seen.has(real)) return
+    seen.add(real)
+    visit(path, true)
   }
   visit(directory, false)
   for (
@@ -111,12 +152,29 @@ export function typeDeclarations(
     locate(above, { workspace, home: workspace });
     above = dirname(above)
   ) {
-    const packages = join(above, 'node_modules')
-    if (lstatSync(packages, { throwIfNoEntry: false })?.isDirectory())
-      visit(packages, true)
+    visitPackages(join(above, 'node_modules'))
     if (above === dirname(above)) break
   }
-  return found
+  for (let next = packages.shift(); next; next = packages.shift())
+    visitPackages(join(workspace, relative(realWorkspace, next)))
+  return { files, links, outside }
+}
+
+// Where a link leads, relative to the workspace, if that is a directory inside it; 'outside' for a
+// directory elsewhere. Links to files, such as node_modules/.bin, and broken ones don't count.
+function linkTarget(
+  link: string,
+  realWorkspace: string
+): string | 'outside' | undefined {
+  try {
+    const target = realpathSync(link)
+    if (!statSync(target).isDirectory()) return undefined
+    const rel = relative(realWorkspace, target)
+    if (rel === '') return undefined
+    return rel.startsWith('..') || isAbsolute(rel) ? 'outside' : rel
+  } catch {
+    return undefined
+  }
 }
 
 function locate(path: string, roots: Roots): [Root, string] | undefined {
@@ -152,7 +210,8 @@ export function stageAnalysis(
   staging: string,
   buildTool: BuildTool['name'],
   pullRequest?: number,
-  extraFiles: string[] = []
+  extraFiles: string[] = [],
+  links: PackageLink[] = []
 ): Staged {
   const tree = moduleTree(settings)
   const shipped = new Map<string, [Root, string]>()
@@ -230,7 +289,7 @@ export function stageAnalysis(
   writeFileSync(
     join(staging, 'settings.json'),
     JSON.stringify(
-      { format: ARTIFACT_FORMAT, buildTool, pullRequest, settings: out },
+      { format: ARTIFACT_FORMAT, buildTool, pullRequest, settings: out, links },
       null,
       2
     )

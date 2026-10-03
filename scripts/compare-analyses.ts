@@ -5,8 +5,8 @@
 // Environment: SONAR_TOKEN, SONAR_HOST_URL (default SonarQube Cloud), PULL_REQUEST (compare that pull
 // request's analyses instead of the main branch's), COMMIT (wait until both analysed this commit).
 //
-// Pull request analyses only keep issues on changed lines and list no files, so the comparison is
-// complete on the main branch only.
+// Pull request analyses only keep issues on changed lines, list only changed files and have no blame,
+// so the comparison is complete on the main branch only.
 
 const host = (process.env.SONAR_HOST_URL || 'https://sonarcloud.io').replace(
   /\/+$/,
@@ -172,8 +172,10 @@ async function results(project: string): Promise<Results> {
   )
   // Without history, e.g. from a shallow checkout, the scanner only warns and everything above still
   // matches. Commit ids only: blame also carries author emails, which don't belong in a public log.
+  // SonarQube Cloud serves no blame for a pull request's files, which it lists when the pull request
+  // changes them.
   const blame = await Promise.all(
-    components.map(async (file) => {
+    (pullRequest ? [] : components).map(async (file) => {
       const { scm } = await api<{ scm: [number, string, string, string][] }>(
         '/api/sources/scm',
         { key: file.key, ...scope }

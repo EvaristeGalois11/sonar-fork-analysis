@@ -33,7 +33,10 @@ or through a link. It adds only two kinds of files to the source directories:
 report files that the settings name and type information in `node_modules`
 (declaration, `package.json` and `tsconfig` files). The analyzers read the type
 information to learn the types the code uses and by default never report on it
-as part of the project.
+as part of the project. The action also recreates the links a Node project had
+in `node_modules`. It only recreates links that sit in a `node_modules`
+directory and lead to a directory in the checkout, never into `.git`. A fork
+could commit links like these itself.
 
 **The settings.** The build's settings go through the same
 [allowlist](#what-the-fork-path-carries) again, and every path in them must lead
@@ -52,8 +55,10 @@ the [features that stay off](#what-stays-off-on-the-fork-path).
 tested against Sonar's real analyzer with a project that tried every way to get
 its own code run. The analyzer used its own Node.js and TypeScript and ignored
 the project's configuration files (ESLint, Babel, TypeScript and others) and
-everything in its `node_modules`. Analyzers for other languages haven't been
-tested this way.
+everything in its `node_modules`. Two Node test fixtures, one installed with npm
+and one with pnpm, keep checking this against SonarQube Cloud's analyzer, see
+[keeping up with the scanner](#keeping-up-with-the-scanner). Analyzers for other
+languages haven't been tested this way.
 
 **The scanner.** It runs in an empty directory of its own. Its environment holds
 the Sonar token, but not the action's inputs, the runner's own tokens, or
@@ -148,7 +153,9 @@ haven't changed since they were last reviewed.
 
 The analysis of the test fixtures also sets traps. Fake build tools on the
 `PATH` fail the run if the analysis ever starts one, and so do booby-trapped
-wrappers and Gradle settings in the fixtures.
+wrappers and Gradle settings in the fixtures. The Node fixtures add
+booby-trapped configuration files and packages, which fail the run if the
+JavaScript analyzer ever loads them.
 
 Older SonarQube Server versions and commercial editions aren't tested.
 

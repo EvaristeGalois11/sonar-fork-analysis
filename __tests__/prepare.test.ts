@@ -14,7 +14,7 @@ import {
   artifactName,
   simulationProperties,
   stageAnalysis,
-  typeDeclarations
+  typeInformation
 } from '../src/prepare.js'
 
 let root: string
@@ -107,7 +107,12 @@ describe('stageAnalysis', () => {
     ])
     expect(
       JSON.parse(readFileSync(join(staging, 'settings.json'), 'utf8'))
-    ).toEqual({ format: 1, buildTool: 'maven', settings: staged.settings })
+    ).toEqual({
+      format: 1,
+      buildTool: 'maven',
+      settings: staged.settings,
+      links: []
+    })
   })
 
   it('keeps relative entries relative and ships what they point to', () => {
@@ -265,7 +270,10 @@ describe('stageAnalysis', () => {
   })
 })
 
-describe('typeDeclarations', () => {
+describe('typeInformation', () => {
+  const files = (directory: string): string[] =>
+    typeInformation(directory, workspace).files.sort()
+
   it('finds the declarations in every node_modules, and the package.json files leading to them', () => {
     file(join(workspace, 'package.json'))
     file(join(workspace, 'src/types.d.ts'))
@@ -276,14 +284,7 @@ describe('typeDeclarations', () => {
       file(join(workspace, 'node_modules/a/node_modules/b/lib/x.d.mts')),
       file(join(workspace, 'packages/web/node_modules/c/index.d.cts'))
     ]
-    expect(typeDeclarations(workspace, workspace).sort()).toEqual(found.sort())
-  })
-
-  it('does not follow links, out of the workspace or anywhere', () => {
-    file(join(home, 'elsewhere/index.d.ts'))
-    mkdirSync(join(workspace, 'node_modules'))
-    symlinkSync(join(home, 'elsewhere'), join(workspace, 'node_modules/linked'))
-    expect(typeDeclarations(workspace, workspace)).toEqual([])
+    expect(files(workspace)).toEqual(found.sort())
   })
 
   it('takes the tsconfig files projects extend, and nothing else of a package', () => {
@@ -291,20 +292,7 @@ describe('typeDeclarations', () => {
       join(workspace, 'node_modules/@tsconfig/node22/tsconfig.json')
     )
     file(join(workspace, 'node_modules/@tsconfig/node22/README.md'))
-    expect(typeDeclarations(workspace, workspace)).toEqual([tsconfig])
-  })
-
-  it("skips pnpm's store, reachable only through links, but not other dot-directories", () => {
-    file(
-      join(
-        workspace,
-        'node_modules/.pnpm/express@5/node_modules/express/index.d.ts'
-      )
-    )
-    const prisma = file(
-      join(workspace, 'node_modules/.prisma/client/index.d.ts')
-    )
-    expect(typeDeclarations(workspace, workspace)).toEqual([prisma])
+    expect(files(workspace)).toEqual([tsconfig])
   })
 
   it('takes the node_modules above the project up to the workspace, where workspaces install', () => {
@@ -312,9 +300,70 @@ describe('typeDeclarations', () => {
     const own = file(join(project, 'node_modules/local/index.d.ts'))
     const hoisted = file(join(workspace, 'node_modules/express/index.d.ts'))
     file(join(root, 'node_modules/outside/index.d.ts'))
-    expect(typeDeclarations(project, workspace).sort()).toEqual(
-      [own, hoisted].sort()
+    expect(files(project)).toEqual([own, hoisted].sort())
+  })
+
+  it("records a workspace's links to its own packages, without following them", () => {
+    file(join(workspace, 'packages/shared/src/index.ts'))
+    mkdirSync(join(workspace, 'node_modules/@app'), { recursive: true })
+    symlinkSync(
+      '../../packages/shared',
+      join(workspace, 'node_modules/@app/shared')
     )
+    expect(typeInformation(workspace, workspace)).toEqual({
+      files: [],
+      links: [{ path: 'node_modules/@app/shared', target: 'packages/shared' }],
+      outside: 0
+    })
+  })
+
+  it("takes pnpm's store and the links leading into it", () => {
+    const store = 'node_modules/.pnpm/express@5/node_modules'
+    const declaration = file(join(workspace, store, 'express/index.d.ts'))
+    symlinkSync(
+      join(workspace, store, 'express'),
+      join(workspace, 'node_modules/express')
+    )
+    expect(typeInformation(workspace, workspace)).toEqual({
+      files: [declaration],
+      links: [{ path: 'node_modules/express', target: `${store}/express` }],
+      outside: 0
+    })
+  })
+
+  it('records no link leading out of the workspace, to a file or nowhere', () => {
+    file(join(home, 'elsewhere/index.d.ts'))
+    file(join(workspace, 'node_modules/typescript/bin/tsc'))
+    mkdirSync(join(workspace, 'node_modules/.bin'))
+    symlinkSync(join(home, 'elsewhere'), join(workspace, 'node_modules/out'))
+    symlinkSync(
+      '../typescript/bin/tsc',
+      join(workspace, 'node_modules/.bin/tsc')
+    )
+    symlinkSync('missing', join(workspace, 'node_modules/dangling'))
+    const found = typeInformation(workspace, workspace)
+    expect(found.links).toEqual([])
+    // Only the directory outside counts as left out, not the file or the broken link.
+    expect(found.outside).toBe(1)
+  })
+
+  it("takes a linked workspace package's own dependencies, which pnpm doesn't hoist", () => {
+    const app = join(workspace, 'packages/app')
+    mkdirSync(join(app, 'node_modules/@app'), { recursive: true })
+    symlinkSync('../../../shared', join(app, 'node_modules/@app/shared'))
+    const zod = file(
+      join(workspace, 'packages/shared/node_modules/zod/index.d.ts')
+    )
+    expect(typeInformation(app, workspace)).toEqual({
+      files: [zod],
+      links: [
+        {
+          path: 'packages/app/node_modules/@app/shared',
+          target: 'packages/shared'
+        }
+      ],
+      outside: 0
+    })
   })
 
   it('skips a directory it cannot read', () => {
@@ -325,24 +374,29 @@ describe('typeDeclarations', () => {
     const found = file(join(workspace, 'node_modules/x/index.d.ts'))
     chmodSync(locked, 0o000)
     try {
-      expect(typeDeclarations(workspace, workspace)).toEqual([found])
+      expect(files(workspace)).toEqual([found])
     } finally {
       chmodSync(locked, 0o755)
     }
   })
 
-  it('are shipped with the settings', () => {
+  it('are shipped with the settings, links in the manifest', () => {
     const declaration = file(join(workspace, 'node_modules/x/index.d.ts'))
+    const links = [{ path: 'node_modules/y', target: 'packages/y' }]
     stageAnalysis(
       new Map([['sonar.projectBaseDir', workspace]]),
       { workspace, home },
       staging,
       'scanner',
       undefined,
-      [declaration]
+      [declaration],
+      links
     )
     expect(
       existsSync(join(staging, 'workspace/node_modules/x/index.d.ts'))
     ).toBe(true)
+    expect(
+      JSON.parse(readFileSync(join(staging, 'settings.json'), 'utf8')).links
+    ).toEqual(links)
   })
 })
