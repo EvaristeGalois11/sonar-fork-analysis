@@ -348,13 +348,13 @@ branch.
     # …
 ```
 
-## Used by
+## Real-world example
 
-- [Instancio](https://github.com/instancio/instancio), a Maven build with 38
-  modules:
-  [build workflow](https://github.com/instancio/instancio/blob/main/.github/workflows/build.yml)
-  and
-  [Sonar workflow](https://github.com/instancio/instancio/blob/main/.github/workflows/sonar.yml).
+[Instancio](https://github.com/instancio/instancio) analyses its pull requests
+from forks with this action, on a Maven build with 38 modules. See its
+[build workflow](https://github.com/instancio/instancio/blob/main/.github/workflows/build.yml)
+and
+[Sonar workflow](https://github.com/instancio/instancio/blob/main/.github/workflows/sonar.yml).
 
 ## Limitations
 
