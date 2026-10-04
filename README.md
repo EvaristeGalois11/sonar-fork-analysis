@@ -30,14 +30,14 @@ languages in less depth.
 
 ## Supported projects and runners
 
-| Project                                                                         | Supported | Tested |
-| ------------------------------------------------------------------------------- | --------- | ------ |
-| Maven, Gradle                                                                   | Yes       | Yes    |
-| npm, pnpm                                                                       | Yes       | Yes    |
-| Yarn with `nodeLinker: node-modules`, Bun                                       | Yes       | No     |
-| Yarn Plug'n'Play                                                                | Yes¹      | No     |
-| [Python, Go, PHP and others](#other-projects) with a `sonar-project.properties` | Yes       | No     |
-| .NET, C and C++                                                                 | No²       | No     |
+| Project                                                      | Supported | Tested |
+| ------------------------------------------------------------ | --------- | ------ |
+| Maven, Gradle                                                | Yes       | Yes    |
+| npm, pnpm                                                    | Yes       | Yes    |
+| Yarn with `nodeLinker: node-modules`, Bun                    | Yes       | No     |
+| Yarn Plug'n'Play                                             | Yes¹      | No     |
+| Python, Go, PHP and others with a `sonar-project.properties` | Yes       | No     |
+| .NET, C and C++                                              | No²       | No     |
 
 ¹ Rules that need types find less: there's no `node_modules` to take them from.
 `nodeLinker: node-modules` avoids it.
