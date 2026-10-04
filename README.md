@@ -1,12 +1,9 @@
 # Sonar Fork Analysis
 
 [![CI](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/ci.yml)
-[![Fixtures](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml)
-[![Scanner](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
-[![CodeQL](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvaristeGalois11/sonar-fork-analysis/badge)](https://scorecard.dev/viewer/?uri=github.com/EvaristeGalois11/sonar-fork-analysis)
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=evaristegalois11_sonar-fork-analysis&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=evaristegalois11_sonar-fork-analysis)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=evaristegalois11_sonar-fork-analysis&metric=coverage)](https://sonarcloud.io/summary/new_code?id=evaristegalois11_sonar-fork-analysis)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvaristeGalois11/sonar-fork-analysis/badge)](https://scorecard.dev/viewer/?uri=github.com/EvaristeGalois11/sonar-fork-analysis)
 
 <!-- prettier-ignore -->
 > [!NOTE]
@@ -425,9 +422,9 @@ See its [build workflow](.github/workflows/ci.yml) and
   (`sonar.scanner.internal.dumpToFile`), a feature of the Sonar plugins for
   Maven and Gradle and of the pinned scanner. Sonar uses it in its own tests but
   doesn't document it, so a release could change it. If it stops working, the
-  build fails with _its Sonar plugin wrote no analysis settings_ or _the Sonar
-  scanner succeeded but wrote no analysis settings_. This project's tests keep
-  up with the latest plugins, so such a change should show up here first.
+  build fails with a message that no analysis settings were written. This
+  project's tests keep up with the latest plugins, so such a change should show
+  up here first.
 - Dependency analysis (SCA) and the engine's build-system autoconfiguration are
   off on fork pull requests, because both run the project's build tools. See
   [what stays off](docs/security.md#what-stays-off-on-the-fork-path).
@@ -546,14 +543,26 @@ workflow's own token, so you can drop it.
 `npm run all` formats, lints, type-checks, tests and bundles into `dist/`, which
 is committed.
 
+Three workflows besides CI check the action:
+
+- [![Fixtures](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml)
+  runs the action on sample Maven, Gradle, npm and pnpm projects. It analyses
+  each one directly and through the fork path and compares the results.
+- [![Scanner and engines](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
+  checks what the action assumes against the real scanner and the engines
+  SonarCloud and SonarQube serve. Sonar updates the engines on its own schedule,
+  so the workflow also runs every week and then reports any new scanner release.
+- [![CodeQL](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml)
+  is GitHub's security analysis of the code and the workflows.
+
 `npm run test:scanner` runs the tests against the real scanner. They download
 the scanner and SonarQube's engines. They need Java and `unzip`. If Sonar ships
 an engine that starts processes in new places, they fail until someone reviews
 `__tests__/java/engine-processes-*.txt`.
 
-The action pins the scanner CLI by hash. When the weekly Scanner run reports a
-newer one, run `npm run scanner:update`, which pins it with the digests Sonar
-publishes, then `npm run bundle`, and open a pull request.
+The action pins the scanner CLI by hash. When the weekly run of Scanner and
+engines reports a newer one, run `npm run scanner:update`, which pins it with
+the digests Sonar publishes, then `npm run bundle`, and open a pull request.
 
 To run the action locally, copy `.env.example` to `.env`, edit it and run
 `npm run local`.
