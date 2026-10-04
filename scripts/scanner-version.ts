@@ -22,7 +22,8 @@ async function text(url: string): Promise<string> {
 const metadata = await text(
   'https://repo1.maven.org/maven2/org/sonarsource/scanner/cli/sonar-scanner-cli/maven-metadata.xml'
 )
-const latest = /<release>([0-9.]+)<\/release>/.exec(metadata)?.[1]
+// The cache version below needs all four parts.
+const latest = /<release>(\d+\.\d+\.\d+\.\d+)<\/release>/.exec(metadata)?.[1]
 if (!latest) throw new Error('No scanner CLI release found on Maven Central')
 
 let source = readFileSync(SOURCE, 'utf8')
@@ -40,7 +41,7 @@ if (!process.argv.includes('--update')) {
   process.exit(0)
 }
 
-const [major, minor, patch, build] = latest.split('.')
+const [major = '', minor = '', patch = '', build = ''] = latest.split('.')
 source = source
   .replace(/^const VERSION = '.*'$/m, `const VERSION = '${latest}'`)
   .replace(
@@ -50,7 +51,7 @@ source = source
 // Each build's digest follows its suffix in the source.
 const suffixes = Array.from(
   source.matchAll(/suffix: '([^']*)'/g),
-  ([, suffix]) => suffix
+  ([, suffix = '']) => suffix
 )
 const published = await Promise.all(
   suffixes.map(async (suffix) => ({

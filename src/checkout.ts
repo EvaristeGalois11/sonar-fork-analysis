@@ -27,7 +27,7 @@ async function required(
   const { exitCode, stdout, stderr } = await git(workspace, args, env)
   if (exitCode !== 0) {
     throw new Error(
-      `git ${args[0]} failed with exit code ${exitCode}: ${stderr.trim()}`
+      `git ${args[0] ?? ''} failed with exit code ${exitCode}: ${stderr.trim()}`
     )
   }
   return stdout.trim()

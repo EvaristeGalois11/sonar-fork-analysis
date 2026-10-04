@@ -20,12 +20,7 @@ export default defineConfig(
       globals: globals.node,
       parserOptions: {
         projectService: {
-          allowDefaultProject: [
-            '__fixtures__/*.ts',
-            'eslint.config.mjs',
-            'jest.config.js',
-            'rollup.config.ts'
-          ]
+          allowDefaultProject: ['__fixtures__/*.ts', 'rollup.config.ts']
         },
         tsconfigRootDir: import.meta.dirname
       }
@@ -33,9 +28,17 @@ export default defineConfig(
   },
   {
     rules: {
+      // Given options replace the strict ones, and the rule's lenient defaults fill the rest in.
       '@typescript-eslint/restrict-template-expressions': [
         'error',
-        { allowNumber: true }
+        {
+          allowAny: false,
+          allowBoolean: false,
+          allowNever: false,
+          allowNullish: false,
+          allowNumber: true,
+          allowRegExp: false
+        }
       ]
     }
   },

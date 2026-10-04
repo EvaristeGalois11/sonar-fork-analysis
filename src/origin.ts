@@ -107,12 +107,13 @@ export async function resolveOrigin(
       headSha: run.head_sha
     }
     if (run.event === 'pull_request') {
-      const owner = run.head_repository.owner?.login
-      // GitHub may give neither; there is then nothing to look the pull request up by.
-      if (!owner || !run.head_branch)
+      // GitHub's schema allows a run without a branch, which leaves nothing to look the pull request
+      // up by; the owner may be missing too, but the repository's full name always has it.
+      if (!run.head_branch)
         return {
-          skip: `The run names no fork and branch to find its pull request by.`
+          skip: 'The run names no branch to find its pull request by.'
         }
+      const [owner = ''] = run.head_repository.full_name.split('/')
       origin.pullRequests = await findPullRequests(
         context,
         owner,

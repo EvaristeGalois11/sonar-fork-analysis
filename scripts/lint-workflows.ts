@@ -97,7 +97,7 @@ function checkInputs(path: string, token: TemplateToken): void {
       if (known?.has(key.toString().toLowerCase())) continue
       const at = key.range?.start
       console.log(
-        `${path} (Line: ${at?.line}, Col: ${at?.column}): ${uses.value} has no input '${key.toString()}'`
+        `${path} (Line: ${at?.line ?? '?'}, Col: ${at?.column ?? '?'}): ${uses.value} has no input '${key.toString()}'`
       )
       failed = true
     }
