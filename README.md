@@ -28,6 +28,22 @@ If you don't need coverage on fork pull requests, SonarQube Cloud's
 handles forks with no setup. It also doesn't support monorepos and analyses some
 languages in less depth.
 
+## Contents
+
+- [Supported projects and runners](#supported-projects-and-runners)
+- [How it works](#how-it-works)
+- [Setup](#setup)
+- [Inputs](#inputs)
+- [Commit statuses and required checks](#commit-statuses-and-required-checks)
+- [Recipes](#recipes)
+- [Real-world examples](#real-world-examples)
+- [Limitations](#limitations)
+- [Migrating from v1](#migrating-from-v1)
+- [Development](#development)
+- [Security](docs/security.md): what the analysis trusts and how to harden your
+  setup.
+- [Troubleshooting](docs/troubleshooting.md): what each message means.
+
 ## Supported projects and runners
 
 | Project                                                      | Supported | Tested |
@@ -57,12 +73,6 @@ languages in less depth.
 > Tested means it runs in this repository's checks on every change. There each
 > sample project is also analysed both directly and through the fork path, and
 > the two analyses must find the same issues, coverage and tests.
-
-## Documentation
-
-- [Security](docs/security.md): what the analysis trusts and how to harden your
-  setup.
-- [Troubleshooting](docs/troubleshooting.md): what each message means.
 
 ## How it works
 
