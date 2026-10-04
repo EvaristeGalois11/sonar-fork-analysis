@@ -958,6 +958,31 @@ describe('recreateLinks', () => {
     expect(readdirOrEmpty(join(workspace, 'node_modules'))).toEqual([])
   })
 
+  it('refuses links inside their own target, which would lead back to themselves', () => {
+    mkdirSync(join(workspace, 'node_modules/x'), { recursive: true })
+    // X is x on the file systems of macOS and Windows, which ignore case.
+    const caseless = existsSync(join(workspace, 'node_modules/X'))
+    expect(
+      recreateLinks(workspace, [
+        // On macOS, a link with an empty target, which leads nowhere.
+        { path: 'node_modules/pkg', target: 'node_modules' },
+        { path: 'node_modules/a/b', target: 'node_modules' },
+        { path: 'node_modules/X/c', target: 'node_modules/x' }
+      ])
+    ).toEqual([
+      'Skipped link node_modules/pkg: it does not lead to a directory in the checkout',
+      'Skipped link node_modules/a/b: it does not lead to a directory in the checkout',
+      ...(caseless
+        ? [
+            'Skipped link node_modules/X/c: it does not lead to a directory in the checkout'
+          ]
+        : [])
+    ])
+    expect(new Set(readdirOrEmpty(join(workspace, 'node_modules')))).toEqual(
+      new Set(caseless ? ['x'] : ['X', 'x'])
+    )
+  })
+
   it("refuses Windows' aliases of .git, and checks a long segment quickly", () => {
     mkdirSync(join(workspace, 'src'))
     // A regular expression for the trailing dots and spaces took 20 seconds on this one.
