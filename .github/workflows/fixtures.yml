@@ -249,6 +249,47 @@ jobs:
             exit 1
           fi
 
+  # The wrappers' Windows scripts, mvnw.cmd and gradlew.bat. Prepare runs the same build as a direct
+  # analysis without the token. Nothing analyses its artifact.
+  windows:
+    name: 'Prepare ${{ matrix.fixture }} on Windows'
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture: [maven, gradle]
+    steps:
+      - name: 'Checkout project'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: 'Set up Java'
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: ${{ matrix.fixture }}
+
+      # The runner comes with Maven and Gradle, so the build would pass without the wrapper too. These
+      # stand-ins come first on the PATH and fail it.
+      - name: 'Set traps'
+        run: |
+          $traps = (New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'traps')).FullName
+          foreach ($tool in 'mvn', 'gradle') {
+            Set-Content -Path (Join-Path $traps "$tool.cmd") -Value "@echo The action ran $tool, not the wrapper & exit /b 1"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $traps
+
+      - name: 'Prepare the analysis'
+        uses: $/
+        with:
+          mode: prepare
+          project-key:
+            evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_windows
+          working-directory: fixtures/${{ matrix.fixture }}
+
   # Fails when the fork path loses anything a direct analysis finds. On pull requests Sonar only keeps
   # issues on changed lines, so the full comparison happens on main.
   compare:

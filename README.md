@@ -435,8 +435,7 @@ See its [build workflow](.github/workflows/ci.yml) and
 - The build's `sonar.region` isn't carried. For SonarQube Cloud's US region, add
   `-Dsonar.region=us` to `build-arguments` in the Sonar workflow.
 - The action looks for `mvnw` and `gradlew` only in `working-directory`, not in
-  parent directories. On Windows runners it never runs `mvnw.cmd` or
-  `gradlew.bat`.
+  parent directories.
 - Where the scanner has no build with Java bundled, it needs Java on the `PATH`.
   Alpine images can't run the bundled Java. Projects on a newer Java than the
   scanner's may need `setup-java` and `-Dsonar.java.jdkHome` in
@@ -547,7 +546,8 @@ Three workflows besides CI check the action:
 
 - [![Fixtures](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml)
   runs the action on sample Maven, Gradle, npm and pnpm projects. It analyses
-  each one directly and through the fork path and compares the results.
+  each one directly and through the fork path and compares the results. It also
+  checks that the Maven and Gradle wrappers run on Windows.
 - [![Scanner and engines](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
   checks what the action assumes against the real scanner and the engines
   SonarCloud and SonarQube serve. Sonar updates the engines on its own schedule,
