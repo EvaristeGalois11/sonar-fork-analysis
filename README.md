@@ -41,8 +41,9 @@ analyses some languages in less depth.
 
 Tested means that on every change sample projects are analysed both directly and
 through the fork path. The two analyses must find the same issues, coverage and
-tests. The Sonar workflow is tested only on Linux runners. See
-[other projects](#other-projects) for the setup without Maven or Gradle.
+tests. The Sonar workflow is only tested on Linux runners. It should work on
+Windows and macOS too. See [other projects](#other-projects) for the setup
+without Maven or Gradle.
 
 ## Documentation
 
