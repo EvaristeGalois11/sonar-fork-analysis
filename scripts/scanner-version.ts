@@ -22,7 +22,8 @@ async function text(url: string): Promise<string> {
 const metadata = await text(
   'https://repo1.maven.org/maven2/org/sonarsource/scanner/cli/sonar-scanner-cli/maven-metadata.xml'
 )
-const latest = /<release>([0-9.]+)<\/release>/.exec(metadata)?.[1]
+// The cache version below needs all four parts.
+const latest = /<release>(\d+\.\d+\.\d+\.\d+)<\/release>/.exec(metadata)?.[1]
 if (!latest) throw new Error('No scanner CLI release found on Maven Central')
 
 let source = readFileSync(SOURCE, 'utf8')
@@ -40,7 +41,7 @@ if (!process.argv.includes('--update')) {
   process.exit(0)
 }
 
-const [major, minor, patch, build] = latest.split('.')
+const [major = '', minor = '', patch = '', build = ''] = latest.split('.')
 source = source
   .replace(/^const VERSION = '.*'$/m, `const VERSION = '${latest}'`)
   .replace(
@@ -50,15 +51,18 @@ source = source
 // Each build's digest follows its suffix in the source.
 const suffixes = Array.from(
   source.matchAll(/suffix: '([^']*)'/g),
-  ([, suffix]) => suffix
+  ([, suffix = '']) => suffix
 )
 const published = await Promise.all(
-  suffixes.map((suffix) =>
-    text(`${DOWNLOADS}/sonar-scanner-cli-${latest}${suffix}.zip.sha256`)
-  )
+  suffixes.map(async (suffix) => ({
+    suffix,
+    digest: await text(
+      `${DOWNLOADS}/sonar-scanner-cli-${latest}${suffix}.zip.sha256`
+    )
+  }))
 )
-for (const [index, suffix] of suffixes.entries()) {
-  const sha256 = published[index].trim().split(/\s+/)[0]
+for (const { suffix, digest } of published) {
+  const [sha256 = ''] = digest.trim().split(/\s+/)
   if (!/^[0-9a-f]{64}$/.test(sha256))
     throw new Error(`No SHA-256 published for the ${suffix || 'plain'} build`)
   source = source.replace(

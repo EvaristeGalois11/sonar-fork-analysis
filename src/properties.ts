@@ -2,12 +2,17 @@
 export function parseProperties(text: string): Map<string, string> {
   const properties = new Map<string, string>()
   const lines = text.split(/\r\n|\r|\n/)
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i].replace(/^[ \t\f]+/, '')
-    if (line === '' || line.startsWith('#') || line.startsWith('!')) continue
+  let index = 0
+  const next = (): string | undefined =>
+    lines[index++]?.replace(/^[ \t\f]+/, '')
+  for (let first = next(); first !== undefined; first = next()) {
+    if (first === '' || first.startsWith('#') || first.startsWith('!')) continue
+    let line = first
     // A line ending in an odd number of backslashes continues on the next one.
-    while (/(^|[^\\])(\\\\)*\\$/.test(line) && i + 1 < lines.length) {
-      line = line.slice(0, -1) + lines[++i].replace(/^[ \t\f]+/, '')
+    while (/(?:^|[^\\])(?:\\\\)*\\$/.test(line)) {
+      const following = next()
+      if (following === undefined) break
+      line = line.slice(0, -1) + following
     }
     const [key, value] = splitEntry(line)
     properties.set(unescape(key), unescape(value))

@@ -1,7 +1,9 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    // Tests index mock calls and parsed results everywhere; a missing one fails the test anyway.
+    "noUncheckedIndexedAccess": false
   },
   "include": ["./**/*.ts", "../src"],
   "exclude": []

@@ -148,12 +148,12 @@ export class Probe {
   readSettingsFiles(files: string[]): Map<string, string>[] {
     const directory = mkdtempSync(join(tmpdir(), 'probe-'))
     try {
-      files.forEach((content, index) =>
+      files.forEach((content, index) => {
         writeFileSync(
           join(directory, `${String(index).padStart(5, '0')}.properties`),
           content
         )
-      )
+      })
       const read: Map<string, string>[] = []
       for (const [kind, key, value] of this.run('cli', directory)) {
         if (kind === 'file') read.push(new Map())
@@ -226,7 +226,7 @@ export class Probe {
     )
       .split('\n')
       .filter((line) =>
-        /^(file|entry|split|case|refused|module|key|class)( |$)/.test(line)
+        /^(?:file|entry|split|case|refused|module|key|class)(?: |$)/.test(line)
       )
       .map((line) => line.split(' '))
   }

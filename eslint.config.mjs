@@ -1,87 +1,103 @@
-// See: https://eslint.org/docs/latest/use/configure/configuration-files
-
-import { FlatCompat } from '@eslint/eslintrc'
+import comments from '@eslint-community/eslint-plugin-eslint-comments/configs'
 import js from '@eslint/js'
-import typescriptEslint from '@typescript-eslint/eslint-plugin'
-import tsParser from '@typescript-eslint/parser'
+import { defineConfig } from 'eslint/config'
+import { createTypeScriptImportResolver } from 'eslint-import-resolver-typescript'
+import importX from 'eslint-plugin-import-x'
 import jest from 'eslint-plugin-jest'
-import prettier from 'eslint-plugin-prettier'
+import n from 'eslint-plugin-n'
+import prettier from 'eslint-plugin-prettier/recommended'
+import regexp from 'eslint-plugin-regexp'
 import globals from 'globals'
+import tseslint from 'typescript-eslint'
 
-const compat = new FlatCompat({
-  baseDirectory: import.meta.dirname,
-  recommendedConfig: js.configs.recommended,
-  allConfig: js.configs.all
-})
-
-export default [
+export default defineConfig(
+  { ignores: ['**/coverage', '**/dist', '**/node_modules', 'fixtures'] },
+  js.configs.recommended,
+  // The rules that use the compiler's types, the closest to Java's Error Prone.
+  tseslint.configs.strictTypeChecked,
   {
-    ignores: [
-      '**/coverage',
-      '**/dist',
-      '**/linter',
-      '**/node_modules',
-      'fixtures'
-    ]
-  },
-  ...compat.extends(
-    'eslint:recommended',
-    'plugin:@typescript-eslint/eslint-recommended',
-    'plugin:@typescript-eslint/recommended',
-    'plugin:jest/recommended',
-    'plugin:prettier/recommended'
-  ),
-  {
-    plugins: {
-      jest,
-      prettier,
-      '@typescript-eslint': typescriptEslint
-    },
-
     languageOptions: {
-      globals: {
-        ...globals.node,
-        ...globals.jest,
-        Atomics: 'readonly',
-        SharedArrayBuffer: 'readonly'
-      },
-
-      parser: tsParser,
-      ecmaVersion: 2023,
-      sourceType: 'module',
-
+      globals: globals.node,
       parserOptions: {
         projectService: {
-          allowDefaultProject: [
-            '__fixtures__/*.ts',
-            'eslint.config.mjs',
-            'jest.config.js',
-            'rollup.config.ts'
-          ]
+          allowDefaultProject: ['__fixtures__/*.ts', 'rollup.config.ts']
         },
         tsconfigRootDir: import.meta.dirname
       }
-    },
-
-    settings: {
-      'import/resolver': {
-        typescript: {
-          alwaysTryTypes: true,
-          project: 'tsconfig.json'
-        }
-      }
-    },
-
-    rules: {
-      camelcase: 'off',
-      'eslint-comments/no-use': 'off',
-      'eslint-comments/no-unused-disable': 'off',
-      'i18n-text/no-en': 'off',
-      'import/no-namespace': 'off',
-      'no-console': 'off',
-      'no-shadow': 'off',
-      'no-unused-vars': 'off',
-      'prettier/prettier': 'error'
     }
-  }
-]
+  },
+  {
+    rules: {
+      // Given options replace the strict ones, and the rule's lenient defaults fill the rest in.
+      '@typescript-eslint/restrict-template-expressions': [
+        'error',
+        {
+          allowAny: false,
+          allowBoolean: false,
+          allowNever: false,
+          allowNullish: false,
+          allowNumber: true,
+          allowRegExp: false
+        }
+      ]
+    }
+  },
+  { files: ['**/*.{js,mjs}'], extends: [tseslint.configs.disableTypeChecked] },
+  // Among others, regular expressions whose running time grows faster than their input.
+  regexp.configs['flat/recommended'],
+  {
+    files: ['src/**', 'scripts/**'],
+    // Quadratic in the length of the input; recommended leaves it out, as it can't be fixed in every
+    // regular expression, but what reads the artifact must be.
+    rules: { 'regexp/no-super-linear-move': 'error' }
+  },
+  comments.recommended,
+  {
+    rules: {
+      // A suppressed check says why, like NOSONAR.
+      '@eslint-community/eslint-comments/require-description': 'error'
+    }
+  },
+  {
+    plugins: { 'import-x': importX, n },
+    settings: {
+      'import-x/resolver-next': [createTypeScriptImportResolver()]
+    },
+    rules: {
+      'import-x/no-cycle': 'error',
+      // What src imports is bundled into dist and runs in the privileged job.
+      'import-x/no-extraneous-dependencies': [
+        'error',
+        {
+          devDependencies: [
+            '__tests__/**',
+            '__fixtures__/**',
+            'scripts/**',
+            '*.config.{js,mjs,ts}'
+          ]
+        }
+      ],
+      // Checked against package.json's engines, the Node version GitHub runs the action on.
+      'n/no-deprecated-api': 'error',
+      'n/no-unsupported-features/es-builtins': 'error',
+      'n/no-unsupported-features/es-syntax': 'error',
+      'n/no-unsupported-features/node-builtins': 'error'
+    }
+  },
+  {
+    files: ['__tests__/**', '__fixtures__/**'],
+    extends: [jest.configs['flat/recommended']],
+    languageOptions: { globals: globals.jest },
+    // Tests read JSON and mock arguments loosely, and write mocks of async functions as async: a value
+    // of the wrong shape fails the assertion anyway, with the stack to show where.
+    rules: {
+      '@typescript-eslint/no-base-to-string': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/require-await': 'off'
+    }
+  },
+  prettier
+)

@@ -17,7 +17,7 @@ const base: Context = {
 
 function workflowRun(
   event: string,
-  headBranch = 'feature',
+  headBranch: string | null = 'feature',
   headRepository = 'forker/repo'
 ) {
   return {
@@ -88,6 +88,20 @@ describe('resolveOrigin', () => {
     })
 
     expect(origin).toHaveProperty('skip')
+  })
+
+  it('skips a run that names no branch to look the pull request up by', async () => {
+    const fetch = jest.spyOn(globalThis, 'fetch')
+
+    const origin = await resolveOrigin({
+      ...base,
+      ...workflowRun('pull_request', null)
+    })
+
+    expect(origin).toEqual({
+      skip: 'The run names no branch to find its pull request by.'
+    })
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('fails when GitHub refuses the lookup', async () => {
@@ -174,6 +188,12 @@ describe('choosePullRequest', () => {
 
   it('takes the only candidate whatever the hint says', () => {
     expect(choosePullRequest([toMain], 1)).toEqual({ pullRequest: toMain })
+  })
+
+  it('has nothing to choose without candidates', () => {
+    expect(() => choosePullRequest([], 7)).toThrow(
+      'There is no open pull request to analyse'
+    )
   })
 
   it('lets the hint choose among the candidates', () => {

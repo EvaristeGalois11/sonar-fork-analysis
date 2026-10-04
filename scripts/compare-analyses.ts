@@ -142,7 +142,7 @@ async function results(project: string): Promise<Results> {
     }
   )
   const measures = component.measures.map(
-    (measure) => `${measure.metric} ${measure.value}`
+    (measure) => `${measure.metric} ${measure.value ?? '-'}`
   )
   const issueSearch = await api<{ issues: Issue[] } & Paging>(
     '/api/issues/search',

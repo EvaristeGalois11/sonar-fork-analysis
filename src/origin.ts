@@ -1,3 +1,13 @@
+import type { components } from '@octokit/openapi-webhooks-types'
+
+// The payloads the action reads, as GitHub documents them. GitHub writes the file, so its shape is
+// trusted; the values in it may still come from a fork.
+export type WorkflowRunEvent =
+  components['schemas']['webhook-workflow-run-completed']
+export type PullRequestEvent =
+  components['schemas']['webhook-pull-request-synchronize']
+type RepositoryEvent = { repository?: { default_branch?: string } }
+
 export type PullRequest = { key: string; branch: string; base: string }
 
 export type Origin = {
@@ -14,9 +24,8 @@ export type Origin = {
 
 export type Context = {
   eventName: string
-  // The webhook payload of the event that started the workflow.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  event: any
+  // The webhook payload of the event that started the workflow, as eventName says.
+  event: unknown
   repository: string
   sha: string
   refName: string
@@ -43,7 +52,7 @@ async function findPullRequests(
     per_page: '100'
   })
   const response = await fetch(
-    `${context.apiUrl}/repos/${context.repository}/pulls?${query}`,
+    `${context.apiUrl}/repos/${context.repository}/pulls?${query.toString()}`,
     {
       headers: {
         Accept: 'application/vnd.github+json',
@@ -77,6 +86,7 @@ export function choosePullRequest(
       : undefined
   if (hinted) return { pullRequest: hinted }
   const [first] = candidates
+  if (!first) throw new Error('There is no open pull request to analyse')
   return candidates.length > 1
     ? {
         pullRequest: first,
@@ -90,16 +100,23 @@ export async function resolveOrigin(
 ): Promise<Origin | { skip: string }> {
   const { eventName, event } = context
   if (eventName === 'workflow_run') {
-    const run = event.workflow_run
+    const run = (event as WorkflowRunEvent).workflow_run
     const origin: Origin = {
       runId: run.id,
       repository: run.head_repository.full_name,
       headSha: run.head_sha
     }
     if (run.event === 'pull_request') {
+      // GitHub's schema allows a run without a branch, which leaves nothing to look the pull request
+      // up by; the owner may be missing too, but the repository's full name always has it.
+      if (!run.head_branch)
+        return {
+          skip: 'The run names no branch to find its pull request by.'
+        }
+      const [owner = ''] = run.head_repository.full_name.split('/')
       origin.pullRequests = await findPullRequests(
         context,
-        run.head_repository.owner.login,
+        owner,
         run.head_branch,
         run.head_sha
       )
@@ -117,13 +134,16 @@ export async function resolveOrigin(
       return {
         skip: `The run analyses ${run.head_repository.full_name}, not this repository, and is not for a pull request.`
       }
-    } else if (run.head_branch !== event.repository.default_branch) {
+    } else if (
+      run.head_branch &&
+      run.head_branch !== (event as WorkflowRunEvent).repository.default_branch
+    ) {
       origin.branch = run.head_branch
     }
     return origin
   }
   if (eventName === 'pull_request' || eventName === 'pull_request_target') {
-    const pull = event.pull_request
+    const pull = (event as PullRequestEvent).pull_request
     return {
       repository: pull.head.repo.full_name,
       headSha: pull.head.sha,
@@ -140,7 +160,7 @@ export async function resolveOrigin(
     repository: context.repository,
     headSha: context.sha
   }
-  if (context.refName !== event.repository?.default_branch)
+  if (context.refName !== (event as RepositoryEvent).repository?.default_branch)
     origin.branch = context.refName
   return origin
 }
