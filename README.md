@@ -548,9 +548,10 @@ Three workflows besides CI check the action:
 - [![Fixtures](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml)
   runs the action on sample Maven, Gradle, npm and pnpm projects. It analyses
   each one directly and through the fork path and compares the results.
-- [![Scanner](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
-  checks that the real scanner still reads settings the way the action expects.
-  Every week it also looks for a new scanner release.
+- [![Scanner and engines](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
+  checks what the action assumes against the real scanner and the engines
+  SonarCloud and SonarQube serve. Sonar updates the engines on its own schedule,
+  so the workflow also runs every week and then reports any new scanner release.
 - [![CodeQL](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml)
   is GitHub's security analysis of the code and the workflows.
 
@@ -559,9 +560,9 @@ the scanner and SonarQube's engines. They need Java and `unzip`. If Sonar ships
 an engine that starts processes in new places, they fail until someone reviews
 `__tests__/java/engine-processes-*.txt`.
 
-The action pins the scanner CLI by hash. When the weekly Scanner run reports a
-newer one, run `npm run scanner:update`, which pins it with the digests Sonar
-publishes, then `npm run bundle`, and open a pull request.
+The action pins the scanner CLI by hash. When the weekly run of Scanner and
+engines reports a newer one, run `npm run scanner:update`, which pins it with
+the digests Sonar publishes, then `npm run bundle`, and open a pull request.
 
 To run the action locally, copy `.env.example` to `.env`, edit it and run
 `npm run local`.

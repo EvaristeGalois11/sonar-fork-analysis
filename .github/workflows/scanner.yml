@@ -1,7 +1,7 @@
 # Checks what the analysis assumes about the scanner against the real one: the CLI the action pins,
 # and the engines SonarCloud and SonarQube serve, which change on Sonar's schedule, hence the weekly
 # run, which also reports a newer CLI.
-name: 'Scanner'
+name: 'Scanner and engines'
 on:
   push:
     branches:
