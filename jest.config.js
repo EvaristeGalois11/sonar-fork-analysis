@@ -24,6 +24,7 @@ export default {
   preset: 'ts-jest',
   reporters: ['default'],
   resolver: 'ts-jest-resolver',
+  setupFiles: ['<rootDir>/__fixtures__/environment.ts'],
   testEnvironment: 'node',
   testMatch: ['**/*.test.ts'],
   testPathIgnorePatterns: ['/dist/', '/fixtures/', '/node_modules/'],
