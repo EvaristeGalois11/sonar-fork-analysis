@@ -1,0 +1,12 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/index.ts", "src/post.ts", "scripts/*.ts", "__fixtures__/*.ts"],
+  "project": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "__tests__/**/*.ts",
+    "__fixtures__/**/*.ts"
+  ],
+  "ignoreBinaries": ["java"],
+  "ignore": ["dist/**"]
+}

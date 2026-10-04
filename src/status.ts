@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 
-export type State = 'pending' | 'success' | 'failure'
+type State = 'pending' | 'success' | 'failure'
 
 export type StatusTarget = {
   apiUrl: string

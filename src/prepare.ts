@@ -36,7 +36,7 @@ const IMPLICIT_REPORTS = [
   'build/reports/jacoco/test/jacocoTestReport.xml'
 ]
 
-export type Root = 'workspace' | 'home'
+type Root = 'workspace' | 'home'
 export type Roots = Record<Root, string>
 
 export function simulationProperties(dumpFile: string): string[] {
