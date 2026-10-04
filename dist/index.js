@@ -128055,18 +128055,24 @@ function unpackFile(source, rel, workspace, protectedRoots, reports) {
         .filter((s) => s !== '.'));
     if (refused)
         return refused;
+    // Windows' exclusive copy follows a dangling link and creates its target.
+    if (lstatSync(target, { throwIfNoEntry: false }))
+        return existing(rel);
     try {
         copyFileSync(source, target, constants$8.COPYFILE_EXCL);
     }
     catch (error) {
         if (error.code === 'EEXIST')
-            // A repository committing node_modules fixtures would get a warning for each of them.
-            return isPackageTypeFile(rel)
-                ? undefined
-                : 'it already exists in the checkout';
+            return existing(rel);
         throw error;
     }
     return undefined;
+}
+// A repository committing node_modules fixtures would get a warning for each of them.
+function existing(rel) {
+    return isPackageTypeFile(rel)
+        ? undefined
+        : 'it already exists in the checkout';
 }
 // A committed symlink (e.g. target -> /home/runner/.m2) must not redirect a write below it, so the
 // directories on the way are made here and never followed.

@@ -397,6 +397,15 @@ describe('unpackWorkspace', () => {
     expect(existsSync(join(outside, 'missing'))).toBe(false)
   })
 
+  it('does not write a file through a dangling symlink of its name', () => {
+    symlinkSync(join(outside, 'missing'), join(workspace, 'App.class'))
+    file(join(artifact, 'App.class'))
+    expect(unpackWorkspace(artifact, workspace, [])).toEqual([
+      'Skipped App.class: it already exists in the checkout'
+    ])
+    expect(existsSync(join(outside, 'missing'))).toBe(false)
+  })
+
   it('keeps out of .git and the sources', () => {
     const sources = join(workspace, 'src')
     mkdirSync(sources)
