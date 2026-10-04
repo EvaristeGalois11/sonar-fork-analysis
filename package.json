@@ -35,8 +35,8 @@
     "package:watch": "npm run package -- --watch",
     "scanner:check": "node scripts/scanner-version.ts",
     "scanner:update": "node scripts/scanner-version.ts --update",
-    "test": "node --experimental-vm-modules --no-warnings node_modules/jest/bin/jest.js",
-    "test:scanner": "SCANNER_CHECKS=1 node --experimental-vm-modules --no-warnings node_modules/jest/bin/jest.js __tests__/real-scanner.test.ts --coverage=false",
+    "test": "node --experimental-vm-modules --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js",
+    "test:scanner": "SCANNER_CHECKS=1 node --experimental-vm-modules --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js __tests__/real-scanner.test.ts --coverage=false",
     "typecheck": "npx tsc --noEmit --project . && npx tsc --project __tests__ && npx tsc --project scripts",
     "all": "npm run format:write && npm run lint && npm run lint:deps && npm run lint:workflows && npm run typecheck && npm run test && npm run package"
   },
