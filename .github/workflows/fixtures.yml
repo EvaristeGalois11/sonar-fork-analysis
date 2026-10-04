@@ -249,15 +249,28 @@ jobs:
             exit 1
           fi
 
-  # The wrappers' Windows scripts, mvnw.cmd and gradlew.bat. Prepare runs the same build as a direct
-  # analysis without the token. Nothing analyses its artifact.
-  windows:
-    name: 'Prepare ${{ matrix.fixture }} on Windows'
-    runs-on: windows-latest
+  # What differs on other systems: the wrappers' Windows scripts (mvnw.cmd, gradlew.bat), and the
+  # scanner the action downloads for each. Prepare runs the same build as a direct analysis without the
+  # token. Nothing analyses its artifact.
+  other-systems:
+    name: 'Prepare ${{ matrix.fixture }} on ${{ matrix.name }}'
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        fixture: [maven, gradle]
+        include:
+          - fixture: maven
+            os: windows-latest
+            name: Windows
+          - fixture: gradle
+            os: windows-latest
+            name: Windows
+          - fixture: npm
+            os: windows-latest
+            name: Windows
+          - fixture: npm
+            os: macos-latest
+            name: macOS
     steps:
       - name: 'Checkout project'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -266,15 +279,32 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: 'Set up Java'
+        if: matrix.fixture == 'maven' || matrix.fixture == 'gradle'
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: 21
           cache: ${{ matrix.fixture }}
 
+      - name: 'Set up Node'
+        if: matrix.fixture == 'npm'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: fixtures/npm/package-lock.json
+
+      - name: 'Test the npm fixture'
+        if: matrix.fixture == 'npm'
+        working-directory: fixtures/npm
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
       # The runner comes with Maven and Gradle, so the build would pass without the wrapper too. These
       # stand-ins come first on the PATH and fail it.
       - name: 'Set traps'
+        if: runner.os == 'Windows'
         run: |
           $traps = (New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'traps')).FullName
           foreach ($tool in 'mvn', 'gradle') {
@@ -287,7 +317,8 @@ jobs:
         with:
           mode: prepare
           project-key:
-            evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_windows
+            evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_${{
+            runner.os }}
           working-directory: fixtures/${{ matrix.fixture }}
 
   # Fails when the fork path loses anything a direct analysis finds. On pull requests Sonar only keeps
