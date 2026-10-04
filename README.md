@@ -40,6 +40,8 @@ languages in less depth.
 - [Limitations](#limitations)
 - [Migrating from v1](#migrating-from-v1)
 - [Development](#development)
+- [Reporting vulnerabilities](#reporting-vulnerabilities)
+- [License](#license)
 - [Security](docs/security.md): what the analysis trusts and how to harden your
   setup.
 - [Troubleshooting](docs/troubleshooting.md): what each message means.
@@ -610,7 +612,7 @@ artifact the failed run uploads.
 Third-party actions added to a workflow must also be added to the repository's
 allowed actions.
 
-## Security
+## Reporting vulnerabilities
 
 Report vulnerabilities as described in [SECURITY.md](SECURITY.md). How the
 action protects your token is explained in [security](docs/security.md).
