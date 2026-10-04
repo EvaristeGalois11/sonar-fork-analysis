@@ -9,6 +9,7 @@ import {
   readlinkSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync
 } from 'node:fs'
@@ -21,18 +22,21 @@ import {
   resolveSettings,
   unpackWorkspace
 } from '../src/analyze.js'
+import { ARTIFACT_FORMAT } from '../src/prepare.js'
 import { placeholder, settingText, trustedKeys } from './arbitraries.js'
 
 let root = ''
 let workspace: string
 let outside: string
 
-// Each run gets its own directories: the code under test writes to them.
+// Each run gets its own directories: the code under test writes to them. The checkout sits a few
+// levels down, so a path climbing out of it still lands where the snapshot of the root sees it.
 function freshDirectories(): void {
   root = mkdtempSync(join(tmpdir(), 'boundary-'))
-  workspace = join(root, 'work')
-  outside = join(root, 'outside')
-  mkdirSync(workspace)
+  const base = join(root, 'a', 'b', 'c', 'd')
+  workspace = join(base, 'work')
+  outside = join(base, 'outside')
+  mkdirSync(workspace, { recursive: true })
   mkdirSync(outside)
   writeFileSync(join(outside, 'secret'), 'secret')
 }
@@ -67,13 +71,22 @@ function snapshot(directory: string): Map<string, string> {
   return entries
 }
 
-function added(
+// Given snapshots of the root, checks that nothing there changed and that everything added is in the
+// checkout; gives back what was added, relative to the checkout.
+function addedToCheckout(
   before: Map<string, string>,
   after: Map<string, string>
 ): string[] {
   for (const [path, was] of before)
     expect({ path, now: after.get(path) }).toEqual({ path, now: was })
-  return [...after.keys()].filter((path) => !before.has(path))
+  const checkout = relative(root, workspace) + sep
+  const added = [...after.keys()].filter((path) => !before.has(path))
+  for (const path of added)
+    expect({ path, inCheckout: path.startsWith(checkout) }).toEqual({
+      path,
+      inCheckout: true
+    })
+  return added.map((path) => path.slice(checkout.length))
 }
 
 // What a call gave back, or the message of what it threw, so a property can check either.
@@ -95,7 +108,7 @@ describe('readManifest on any JSON', () => {
   const manifest = fc.oneof(
     fc.jsonValue(),
     fc.record({
-      format: fc.oneof(fc.constant(1), fc.jsonValue()),
+      format: fc.oneof(fc.constant(ARTIFACT_FORMAT), fc.jsonValue()),
       settings: fc.oneof(
         fc.dictionary(fc.string(), fc.oneof(fc.string(), fc.jsonValue())),
         fc.jsonValue()
@@ -112,7 +125,7 @@ describe('readManifest on any JSON', () => {
           readManifest(JSON.stringify(value), 'it')
         )
         expect(refusal).toMatch(
-          /^(?:it (?:was prepared by an incompatible version|holds settings that are not all text).*)?$/
+          /^(?:it (?:was prepared by an incompatible version|holds settings that are not all text).*)?$/s
         )
         for (const setting of Object.values(manifest?.settings ?? {}))
           expect(typeof setting).toBe('string')
@@ -131,9 +144,32 @@ describe('resolveSettings on any settings', () => {
     'sonar.coverageReportPaths',
     'sonar.projectBuildDir'
   ]
+  // What a fork's build must never pass on: the token, where the analysis goes, the scanner's own
+  // settings, anything that starts a program.
+  const forbidden = [
+    ...trustedKeys,
+    'sonar.token',
+    'sonar.login',
+    'sonar.scanner.javaExePath',
+    'sonar.scanner.javaOpts',
+    'sonar.nodejs.executable',
+    'sonar.plsql.jdbc.driver.path',
+    'sonar.sca.enabled',
+    'sonar.working.directory',
+    'sonar.userHome'
+  ]
   const bareKey = fc.oneof(
-    fc.constantFrom(...trustedKeys, ...pathKeys, 'sonar.modules'),
-    settingText
+    fc.constantFrom(...forbidden, ...pathKeys, 'sonar.modules'),
+    settingText,
+    // Keys the allowlist keeps whatever follows or precedes, so random text reaches the later checks.
+    fc
+      .tuple(
+        fc.constantFrom('sonar.issue.ignore.', 'sonar.links.'),
+        settingText
+      )
+      .map(([prefix, text]) => prefix + text),
+    settingText.map((text) => `sonar.${text}.exclusions`),
+    settingText.map((text) => `sonar.${text}.reportPaths`)
   )
   const key = fc.oneof(
     bareKey,
@@ -170,28 +206,39 @@ describe('resolveSettings on any settings', () => {
     )
   )
 
-  it('keeps no trusted setting, placeholder or half character, and fails only by refusing', () => {
+  // Modules m and n with bases the checks accept, so their keys are kept rather than refused.
+  const modules = {
+    'sonar.modules': 'm,n',
+    'm.sonar.projectBaseDir': '{workspace}/src',
+    'n.sonar.projectBaseDir': '{workspace}/lib'
+  }
+  const settings = fc.oneof(
+    fc.dictionary(key, value),
+    fc.dictionary(key, value).map((random) => ({ ...random, ...modules }))
+  )
+
+  it('keeps no forbidden setting, no placeholder in values, no half character, and fails only by refusing', () => {
     freshDirectories()
     mkdirSync(join(workspace, 'src'))
+    mkdirSync(join(workspace, 'lib'))
     const home = join(root, 'home')
     fc.assert(
-      fc.property(fc.dictionary(key, value), (settings) => {
+      fc.property(settings, (settings) => {
         const { value: resolved, refusal = '' } = outcome(() =>
           resolveSettings(settings, workspace, home)
         )
         expect(refusal).toMatch(
-          /^(?:.*no base directory in the checkout|Invalid module id.*)?$/
+          /^(?:.*no base directory in the checkout|Invalid module id.*)?$/s
         )
         const properties = resolved?.properties ?? new Map<string, string>()
+        // The scanner expands placeholders in values only.
         for (const [key, value] of properties) {
-          for (const text of [key, value]) {
-            expect(placeholder.test(text)).toBe(false)
-            expect(/\p{Cs}/u.test(text)).toBe(false)
-          }
+          expect(placeholder.test(value)).toBe(false)
+          expect(/\p{Cs}/u.test(key + value)).toBe(false)
         }
-        for (const trusted of trustedKeys)
+        for (const forbiddenKey of forbidden)
           for (const prefix of ['', 'm.', 'n.'])
-            expect(properties.has(prefix + trusted)).toBe(false)
+            expect(properties.has(prefix + forbiddenKey)).toBe(false)
       }),
       { numRuns: 1000 }
     )
@@ -217,6 +264,7 @@ const segment = fc.constantFrom(
   'GIT~1',
   'hooks',
   'sonar-project.properties',
+  'SONAR-PROJECT.PROPERTIES',
   'x:y',
   'a\\b'
 )
@@ -253,6 +301,15 @@ describe('recreateLinks on any links', () => {
           )
         )
         .map(([directory, name]) => `${directory}/${name}`)
+    },
+    // Climbing out of the checkout, into directories named node_modules on the way.
+    {
+      weight: 1,
+      arbitrary: fc.constantFrom(
+        '../node_modules/pkg',
+        'node_modules/../../node_modules/pkg',
+        'node_modules/../../../node_modules/pkg'
+      )
     },
     { weight: 1, arbitrary: pathText }
   )
@@ -310,13 +367,11 @@ describe('recreateLinks on any links', () => {
           symlinkSync('.git', join(workspace, 'g'))
           file(join(workspace, 'README.md'))
           const realWorkspace = realpathSync(workspace)
-          const before = snapshot(workspace)
-          const outsideBefore = snapshot(outside)
+          const before = snapshot(root)
 
           recreateLinks(workspace, links)
 
-          expect(snapshot(outside)).toEqual(outsideBefore)
-          for (const path of added(before, snapshot(workspace))) {
+          for (const path of addedToCheckout(before, snapshot(root))) {
             const stats = lstatSync(join(workspace, path))
             expect(stats.isFile()).toBe(false)
             const segments = path.split(sep)
@@ -329,6 +384,7 @@ describe('recreateLinks on any links', () => {
             if (!stats.isSymbolicLink()) continue
             expect(segments.slice(0, -1)).toContain('node_modules')
             const target = realpathSync(join(workspace, path))
+            expect(statSync(target).isDirectory()).toBe(true)
             expect(target).not.toBe(realWorkspace)
             expect(within(target, realWorkspace)).toBe(true)
             expect(relative(realWorkspace, target).split(sep).some(isGit)).toBe(
@@ -346,7 +402,7 @@ describe('recreateLinks on any links', () => {
 
 describe('unpackWorkspace on any artifact', () => {
   const artifactFile = fc.record({
-    path: fc.array(segment, { minLength: 1, maxLength: 4 }),
+    path: fc.array(segment, { maxLength: 4 }),
     name: fc.constantFrom(
       'Main.java',
       'report.xml',
@@ -356,7 +412,8 @@ describe('unpackWorkspace on any artifact', () => {
       'README.md',
       'sonar-project.properties',
       'SONAR-PROJECT.PROPERTIES',
-      'new.txt'
+      'new.txt',
+      'dangling'
     ),
     content: fc.constantFrom('artifact', '')
   })
@@ -384,10 +441,11 @@ describe('unpackWorkspace on any artifact', () => {
           file(join(workspace, 'README.md'), 'readme')
           symlinkSync(outside, join(workspace, 'out'))
           symlinkSync('src', join(workspace, 'lnk'))
+          // A check that follows links would see nothing here, and write through it.
+          symlinkSync(join(outside, 'new'), join(workspace, 'dangling'))
           const realSources = realpathSync(join(workspace, 'src'))
           const report = join(realSources, 'report.xml')
-          const before = snapshot(workspace)
-          const outsideBefore = snapshot(outside)
+          const before = snapshot(root)
 
           unpackWorkspace(
             artifact,
@@ -396,16 +454,19 @@ describe('unpackWorkspace on any artifact', () => {
             [report]
           )
 
-          expect(snapshot(outside)).toEqual(outsideBefore)
-          for (const path of added(before, snapshot(workspace))) {
+          for (const path of addedToCheckout(before, snapshot(root))) {
             const segments = path.split(sep)
             expect(segments.some(isGit)).toBe(false)
-            expect(segments.at(-1)?.toLowerCase()).not.toBe(
+            // The scanner reads settings from a file by that name in any case; a directory only
+            // matters by its exact name, which is the one Linux has.
+            const real = join(realpathSync(workspace), path)
+            const isDirectory = lstatSync(real).isDirectory()
+            const name = segments.at(-1) ?? ''
+            expect(isDirectory ? name : name.toLowerCase()).not.toBe(
               'sonar-project.properties'
             )
-            const real = join(realpathSync(workspace), path)
             if (!within(real, realSources) || real === realSources) continue
-            if (lstatSync(real).isDirectory()) continue
+            if (isDirectory) continue
             const typeInformation =
               segments.includes('node_modules') &&
               /^(?:package\.json|.*\.d\.[cm]?ts|tsconfig.*\.json)$/.test(
