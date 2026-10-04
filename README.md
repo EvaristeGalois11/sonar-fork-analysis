@@ -547,7 +547,8 @@ Three workflows besides CI check the action:
 - [![Fixtures](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml)
   runs the action on sample Maven, Gradle, npm and pnpm projects. It analyses
   each one directly and through the fork path and compares the results. It also
-  checks that the Maven and Gradle wrappers run on Windows.
+  checks what differs on Windows and macOS: the Maven and Gradle wrappers and
+  the scanner the action downloads.
 - [![Scanner and engines](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
   checks what the action assumes against the real scanner and the engines
   SonarCloud and SonarQube serve. Sonar updates the engines on its own schedule,

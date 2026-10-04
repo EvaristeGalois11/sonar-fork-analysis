@@ -9,7 +9,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import {
   artifactName,
   simulationProperties,
@@ -98,7 +98,12 @@ describe('stageAnalysis', () => {
       'app.sonar.java.libraries': '{home}/.m2/repository/junit/junit.jar',
       'app.sonar.java.source': '21'
     })
-    const shipped = staged.files.map((path) => path.slice(staging.length + 1))
+    const shipped = staged.files.map((path) =>
+      path
+        .slice(staging.length + 1)
+        .split(sep)
+        .join('/')
+    )
     expect(shipped.sort()).toEqual([
       'home/.m2/repository/junit/junit.jar',
       'settings.json',
@@ -350,10 +355,11 @@ describe('typeInformation', () => {
   it("takes a linked workspace package's own dependencies, which pnpm doesn't hoist", () => {
     const app = join(workspace, 'packages/app')
     mkdirSync(join(app, 'node_modules/@app'), { recursive: true })
-    symlinkSync('../../../shared', join(app, 'node_modules/@app/shared'))
+    // Before the link: Windows makes a link to a missing target a file link.
     const zod = file(
       join(workspace, 'packages/shared/node_modules/zod/index.d.ts')
     )
+    symlinkSync('../../../shared', join(app, 'node_modules/@app/shared'))
     expect(typeInformation(app, workspace)).toEqual({
       files: [zod],
       links: [

@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import fc from 'fast-check'
+import { posixIt } from '../__fixtures__/platform.js'
 import {
   checkNoLinks,
   formatProperties,
@@ -41,7 +42,8 @@ function file(path: string, content = 'x'): string {
 }
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'analyze-'))
+  // The real path, as analyze compares them: macOS's temporary directory is behind a link.
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'analyze-')))
   workspace = join(root, 'work')
   home = join(root, 'home')
   artifact = join(root, 'artifact')
@@ -139,7 +141,7 @@ describe('resolveSettings', () => {
     ])
   })
 
-  it('refuses patterns behind placeholders and in checkout paths', () => {
+  posixIt('refuses patterns behind placeholders and in checkout paths', () => {
     mkdirSync(join(workspace, '**'))
     file(join(workspace, '**/tsconfig.json'))
     const resolved = resolveSettings(
@@ -158,19 +160,22 @@ describe('resolveSettings', () => {
     expect(resolved.warnings).toHaveLength(3)
   })
 
-  it('refuses a base directory the scanner would read as a pattern', () => {
-    mkdirSync(join(workspace, '**'))
-    expect(() =>
-      resolveSettings(
-        {
-          'sonar.projectBaseDir': '{workspace}/**',
-          'sonar.coverage.jacoco.xmlReportPaths': 'jacoco.xml'
-        },
-        workspace,
-        home
-      )
-    ).toThrow('no base directory in the checkout')
-  })
+  posixIt(
+    'refuses a base directory the scanner would read as a pattern',
+    () => {
+      mkdirSync(join(workspace, '**'))
+      expect(() =>
+        resolveSettings(
+          {
+            'sonar.projectBaseDir': '{workspace}/**',
+            'sonar.coverage.jacoco.xmlReportPaths': 'jacoco.xml'
+          },
+          workspace,
+          home
+        )
+      ).toThrow('no base directory in the checkout')
+    }
+  )
 
   it('drops paths escaping the workspace or home', () => {
     const resolved = resolveSettings(
@@ -606,7 +611,7 @@ describe('removeOutwardLinks', () => {
 })
 
 describe('resolveSettings and the scanner', () => {
-  it('refuses paths the scanner would read as others', () => {
+  posixIt('refuses paths the scanner would read as others', () => {
     mkdirSync(join(workspace, 'x '))
     symlinkSync(outside, join(workspace, 'x'))
     mkdirSync(join(workspace, 'a\r'))
@@ -625,7 +630,7 @@ describe('resolveSettings and the scanner', () => {
     expect(resolved.warnings).toHaveLength(4)
   })
 
-  it('reads single paths whole, commas included', () => {
+  posixIt('reads single paths whole, commas included', () => {
     // The scanner reads <workspace>/a,<workspace>/b as one path: here, through the link a, to outside.
     mkdirSync(join(workspace, 'a'))
     mkdirSync(join(workspace, 'b'))
@@ -738,10 +743,13 @@ describe('resolveSettings on any artifact', () => {
     // Names the scanner reads as the links next to them: trimmed, and \r as \n.
     mkdirSync(join(workspace, 'x '))
     symlinkSync(outside, join(workspace, 'x'))
-    mkdirSync(join(workspace, 'a\r'))
-    symlinkSync(outside, join(workspace, 'a\n'))
-    // Where Java reads half a character pair as '?'.
-    symlinkSync(outside, join(workspace, 'a?'))
+    // Names Windows refuses.
+    if (process.platform !== 'win32') {
+      mkdirSync(join(workspace, 'a\r'))
+      symlinkSync(outside, join(workspace, 'a\n'))
+      // Where Java reads half a character pair as '?'.
+      symlinkSync(outside, join(workspace, 'a?'))
+    }
     // The analysis creates the private home only after resolving, when it unpacks the artifact.
     rmSync(home, { recursive: true })
     const realWorkspace = realpathSync(workspace)
@@ -906,11 +914,17 @@ describe('recreateLinks', () => {
         { path: 'node_modules/express', target: store }
       ])
     ).toEqual([])
+    // Windows makes junctions, whose target is absolute.
+    const windows = process.platform === 'win32'
     expect(link('node_modules/@app/shared')).toBe(
-      join('..', '..', 'packages', 'shared')
+      windows
+        ? join(workspace, 'packages', 'shared')
+        : join('..', '..', 'packages', 'shared')
     )
     expect(link('node_modules/express')).toBe(
-      join('.pnpm', 'express@5', 'node_modules', 'express')
+      windows
+        ? join(workspace, store)
+        : join('.pnpm', 'express@5', 'node_modules', 'express')
     )
   })
 
