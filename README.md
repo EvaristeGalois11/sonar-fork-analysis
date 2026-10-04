@@ -25,8 +25,8 @@ and the settings your build defines all carry over.
 
 If you don't need coverage on fork pull requests, SonarQube Cloud's
 [Automatic Analysis](https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/automatic-analysis/)
-handles forks with no setup. It has no coverage, doesn't support monorepos and
-analyses some languages in less depth.
+handles forks with no setup. It also doesn't support monorepos and analyses some
+languages in less depth.
 
 ## Supported projects
 
