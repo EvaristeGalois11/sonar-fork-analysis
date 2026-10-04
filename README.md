@@ -422,9 +422,9 @@ See its [build workflow](.github/workflows/ci.yml) and
   (`sonar.scanner.internal.dumpToFile`), a feature of the Sonar plugins for
   Maven and Gradle and of the pinned scanner. Sonar uses it in its own tests but
   doesn't document it, so a release could change it. If it stops working, the
-  build fails with _its Sonar plugin wrote no analysis settings_ or _the Sonar
-  scanner succeeded but wrote no analysis settings_. This project's tests keep
-  up with the latest plugins, so such a change should show up here first.
+  build fails with a message that no analysis settings were written. This
+  project's tests keep up with the latest plugins, so such a change should show
+  up here first.
 - Dependency analysis (SCA) and the engine's build-system autoconfiguration are
   off on fork pull requests, because both run the project's build tools. See
   [what stays off](docs/security.md#what-stays-off-on-the-fork-path).
@@ -543,14 +543,14 @@ workflow's own token, so you can drop it.
 `npm run all` formats, lints, type-checks, tests and bundles into `dist/`, which
 is committed.
 
-Besides CI, three workflows check the action:
+Three workflows besides CI check the action:
 
 - [![Fixtures](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml)
-  runs it on sample Maven, Gradle, npm and pnpm projects, directly and through
-  the fork path, and compares the results.
+  runs the action on sample Maven, Gradle, npm and pnpm projects. It analyses
+  each one directly and through the fork path and compares the results.
 - [![Scanner](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
-  checks that the real scanner still reads settings the way the action expects,
-  and looks for a new scanner release every week.
+  checks that the real scanner still reads settings the way the action expects.
+  Every week it also looks for a new scanner release.
 - [![CodeQL](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml)
   is GitHub's security analysis of the code and the workflows.
 
