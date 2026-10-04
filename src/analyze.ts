@@ -546,12 +546,15 @@ function recreateLink(
     return 'it makes a sonar-project.properties'
   const destination = join(workspace, ...to)
   const real = existsSync(destination) ? realpathSync(destination) : undefined
+  const directory = real === undefined ? undefined : identity(real)
   if (
-    !real ||
-    !statSync(real).isDirectory() ||
+    real === undefined ||
+    directory === undefined ||
     real === realWorkspace ||
     !isWithin(real, realWorkspace) ||
-    relative(realWorkspace, real).split(sep).some(isGitDirectory)
+    relative(realWorkspace, real).split(sep).some(isGitDirectory) ||
+    // Inside its own target, the link would lead back to itself.
+    insideAny(workspace, join(...at), new Set([directory]))
   )
     return 'it does not lead to a directory in the checkout'
   const refused = makeDirectories(workspace, at.slice(0, -1))
