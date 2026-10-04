@@ -44,7 +44,7 @@ jobs:
         run: npm run typecheck
 
       - name: 'Test'
-        run: npm run ci-test
+        run: npm test
 
       # This repository analysed by its own action, as the README sets it up: directly with the token,
       # through the Sonar workflow without it, on pull requests from forks and Dependabot.
@@ -98,12 +98,8 @@ jobs:
       - name: 'Install dependencies'
         run: npm ci
 
-      # Not npm test: npm runs scripts with cmd.exe on Windows, which doesn't read the variables in front.
       - name: 'Test'
-        env:
-          NODE_OPTIONS: --experimental-vm-modules
-          NODE_NO_WARNINGS: 1
-        run: npx jest --coverage=false
+        run: npm test -- --coverage=false
 
   gradle-wrapper:
     name: 'Validate Gradle wrapper'
