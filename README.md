@@ -1,12 +1,9 @@
 # Sonar Fork Analysis
 
 [![CI](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/ci.yml)
-[![Fixtures](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml)
-[![Scanner](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
-[![CodeQL](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvaristeGalois11/sonar-fork-analysis/badge)](https://scorecard.dev/viewer/?uri=github.com/EvaristeGalois11/sonar-fork-analysis)
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=evaristegalois11_sonar-fork-analysis&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=evaristegalois11_sonar-fork-analysis)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=evaristegalois11_sonar-fork-analysis&metric=coverage)](https://sonarcloud.io/summary/new_code?id=evaristegalois11_sonar-fork-analysis)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvaristeGalois11/sonar-fork-analysis/badge)](https://scorecard.dev/viewer/?uri=github.com/EvaristeGalois11/sonar-fork-analysis)
 
 <!-- prettier-ignore -->
 > [!NOTE]
@@ -545,6 +542,17 @@ workflow's own token, so you can drop it.
 
 `npm run all` formats, lints, type-checks, tests and bundles into `dist/`, which
 is committed.
+
+Besides CI, three workflows check the action:
+
+- [![Fixtures](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml)
+  runs it on sample Maven, Gradle, npm and pnpm projects, directly and through
+  the fork path, and compares the results.
+- [![Scanner](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
+  checks that the real scanner still reads settings the way the action expects,
+  and looks for a new scanner release every week.
+- [![CodeQL](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml)
+  is GitHub's security analysis of the code and the workflows.
 
 `npm run test:scanner` runs the tests against the real scanner. They download
 the scanner and SonarQube's engines. They need Java and `unzip`. If Sonar ships
