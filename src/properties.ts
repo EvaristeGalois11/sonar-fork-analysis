@@ -5,8 +5,9 @@ export function parseProperties(text: string): Map<string, string> {
   let index = 0
   const next = (): string | undefined =>
     lines[index++]?.replace(/^[ \t\f]+/, '')
-  for (let line = next(); line !== undefined; line = next()) {
-    if (line === '' || line.startsWith('#') || line.startsWith('!')) continue
+  for (let first = next(); first !== undefined; first = next()) {
+    if (first === '' || first.startsWith('#') || first.startsWith('!')) continue
+    let line = first
     // A line ending in an odd number of backslashes continues on the next one.
     while (/(?:^|[^\\])(?:\\\\)*\\$/.test(line)) {
       const following = next()
