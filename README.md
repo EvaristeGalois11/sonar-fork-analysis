@@ -30,24 +30,19 @@ languages in less depth.
 
 ## Supported projects and runners
 
-| Project                                                      | Supported | Tested |
-| ------------------------------------------------------------ | --------- | ------ |
-| Maven, Gradle                                                | Yes       | Yes    |
-| npm, pnpm                                                    | Yes       | Yes    |
-| Yarn with `nodeLinker: node-modules`, Bun                    | Yes       | No     |
-| Yarn Plug'n'Play                                             | Yes¹      | No     |
-| Python, Go, PHP and others with a `sonar-project.properties` | Yes       | No     |
-| .NET, C and C++                                              | No²       | No     |
+| Project                                                                         | Supported | Tested |
+| ------------------------------------------------------------------------------- | --------- | ------ |
+| Maven, Gradle                                                                   | Yes       | Yes    |
+| npm, pnpm                                                                       | Yes       | Yes    |
+| Yarn with `nodeLinker: node-modules`, Bun                                       | Yes       | No     |
+| Yarn Plug'n'Play                                                                | Yes¹      | No     |
+| [Python, Go, PHP and others](#other-projects) with a `sonar-project.properties` | Yes       | No     |
+| .NET, C and C++                                                                 | No²       | No     |
 
 ¹ Rules that need types find less: there's no `node_modules` to take them from.
 `nodeLinker: node-modules` avoids it.
 
 ² They need Sonar's scanner for .NET or Sonar's build wrapper.
-
-Tested means that on every change sample projects are analysed both directly and
-through the fork path. The two analyses must find the same issues, coverage and
-tests. See [other projects](#other-projects) for the setup without Maven or
-Gradle.
 
 | Runner      | Build workflow | Sonar workflow |
 | ----------- | -------------- | -------------- |
@@ -57,7 +52,11 @@ Gradle.
 | Linux ARM64 | Should work    | Should work    |
 | macOS Intel | Should work    | Should work    |
 
-For runners, tested means that workflow runs there on every change.
+<!-- prettier-ignore -->
+> [!NOTE]
+> Tested means it runs in this repository's checks on every change. There each
+> sample project is also analysed both directly and through the fork path, and
+> the two analyses must find the same issues, coverage and tests.
 
 ## Documentation
 
