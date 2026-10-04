@@ -305,6 +305,7 @@ jobs:
       # stand-ins come first on the PATH and fail it.
       - name: 'Set traps'
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           $traps = (New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'traps')).FullName
           foreach ($tool in 'mvn', 'gradle') {

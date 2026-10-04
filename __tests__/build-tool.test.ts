@@ -1,6 +1,7 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { posixIt } from '../__fixtures__/platform.js'
 import { detectBuildTool } from '../src/build-tool.js'
 
 const directories: string[] = []
@@ -54,7 +55,7 @@ describe('detectBuildTool', () => {
     })
   })
 
-  it('runs a wrapper without the executable bit through sh', () => {
+  posixIt('runs a wrapper without the executable bit through sh', () => {
     const directory = project('build.gradle')
     writeFileSync(join(directory, 'gradlew'), '')
     chmodSync(join(directory, 'gradlew'), 0o644)

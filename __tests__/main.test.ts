@@ -265,7 +265,11 @@ describe('run in prepare mode', () => {
       const target = args!
         .find((arg) => arg.startsWith('-Dsonar.scanner.internal.dumpToFile='))!
         .split('=')[1]
-      writeFileSync(target, dump)
+      // Escaped like the plugins write Java properties: Windows paths have backslashes.
+      writeFileSync(
+        target,
+        dump.replaceAll(project, project.replaceAll('\\', '\\\\'))
+      )
       return 0
     })
   }
@@ -564,7 +568,7 @@ describe('run in analyze mode', () => {
     expect(args!.join(' ')).not.toContain(TOKEN)
     expect(options!.env!.SONAR_TOKEN).toBe(TOKEN)
     expect(options!.env!.LC_ALL).toBe(
-      process.platform === 'linux' ? 'C.UTF-8' : undefined
+      process.platform === 'linux' ? 'C.UTF-8' : process.env.LC_ALL
     )
     // Tokens and runner files the scanner, which reads untrusted content, has no use for.
     expect(
