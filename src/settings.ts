@@ -25,7 +25,7 @@ export const WILDCARD = /[*?]/
 // either end (scanner CLI 8.1, engine 13.7). A list with these is not read the way it was checked.
 // In module lists any whitespace but a space is refused, so both sides trim the same ids the same way.
 // eslint-disable-next-line no-control-regex -- control characters are what it looks for
-export const REREAD_IN_LIST = /["\x00-\x1f]|[^\S ]/
+const REREAD_IN_LIST = /["\x00-\x1f]|[^\S ]/
 // eslint-disable-next-line no-control-regex -- control characters are what it looks for
 export const REREAD_PATH = /["\x00-\x1f]|^\s|\s$/
 
@@ -179,7 +179,7 @@ export function isAllowed(bareKey: string): boolean {
   )
 }
 
-export type SplitKey = { prefix: string; bareKey: string }
+type SplitKey = { prefix: string; bareKey: string }
 
 export type ModuleTree = {
   // Every module, as the prefix of the keys the engine gives it: '', 'a.', 'a.b.'.

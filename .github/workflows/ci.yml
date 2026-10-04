@@ -33,10 +33,14 @@ jobs:
       - name: 'Lint'
         run: npm run lint
 
+      # Unused code and dependencies, and packages from anywhere but the npm registry over HTTPS.
+      - name: 'Check dependencies'
+        run: npm run lint:deps
+
       - name: 'Validate workflows against the GitHub schema'
         run: npm run lint:workflows
 
-      - name: 'Type-check scripts'
+      - name: 'Type-check'
         run: npm run typecheck
 
       - name: 'Test'

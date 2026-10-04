@@ -1,4 +1,4 @@
-export type Mode = 'direct' | 'prepare' | 'analyze'
+type Mode = 'direct' | 'prepare' | 'analyze'
 
 export type Resolution = { mode: Mode; warning?: string }
 
