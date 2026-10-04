@@ -28,6 +28,22 @@ If you don't need coverage on fork pull requests, SonarQube Cloud's
 handles forks with no setup. It has no coverage, doesn't support monorepos and
 analyses some languages in less depth.
 
+## Supported projects
+
+| Project                                                      | Support                                                                                                                                            |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Maven and Gradle                                             | Tested on every change. The build also runs on Windows.                                                                                            |
+| npm and pnpm                                                 | Tested on every change. npm's build also runs on Windows and macOS.                                                                                |
+| Yarn with `nodeLinker: node-modules`, Bun                    | Should work like npm, but isn't tested.                                                                                                            |
+| Yarn Plug'n'Play, the default since Yarn 2                   | Should work, but isn't tested. Rules that need types find less: there's no `node_modules` to take them from. `nodeLinker: node-modules` avoids it. |
+| Python, Go, PHP and others with a `sonar-project.properties` | Should work: the action runs Sonar's scanner for them just as for npm. Not tested.                                                                 |
+| .NET, C and C++                                              | Not supported: they need Sonar's scanner for .NET or Sonar's build wrapper.                                                                        |
+
+Tested means that on every change sample projects are analysed both directly and
+through the fork path. The two analyses must find the same issues, coverage and
+tests. The Sonar workflow is tested only on Linux runners. See
+[other projects](#other-projects) for the setup without Maven or Gradle.
+
 ## Documentation
 
 - [Security](docs/security.md): what the analysis trusts and how to harden your
@@ -199,8 +215,8 @@ sonar.javascript.lcov.reportPaths=coverage/lcov.info
 Other languages have their own report settings, such as
 `sonar.python.coverage.reportPaths=coverage.xml` for Python. The Sonar workflow
 doesn't change. For a Node project, the action also passes the type declarations
-in your `node_modules` to the Sonar workflow, along with the links npm, Yarn and
-pnpm make there. Rules that need types then work on pull requests from forks
+in your `node_modules` to the Sonar workflow, along with the links your package
+manager makes there. Rules that need types then work on pull requests from forks
 too, even across the packages of a monorepo.
 
 ### Which commit the build tests
@@ -409,11 +425,6 @@ See its [build workflow](.github/workflows/ci.yml) and
 
 ## Limitations
 
-- .NET projects need Sonar's scanner for .NET, and C and C++ projects need
-  Sonar's build wrapper. Neither works with this action.
-- Yarn's Plug'n'Play installs, the default since Yarn 2, have no `node_modules`,
-  so no type declarations reach pull requests from forks, and rules that need
-  types find less there. Yarn's `nodeLinker: node-modules` setting avoids it.
 - When the action runs the scanner, it reads settings only from
   `sonar-project.properties` and `build-arguments`. Unlike Sonar's npm scanner,
   it doesn't guess any from `package.json`, so set your coverage report path
