@@ -28,22 +28,36 @@ If you don't need coverage on fork pull requests, SonarQube Cloud's
 handles forks with no setup. It also doesn't support monorepos and analyses some
 languages in less depth.
 
-## Supported projects
+## Supported projects and runners
 
-| Project                                                      | Support                                                                                                                                            |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Maven and Gradle                                             | Tested on every change. The build also runs on Windows.                                                                                            |
-| npm and pnpm                                                 | Tested on every change. npm's build also runs on Windows and macOS.                                                                                |
-| Yarn with `nodeLinker: node-modules`, Bun                    | Should work like npm, but isn't tested.                                                                                                            |
-| Yarn Plug'n'Play, the default since Yarn 2                   | Should work, but isn't tested. Rules that need types find less: there's no `node_modules` to take them from. `nodeLinker: node-modules` avoids it. |
-| Python, Go, PHP and others with a `sonar-project.properties` | Should work: the action runs Sonar's scanner for them just as for npm. Not tested.                                                                 |
-| .NET, C and C++                                              | Not supported: they need Sonar's scanner for .NET or Sonar's build wrapper.                                                                        |
+| Project                                                      | Supported | Tested |
+| ------------------------------------------------------------ | --------- | ------ |
+| Maven, Gradle                                                | Yes       | Yes    |
+| npm, pnpm                                                    | Yes       | Yes    |
+| Yarn with `nodeLinker: node-modules`, Bun                    | Yes       | No     |
+| Yarn Plug'n'Play                                             | Yes¹      | No     |
+| Python, Go, PHP and others with a `sonar-project.properties` | Yes       | No     |
+| .NET, C and C++                                              | No²       | No     |
+
+¹ Rules that need types find less: there's no `node_modules` to take them from.
+`nodeLinker: node-modules` avoids it.
+
+² They need Sonar's scanner for .NET or Sonar's build wrapper.
 
 Tested means that on every change sample projects are analysed both directly and
 through the fork path. The two analyses must find the same issues, coverage and
-tests. The Sonar workflow is only tested on Linux runners. It should work on
-Windows and macOS too. See [other projects](#other-projects) for the setup
-without Maven or Gradle.
+tests. See [other projects](#other-projects) for the setup without Maven or
+Gradle.
+
+| Runner      | Build workflow | Sonar workflow |
+| ----------- | -------------- | -------------- |
+| Linux x64   | Tested         | Tested         |
+| Windows x64 | Tested         | Should work    |
+| macOS ARM64 | Tested         | Should work    |
+| Linux ARM64 | Should work    | Should work    |
+| macOS Intel | Should work    | Should work    |
+
+For runners, tested means that workflow runs there on every change.
 
 ## Documentation
 
