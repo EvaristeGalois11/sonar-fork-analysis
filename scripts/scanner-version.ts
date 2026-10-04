@@ -53,12 +53,15 @@ const suffixes = Array.from(
   ([, suffix]) => suffix
 )
 const published = await Promise.all(
-  suffixes.map((suffix) =>
-    text(`${DOWNLOADS}/sonar-scanner-cli-${latest}${suffix}.zip.sha256`)
-  )
+  suffixes.map(async (suffix) => ({
+    suffix,
+    digest: await text(
+      `${DOWNLOADS}/sonar-scanner-cli-${latest}${suffix}.zip.sha256`
+    )
+  }))
 )
-for (const [index, suffix] of suffixes.entries()) {
-  const sha256 = published[index].trim().split(/\s+/)[0]
+for (const { suffix, digest } of published) {
+  const [sha256 = ''] = digest.trim().split(/\s+/)
   if (!/^[0-9a-f]{64}$/.test(sha256))
     throw new Error(`No SHA-256 published for the ${suffix || 'plain'} build`)
   source = source.replace(

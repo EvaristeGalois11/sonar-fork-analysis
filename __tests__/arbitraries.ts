@@ -166,10 +166,10 @@ export const plausibleModuleSettings = moduleLevel(plausibleModuleId, 3).map(
 // checked against both in real-scanner.test.ts): its own, which strips everything up to a space and
 // drops an entry left empty, then the CSV parser's, which strips Java whitespace, i.e. Unicode spaces
 // but not no-break ones, plus a few control characters.
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- control characters are what it trims
 const upToSpace = /^[\x00-\x20]+|[\x00-\x20]+$/g
 const javaWhitespace =
-  // eslint-disable-next-line no-control-regex
+  // eslint-disable-next-line no-control-regex -- control characters are what it trims
   /^[\t\n\v\f\r\x1c-\x1f \u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+|[\t\n\v\f\r\x1c-\x1f \u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+$/g
 
 // The entry the engine reads, or undefined when it drops it.

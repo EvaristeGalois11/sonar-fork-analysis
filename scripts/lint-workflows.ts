@@ -4,6 +4,7 @@
 // Usage: node scripts/lint-workflows.ts
 
 import { readdirSync, readFileSync } from 'node:fs'
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- still a release candidate in Node 24, fine for a script only we run
 import { registerHooks } from 'node:module'
 import { dirname, join } from 'node:path'
 import type { TemplateParseResult } from '@actions/workflow-parser'
@@ -38,12 +39,13 @@ const workflows = readdirSync('.github/workflows')
 const actions = [
   'action.yml',
   ...readdirSync('.github', { recursive: true, encoding: 'utf8' })
-    .filter((path) => /(^|\/)action\.ya?ml$/.test(path))
+    .filter((path) => /(?:^|\/)action\.ya?ml$/.test(path))
     .map((path) => join('.github', path))
 ]
 
 const trace = new NoOperationTraceWriter()
-let failed = false
+// Set inside the functions below, which TypeScript can't see from here.
+let failed = false as boolean
 
 function report(path: string, result: TemplateParseResult): void {
   for (const error of result.context.errors.getErrors()) {
@@ -95,7 +97,7 @@ function checkInputs(path: string, token: TemplateToken): void {
       if (known?.has(key.toString().toLowerCase())) continue
       const at = key.range?.start
       console.log(
-        `${path} (Line: ${at?.line}, Col: ${at?.column}): ${uses.value} has no input '${key}'`
+        `${path} (Line: ${at?.line}, Col: ${at?.column}): ${uses.value} has no input '${key.toString()}'`
       )
       failed = true
     }

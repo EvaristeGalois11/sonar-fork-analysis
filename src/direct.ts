@@ -70,7 +70,7 @@ export function buildFailure(
 ): string {
   if (
     tool.name === 'gradle' &&
-    /Task 'sonar' (not found|is ambiguous)/.test(errorOutput)
+    /Task 'sonar' (?:not found|is ambiguous)/.test(errorOutput)
   ) {
     return `The Gradle build has no 'sonar' task: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`
   }

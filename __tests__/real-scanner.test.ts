@@ -25,7 +25,7 @@ import {
 
 // Like String.trim, which the CLI applies to every value: everything up to a space goes at both ends.
 const javaTrim = (text: string): string =>
-  // eslint-disable-next-line no-control-regex
+  // eslint-disable-next-line no-control-regex -- control characters are what it trims
   text.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, '')
 
 const describeScanner = process.env.SCANNER_CHECKS ? describe : describe.skip
@@ -116,9 +116,9 @@ describeScanner.each([
       { numRuns: 1000, seed }
     )
     const split = probe.splitLists(lists.map((list) => list.join(',')))
-    lists.forEach((list, index) =>
+    lists.forEach((list, index) => {
       expect({ seed, split: split[index] }).toEqual({ seed, split: list })
-    )
+    })
   })
 
   it('trims list entries as the model of it says', () => {

@@ -13,7 +13,7 @@ async function git(
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return getExecOutput('git', args, {
     cwd: workspace,
-    env: { ...process.env, ...QUIET_GIT, ...env } as Record<string, string>,
+    env: { ...process.env, ...QUIET_GIT, ...env },
     ignoreReturnCode: true,
     silent: true
   })

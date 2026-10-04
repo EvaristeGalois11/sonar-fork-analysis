@@ -46,10 +46,10 @@ import https$1 from 'node:https';
 import { createHmac, randomInt, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
-import fs$1, { realpathSync, unlinkSync, lstatSync, existsSync as existsSync$1, rmSync, readdirSync, statSync, copyFileSync, constants as constants$8, symlinkSync, mkdirSync, accessSync, cpSync, writeFileSync, globSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
+import fs$1, { realpathSync, mkdirSync, cpSync, writeFileSync, lstatSync, globSync, existsSync as existsSync$1, readdirSync, statSync, unlinkSync, rmSync, copyFileSync, constants as constants$8, symlinkSync, accessSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
-import require$$1$7, { join, relative, sep as sep$2, basename, dirname, isAbsolute, resolve as resolve$1 } from 'node:path';
+import require$$1$7, { dirname, join, relative, isAbsolute, resolve as resolve$1, sep as sep$2, basename } from 'node:path';
 import require$$5$6 from 'node:fs/promises';
 import require$$2$1 from 'node:string_decoder';
 import require$$0$e from 'zlib';
@@ -127322,9 +127322,9 @@ const WILDCARD = /[*?]/;
 // \r turns into \n, and entries lose control characters and Unicode spaces (except no-break ones) at
 // either end (scanner CLI 8.1, engine 13.7). A list with these is not read the way it was checked.
 // In module lists any whitespace but a space is refused, so both sides trim the same ids the same way.
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- control characters are what it looks for
 const REREAD_IN_LIST = /["\x00-\x1f]|[^\S ]/;
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- control characters are what it looks for
 const REREAD_PATH = /["\x00-\x1f]|^\s|\s$/;
 // What TypeScript reads from node_modules to know a project's types: declarations, the package.json
 // files that lead to them, and the tsconfig files projects extend. Prepare ships these and analyze
@@ -127545,6 +127545,246 @@ function filterSettings(settings) {
     return filtered;
 }
 
+const ARTIFACT_FORMAT = 1;
+// A port that refuses connections: if the plugin ignored the simulation property, the build fails
+// instead of reaching a real server.
+const OFFLINE_HOST = 'http://127.0.0.1:9';
+// Reports sensors look for on their own when no path is configured, relative to each module.
+const IMPLICIT_REPORTS = [
+    'target/site/jacoco/jacoco.xml',
+    'target/site/jacoco-it/jacoco.xml',
+    'build/reports/jacoco/test/jacocoTestReport.xml'
+];
+function simulationProperties(dumpFile) {
+    // Older plugins read the first name, current ones the second.
+    return [
+        `-Dsonar.host.url=${OFFLINE_HOST}`,
+        `-Dsonar.scanner.dumpToFile=${dumpFile}`,
+        `-Dsonar.scanner.internal.dumpToFile=${dumpFile}`
+    ];
+}
+// Named after the project, so the build and the analysis agree without further settings, and every
+// project of a monorepo gets its own. Artifact names cannot hold ':', which project keys may.
+const ARTIFACT_PREFIX = 'sonar-fork-analysis-';
+function artifactName(projectKey) {
+    if (!/^[\w.:-]+$/.test(projectKey)) {
+        throw new Error(`Invalid project key '${projectKey}'`);
+    }
+    return `${ARTIFACT_PREFIX}${projectKey.replaceAll(':', '_')}`;
+}
+// '+' cannot occur in a project key, so no prepared artifact can take this name.
+function directArtifactName(projectKey) {
+    return `${artifactName(projectKey)}+direct`;
+}
+// The first releases whose simulation mode writes the settings (checked 2026-10-03).
+const MINIMUM_PLUGIN = {
+    maven: 'sonar-maven-plugin 3.2',
+    gradle: 'the org.sonarqube plugin 2.1'
+};
+function missingDump(tool) {
+    if (tool.name === 'scanner')
+        return 'The Sonar scanner succeeded but wrote no analysis settings';
+    return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the fork path needs ${MINIMUM_PLUGIN[tool.name]} or later`;
+}
+// The analysis has no node_modules, as nothing may install the pull request's dependencies there, so
+// TypeScript would resolve fewer types and type-aware rules report less. This is what it reads there,
+// from the project's node_modules and those of the directories above it up to the workspace, where
+// npm and Yarn workspaces install. Links are not followed but recorded, when they lead to a directory
+// in the workspace, so the analysis can make them again: workspaces link their own packages, pnpm
+// every package. A workspace package a link leads to keeps its own dependencies in its node_modules,
+// unhoisted with pnpm, so that is read too. A directory the build can't read is skipped.
+function typeInformation(directory, workspace) {
+    const walk = {
+        workspace,
+        realWorkspace: realpathSync(workspace),
+        seen: new Set(),
+        packages: [],
+        found: { files: [], links: [], outside: 0 }
+    };
+    visitDirectory(walk, directory, false);
+    for (let above = dirname(directory); locate(above, { workspace, home: workspace }); above = dirname(above)) {
+        visitPackages(walk, join(above, 'node_modules'));
+        if (above === dirname(above))
+            break;
+    }
+    for (let next = walk.packages.shift(); next; next = walk.packages.shift())
+        visitPackages(walk, join(workspace, relative(walk.realWorkspace, next)));
+    return walk.found;
+}
+function visitDirectory(walk, path, inPackages) {
+    for (const entry of readableEntries(path)) {
+        const child = join(path, entry.name);
+        if (entry.isDirectory()) {
+            if (entry.name === '.git')
+                continue;
+            const isPackages = entry.name === 'node_modules';
+            if (isPackages && !inPackages && !firstVisit(walk, child))
+                continue;
+            visitDirectory(walk, child, inPackages || isPackages);
+        }
+        else if (!inPackages)
+            continue;
+        else if (entry.isSymbolicLink())
+            recordLink(walk, child);
+        else if (entry.isFile() && isTypeInformation(entry.name))
+            walk.found.files.push(child);
+    }
+}
+function visitPackages(walk, path) {
+    if (!lstatSync(path, { throwIfNoEntry: false })?.isDirectory())
+        return;
+    if (firstVisit(walk, path))
+        visitDirectory(walk, path, true);
+}
+function firstVisit(walk, path) {
+    const real = realpathSync(path);
+    if (walk.seen.has(real))
+        return false;
+    walk.seen.add(real);
+    return true;
+}
+function readableEntries(path) {
+    try {
+        return readdirSync(path, { withFileTypes: true });
+    }
+    catch {
+        return [];
+    }
+}
+function recordLink(walk, link) {
+    const target = linkTarget(link, walk.realWorkspace);
+    if (target === 'outside')
+        walk.found.outside++;
+    else if (target) {
+        walk.found.links.push({
+            path: posix(relative(walk.workspace, link)),
+            target: posix(target)
+        });
+        if (!target.split(sep$2).includes('node_modules'))
+            walk.packages.push(join(walk.realWorkspace, target, 'node_modules'));
+    }
+}
+function posix(path) {
+    return path.split(sep$2).join('/');
+}
+// Where a link leads, relative to the workspace, if that is a directory inside it; 'outside' for a
+// directory elsewhere. Links to files, such as node_modules/.bin, and broken ones don't count.
+function linkTarget(link, realWorkspace) {
+    try {
+        const target = realpathSync(link);
+        if (!statSync(target).isDirectory())
+            return undefined;
+        const rel = relative(realWorkspace, target);
+        if (rel === '')
+            return undefined;
+        return rel.startsWith('..') || isAbsolute(rel) ? 'outside' : rel;
+    }
+    catch {
+        return undefined;
+    }
+}
+function locate(path, roots) {
+    for (const root of ['workspace', 'home']) {
+        const rel = relative(roots[root], path);
+        if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)))
+            return [root, rel];
+    }
+    return undefined;
+}
+function token(root, rel) {
+    return rel === '' ? `{${root}}` : `{${root}}/${rel.split(sep$2).join('/')}`;
+}
+function filesUnder(directory) {
+    return readdirSync(directory, { withFileTypes: true, recursive: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => join(entry.parentPath, entry.name));
+}
+// The entries of a path setting as the analysis will read them, and the files they name.
+function stagePaths(key, bareKey, value, base, roots, warnings) {
+    const isShipped = isShippedPath(bareKey);
+    // The scanner reads only lists as comma-separated, any other path setting as one path.
+    const listed = (isPathList(bareKey) ? value.split(',') : [value])
+        .map((path) => path.trim())
+        .filter((path) => path !== '');
+    // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
+    const expanded = listed.flatMap((entry) => isShipped && WILDCARD.test(entry)
+        ? globSync(entry, { cwd: base }).map(posix).sort(byCodeUnit)
+        : [entry]);
+    const entries = [];
+    const located = [];
+    for (const entry of expanded) {
+        const path = resolve$1(base, entry);
+        if (isShipped && !existsSync$1(path))
+            continue;
+        const where = locate(path, roots);
+        if (!where) {
+            warnings.push(`Dropped ${key} entry outside the workspace: ${entry}`);
+            continue;
+        }
+        located.push(where);
+        // Relative entries stay relative: they resolve against the module the same way on both sides.
+        entries.push(isAbsolute(entry) ? token(...where) : entry);
+    }
+    return { entries, located };
+}
+function implicitReports(base, roots) {
+    const located = [];
+    for (const report of IMPLICIT_REPORTS) {
+        const path = join(base, report);
+        const where = existsSync$1(path) && locate(path, roots);
+        if (where)
+            located.push(where);
+    }
+    return located;
+}
+// Rewrites paths to {workspace}/… and {home}/… so the analysis can map them onto its own
+// directories, and copies the build output they point to into the staging directory.
+function stageAnalysis(settings, roots, staging, buildTool, pullRequest, extraFiles = [], links = []) {
+    const tree = moduleTree(settings);
+    const shipped = new Map();
+    const warnings = [];
+    const out = {};
+    const ship = ([root, rel]) => {
+        shipped.set(`${root}:${rel}`, [root, rel]);
+    };
+    for (const [key, value] of settings) {
+        const { prefix, bareKey } = tree.split(key);
+        const isShipped = isShippedPath(bareKey);
+        if (!isShipped &&
+            !CHECKOUT_PATH_KEYS.has(bareKey) &&
+            !OUTPUT_PATH_KEYS.has(bareKey)) {
+            out[key] = value;
+            continue;
+        }
+        const base = settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '') ??
+            roots.workspace;
+        const { entries, located } = stagePaths(key, bareKey, value, base, roots, warnings);
+        if (isShipped)
+            located.forEach(ship);
+        if (entries.length > 0 || !isShipped)
+            out[key] = entries.join(',');
+    }
+    for (const prefix of tree.prefixes) {
+        const base = settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '');
+        if (base)
+            implicitReports(base, roots).forEach(ship);
+    }
+    for (const path of extraFiles) {
+        const located = locate(path, roots);
+        if (located)
+            ship(located);
+    }
+    mkdirSync(staging, { recursive: true });
+    for (const [root, rel] of shipped.values()) {
+        cpSync(join(roots[root], rel), join(staging, root, rel), {
+            recursive: true,
+            dereference: true
+        });
+    }
+    writeFileSync(join(staging, 'settings.json'), JSON.stringify({ format: ARTIFACT_FORMAT, buildTool, pullRequest, settings: out, links }, null, 2));
+    return { settings: out, files: filesUnder(staging), warnings };
+}
+
 // Everything here handles an artifact built by code from a pull request, possibly a fork's, in a job
 // that holds the Sonar token. Nothing in it is trusted: no path may leave the workspace or the
 // private home, nothing may be overwritten, and no source may be added: only reports and type
@@ -127578,6 +127818,21 @@ function mapEntry(entry, base, workspace, home) {
 // is, and ${name} with another setting, before using it; there is no way to escape either.
 const PLACEHOLDER = /\$\{[\w.]+\}/;
 const LONE_SURROGATE = /\p{Cs}/u;
+// The artifact's settings.json comes from the fork's build, so its shape is checked before anything
+// reads it.
+function readManifest(text, name) {
+    const manifest = JSON.parse(text);
+    if (!isRecord(manifest) || manifest.format !== ARTIFACT_FORMAT)
+        throw new Error(`${name} was prepared by an incompatible version of this action`);
+    const { settings, links, pullRequest } = manifest;
+    if (!isRecord(settings) ||
+        !Object.values(settings).every((value) => typeof value === 'string'))
+        throw new Error(`${name} holds settings that are not all text`);
+    return { settings: settings, links, pullRequest };
+}
+function isRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 // Must run on the pristine checkout: sources and tests are only accepted if the checkout has them.
 // Paths are compared by their real location, since the checkout may contain links.
 function resolveSettings(settings, workspace, home) {
@@ -127743,7 +127998,7 @@ function isGitDirectory(segment) {
     let end = segment.length;
     while (end > 0 && (segment[end - 1] === '.' || segment[end - 1] === ' '))
         end--;
-    return /^(\.git|git~\d+)$/i.test(segment.slice(0, end));
+    return /^(?:\.git|git~\d+)$/i.test(segment.slice(0, end));
 }
 // Type information prepare ships from node_modules, which the analyzers read but by default don't
 // report on.
@@ -127778,9 +128033,10 @@ function insideAny(workspace, rel, roots) {
             return false;
         if (roots.has(id))
             return true;
-        if (i === segments.length)
+        const segment = segments[i];
+        if (segment === undefined)
             return false;
-        directory = join(directory, segments[i]);
+        directory = join(directory, segment);
     }
 }
 function unpackFile(source, rel, workspace, protectedRoots, reports) {
@@ -127879,8 +128135,7 @@ function recreateLinks(workspace, links) {
     const warnings = [];
     const realWorkspace = realpathSync(workspace);
     for (const link of links) {
-        const path = link?.path;
-        const target = link?.target;
+        const { path, target } = isRecord(link) ? link : {};
         if (typeof path !== 'string' || typeof target !== 'string') {
             warnings.push(`Skipped a link: ${JSON.stringify(link)} names no path and target`);
             continue;
@@ -128213,7 +128468,7 @@ function sonarBuildArguments(tool, goals, properties, buildArguments) {
 const TOOL_NAMES = { maven: 'Maven', gradle: 'Gradle' };
 function buildFailure(tool, exitCode, errorOutput) {
     if (tool.name === 'gradle' &&
-        /Task 'sonar' (not found|is ambiguous)/.test(errorOutput)) {
+        /Task 'sonar' (?:not found|is ambiguous)/.test(errorOutput)) {
         return `The Gradle build has no 'sonar' task: apply the org.sonarqube plugin, see ${GRADLE_PLUGIN_GUIDE}`;
     }
     if (tool.name === 'scanner')
@@ -128312,7 +128567,7 @@ async function findPullRequests(context, owner, branch, sha) {
         head: `${owner}:${branch}`,
         per_page: '100'
     });
-    const response = await fetch(`${context.apiUrl}/repos/${context.repository}/pulls?${query}`, {
+    const response = await fetch(`${context.apiUrl}/repos/${context.repository}/pulls?${query.toString()}`, {
         headers: {
             Accept: 'application/vnd.github+json',
             Authorization: `Bearer ${context.token}`
@@ -128338,6 +128593,8 @@ function choosePullRequest(candidates, hint) {
     if (hinted)
         return { pullRequest: hinted };
     const [first] = candidates;
+    if (!first)
+        throw new Error('There is no open pull request to analyse');
     return candidates.length > 1
         ? {
             pullRequest: first,
@@ -128355,7 +128612,13 @@ async function resolveOrigin(context) {
             headSha: run.head_sha
         };
         if (run.event === 'pull_request') {
-            origin.pullRequests = await findPullRequests(context, run.head_repository.owner.login, run.head_branch, run.head_sha);
+            const owner = run.head_repository.owner?.login;
+            // GitHub may give neither; there is then nothing to look the pull request up by.
+            if (!owner || !run.head_branch)
+                return {
+                    skip: `The run names no fork and branch to find its pull request by.`
+                };
+            origin.pullRequests = await findPullRequests(context, owner, run.head_branch, run.head_sha);
             if (origin.pullRequests.length === 0) {
                 return {
                     skip: `No open pull request has ${run.head_sha} as its head any more; a newer run analyses it.`
@@ -128370,7 +128633,8 @@ async function resolveOrigin(context) {
                 skip: `The run analyses ${run.head_repository.full_name}, not this repository, and is not for a pull request.`
             };
         }
-        else if (run.head_branch !== event.repository.default_branch) {
+        else if (run.head_branch &&
+            run.head_branch !== event.repository.default_branch) {
             origin.branch = run.head_branch;
         }
         return origin;
@@ -128398,257 +128662,21 @@ async function resolveOrigin(context) {
     return origin;
 }
 
-const ARTIFACT_FORMAT = 1;
-// A port that refuses connections: if the plugin ignored the simulation property, the build fails
-// instead of reaching a real server.
-const OFFLINE_HOST = 'http://127.0.0.1:9';
-// Reports sensors look for on their own when no path is configured, relative to each module.
-const IMPLICIT_REPORTS = [
-    'target/site/jacoco/jacoco.xml',
-    'target/site/jacoco-it/jacoco.xml',
-    'build/reports/jacoco/test/jacocoTestReport.xml'
-];
-function simulationProperties(dumpFile) {
-    // Older plugins read the first name, current ones the second.
-    return [
-        `-Dsonar.host.url=${OFFLINE_HOST}`,
-        `-Dsonar.scanner.dumpToFile=${dumpFile}`,
-        `-Dsonar.scanner.internal.dumpToFile=${dumpFile}`
-    ];
-}
-// Named after the project, so the build and the analysis agree without further settings, and every
-// project of a monorepo gets its own. Artifact names cannot hold ':', which project keys may.
-const ARTIFACT_PREFIX = 'sonar-fork-analysis-';
-function artifactName(projectKey) {
-    if (!/^[A-Za-z0-9._:-]+$/.test(projectKey)) {
-        throw new Error(`Invalid project key '${projectKey}'`);
-    }
-    return `${ARTIFACT_PREFIX}${projectKey.replaceAll(':', '_')}`;
-}
-// '+' cannot occur in a project key, so no prepared artifact can take this name.
-function directArtifactName(projectKey) {
-    return `${artifactName(projectKey)}+direct`;
-}
-// The first releases whose simulation mode writes the settings (checked 2026-10-03).
-const MINIMUM_PLUGIN = {
-    maven: 'sonar-maven-plugin 3.2',
-    gradle: 'the org.sonarqube plugin 2.1'
-};
-function missingDump(tool) {
-    if (tool.name === 'scanner')
-        return 'The Sonar scanner succeeded but wrote no analysis settings';
-    return `The ${tool.name === 'maven' ? 'Maven' : 'Gradle'} build succeeded but its Sonar plugin wrote no analysis settings; the fork path needs ${MINIMUM_PLUGIN[tool.name]} or later`;
-}
-// The analysis has no node_modules, as nothing may install the pull request's dependencies there, so
-// TypeScript would resolve fewer types and type-aware rules report less. This is what it reads there,
-// from the project's node_modules and those of the directories above it up to the workspace, where
-// npm and Yarn workspaces install. Links are not followed but recorded, when they lead to a directory
-// in the workspace, so the analysis can make them again: workspaces link their own packages, pnpm
-// every package. A workspace package a link leads to keeps its own dependencies in its node_modules,
-// unhoisted with pnpm, so that is read too. A directory the build can't read is skipped.
-function typeInformation(directory, workspace) {
-    const walk = {
-        workspace,
-        realWorkspace: realpathSync(workspace),
-        seen: new Set(),
-        packages: [],
-        found: { files: [], links: [], outside: 0 }
-    };
-    visitDirectory(walk, directory, false);
-    for (let above = dirname(directory); locate(above, { workspace, home: workspace }); above = dirname(above)) {
-        visitPackages(walk, join(above, 'node_modules'));
-        if (above === dirname(above))
-            break;
-    }
-    for (let next = walk.packages.shift(); next; next = walk.packages.shift())
-        visitPackages(walk, join(workspace, relative(walk.realWorkspace, next)));
-    return walk.found;
-}
-function visitDirectory(walk, path, inPackages) {
-    for (const entry of readableEntries(path)) {
-        const child = join(path, entry.name);
-        if (entry.isDirectory()) {
-            if (entry.name === '.git')
-                continue;
-            const isPackages = entry.name === 'node_modules';
-            if (isPackages && !inPackages && !firstVisit(walk, child))
-                continue;
-            visitDirectory(walk, child, inPackages || isPackages);
-        }
-        else if (!inPackages)
-            continue;
-        else if (entry.isSymbolicLink())
-            recordLink(walk, child);
-        else if (entry.isFile() && isTypeInformation(entry.name))
-            walk.found.files.push(child);
-    }
-}
-function visitPackages(walk, path) {
-    if (!lstatSync(path, { throwIfNoEntry: false })?.isDirectory())
-        return;
-    if (firstVisit(walk, path))
-        visitDirectory(walk, path, true);
-}
-function firstVisit(walk, path) {
-    const real = realpathSync(path);
-    if (walk.seen.has(real))
-        return false;
-    walk.seen.add(real);
-    return true;
-}
-function readableEntries(path) {
-    try {
-        return readdirSync(path, { withFileTypes: true });
-    }
-    catch {
-        return [];
-    }
-}
-function recordLink(walk, link) {
-    const target = linkTarget(link, walk.realWorkspace);
-    if (target === 'outside')
-        walk.found.outside++;
-    else if (target) {
-        walk.found.links.push({
-            path: posix(relative(walk.workspace, link)),
-            target: posix(target)
-        });
-        if (!target.split(sep$2).includes('node_modules'))
-            walk.packages.push(join(walk.realWorkspace, target, 'node_modules'));
-    }
-}
-function posix(path) {
-    return path.split(sep$2).join('/');
-}
-// Where a link leads, relative to the workspace, if that is a directory inside it; 'outside' for a
-// directory elsewhere. Links to files, such as node_modules/.bin, and broken ones don't count.
-function linkTarget(link, realWorkspace) {
-    try {
-        const target = realpathSync(link);
-        if (!statSync(target).isDirectory())
-            return undefined;
-        const rel = relative(realWorkspace, target);
-        if (rel === '')
-            return undefined;
-        return rel.startsWith('..') || isAbsolute(rel) ? 'outside' : rel;
-    }
-    catch {
-        return undefined;
-    }
-}
-function locate(path, roots) {
-    for (const root of ['workspace', 'home']) {
-        const rel = relative(roots[root], path);
-        if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)))
-            return [root, rel];
-    }
-    return undefined;
-}
-function token(root, rel) {
-    return rel === '' ? `{${root}}` : `{${root}}/${rel.split(sep$2).join('/')}`;
-}
-function filesUnder(directory) {
-    return readdirSync(directory, { withFileTypes: true, recursive: true })
-        .filter((entry) => entry.isFile())
-        .map((entry) => join(entry.parentPath, entry.name));
-}
-// The entries of a path setting as the analysis will read them, and the files they name.
-function stagePaths(key, bareKey, value, base, roots, warnings) {
-    const isShipped = isShippedPath(bareKey);
-    // The scanner reads only lists as comma-separated, any other path setting as one path.
-    const listed = (isPathList(bareKey) ? value.split(',') : [value])
-        .map((path) => path.trim())
-        .filter((path) => path !== '');
-    // Only the matching files are shipped, so the analysis gets them listed instead of the pattern.
-    const expanded = listed.flatMap((entry) => isShipped && WILDCARD.test(entry)
-        ? globSync(entry, { cwd: base }).map(posix).sort(byCodeUnit)
-        : [entry]);
-    const entries = [];
-    const located = [];
-    for (const entry of expanded) {
-        const path = resolve$1(base, entry);
-        if (isShipped && !existsSync$1(path))
-            continue;
-        const where = locate(path, roots);
-        if (!where) {
-            warnings.push(`Dropped ${key} entry outside the workspace: ${entry}`);
-            continue;
-        }
-        located.push(where);
-        // Relative entries stay relative: they resolve against the module the same way on both sides.
-        entries.push(isAbsolute(entry) ? token(...where) : entry);
-    }
-    return { entries, located };
-}
-function implicitReports(base, roots) {
-    const located = [];
-    for (const report of IMPLICIT_REPORTS) {
-        const path = join(base, report);
-        const where = existsSync$1(path) && locate(path, roots);
-        if (where)
-            located.push(where);
-    }
-    return located;
-}
-// Rewrites paths to {workspace}/… and {home}/… so the analysis can map them onto its own
-// directories, and copies the build output they point to into the staging directory.
-function stageAnalysis(settings, roots, staging, buildTool, pullRequest, extraFiles = [], links = []) {
-    const tree = moduleTree(settings);
-    const shipped = new Map();
-    const warnings = [];
-    const out = {};
-    const ship = ([root, rel]) => {
-        shipped.set(`${root}:${rel}`, [root, rel]);
-    };
-    for (const [key, value] of settings) {
-        const { prefix, bareKey } = tree.split(key);
-        const isShipped = isShippedPath(bareKey);
-        if (!isShipped &&
-            !CHECKOUT_PATH_KEYS.has(bareKey) &&
-            !OUTPUT_PATH_KEYS.has(bareKey)) {
-            out[key] = value;
-            continue;
-        }
-        const base = settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '') ??
-            roots.workspace;
-        const { entries, located } = stagePaths(key, bareKey, value, base, roots, warnings);
-        if (isShipped)
-            located.forEach(ship);
-        if (entries.length > 0 || !isShipped)
-            out[key] = entries.join(',');
-    }
-    for (const prefix of tree.prefixes) {
-        const base = settings.get(tree.keyOf(prefix, 'sonar.projectBaseDir') ?? '');
-        if (base)
-            implicitReports(base, roots).forEach(ship);
-    }
-    for (const path of extraFiles) {
-        const located = locate(path, roots);
-        if (located)
-            ship(located);
-    }
-    mkdirSync(staging, { recursive: true });
-    for (const [root, rel] of shipped.values()) {
-        cpSync(join(roots[root], rel), join(staging, root, rel), {
-            recursive: true,
-            dereference: true
-        });
-    }
-    writeFileSync(join(staging, 'settings.json'), JSON.stringify({ format: ARTIFACT_FORMAT, buildTool, pullRequest, settings: out, links }, null, 2));
-    return { settings: out, files: filesUnder(staging), warnings };
-}
-
 // Parses the java.util.Properties format the Sonar plugins write their simulation dump in.
 function parseProperties(text) {
     const properties = new Map();
     const lines = text.split(/\r\n|\r|\n/);
-    for (let i = 0; i < lines.length; i++) {
-        let line = lines[i].replace(/^[ \t\f]+/, '');
+    let index = 0;
+    const next = () => lines[index++]?.replace(/^[ \t\f]+/, '');
+    for (let line = next(); line !== undefined; line = next()) {
         if (line === '' || line.startsWith('#') || line.startsWith('!'))
             continue;
         // A line ending in an odd number of backslashes continues on the next one.
-        while (/(^|[^\\])(\\\\)*\\$/.test(line) && i + 1 < lines.length) {
-            line = line.slice(0, -1) + lines[++i].replace(/^[ \t\f]+/, '');
+        while (/(?:^|[^\\])(?:\\\\)*\\$/.test(line)) {
+            const following = next();
+            if (following === undefined)
+                break;
+            line = line.slice(0, -1) + following;
         }
         const [key, value] = splitEntry(line);
         properties.set(unescape(key), unescape(value));
@@ -132073,7 +132101,12 @@ const INTERRUPTED = 'The analysis ended without reporting its result';
 // times out: where the status is and what it should end as, until GitHub has taken the final one.
 // The token stays out of it; the post step reads it from the inputs again.
 function leaveNote(target, state, description) {
-    saveState(NOTE, JSON.stringify({ ...target, token: undefined, state, description }));
+    saveState(NOTE, JSON.stringify({
+        ...target,
+        token: undefined,
+        state,
+        description
+    }));
 }
 function clearNote() {
     saveState(NOTE, '');
@@ -132114,7 +132147,7 @@ async function direct(inputs) {
     let errorOutput = '';
     const exitCode = await exec(await executable(tool), args, {
         cwd: workingDirectory,
-        env: env,
+        env,
         ignoreReturnCode: true,
         listeners: { stderr: (data) => (errorOutput += data.toString()) }
     });
@@ -132238,7 +132271,8 @@ function pullRequestNumber() {
     const eventPath = process.env.GITHUB_EVENT_PATH;
     if (process.env.GITHUB_EVENT_NAME !== 'pull_request' || !eventPath)
         return undefined;
-    return JSON.parse(readFileSync$1(eventPath, 'utf8')).pull_request?.number;
+    const event = JSON.parse(readFileSync$1(eventPath, 'utf8'));
+    return event.pull_request.number;
 }
 // Without them the scanner analyses the whole directory, which for a project picked by its package.json
 // usually means working-directory points at the wrong place.
@@ -132263,7 +132297,7 @@ async function listArtifacts(origin, context) {
         warning(`Not running in GitHub Actions, analysing ${local}`);
         return { local };
     }
-    const [owner, repo] = context.repository.split('/');
+    const [owner = '', repo = ''] = context.repository.split('/');
     const options = origin.runId === undefined
         ? {}
         : {
@@ -132299,7 +132333,9 @@ async function analyze(inputs, report) {
     const eventPath = process.env.GITHUB_EVENT_PATH;
     const context = {
         eventName: process.env.GITHUB_EVENT_NAME ?? '',
-        event: eventPath ? JSON.parse(readFileSync$1(eventPath, 'utf8')) : {},
+        event: eventPath
+            ? JSON.parse(readFileSync$1(eventPath, 'utf8'))
+            : {},
         repository: process.env.GITHUB_REPOSITORY ?? '',
         sha: process.env.GITHUB_SHA ?? '',
         refName: process.env.GITHUB_REF_NAME ?? '',
@@ -132367,10 +132403,7 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     const temp = tempDirectory();
     const artifact = await downloadArtifact(found, temp);
     checkNoLinks(artifact);
-    const manifest = JSON.parse(readFileSync$1(join(artifact, 'settings.json'), 'utf8'));
-    if (manifest.format !== ARTIFACT_FORMAT) {
-        throw new Error(`${name} was prepared by an incompatible version of this action`);
-    }
+    const manifest = readManifest(readFileSync$1(join(artifact, 'settings.json'), 'utf8'), name);
     // Sources are checked against the checkout before anything is unpacked into it.
     const home = join(temp, 'home');
     const resolved = resolveSettings(manifest.settings, workspace, home);
@@ -132461,7 +132494,8 @@ function workflowRunReporter() {
     return trackedReporter({
         apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
         repository,
-        sha: JSON.parse(readFileSync$1(eventPath, 'utf8')).workflow_run.head_sha,
+        sha: JSON.parse(readFileSync$1(eventPath, 'utf8'))
+            .workflow_run.head_sha,
         token: getInput('github-token'),
         name: projectKey
             ? `Sonar fork analysis (${projectKey})`

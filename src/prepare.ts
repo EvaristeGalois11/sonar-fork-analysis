@@ -53,7 +53,7 @@ export function simulationProperties(dumpFile: string): string[] {
 export const ARTIFACT_PREFIX = 'sonar-fork-analysis-'
 
 export function artifactName(projectKey: string): string {
-  if (!/^[A-Za-z0-9._:-]+$/.test(projectKey)) {
+  if (!/^[\w.:-]+$/.test(projectKey)) {
     throw new Error(`Invalid project key '${projectKey}'`)
   }
   return `${ARTIFACT_PREFIX}${projectKey.replaceAll(':', '_')}`

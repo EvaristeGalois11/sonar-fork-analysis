@@ -19,6 +19,7 @@ import {
   formatProperties,
   recreateLinks,
   removeOutwardLinks,
+  readManifest,
   removeProjectSettings,
   resolveSettings,
   trustedProperties,
@@ -39,7 +40,9 @@ import {
   resolveOrigin,
   type Context,
   type Origin,
-  type PullRequest
+  type PullRequest,
+  type PullRequestEvent,
+  type WorkflowRunEvent
 } from './origin.js'
 import {
   ARTIFACT_FORMAT,
@@ -76,7 +79,7 @@ async function direct(inputs: Inputs): Promise<void> {
   let errorOutput = ''
   const exitCode = await exec(await executable(tool), args, {
     cwd: workingDirectory,
-    env: env as Record<string, string>,
+    env,
     ignoreReturnCode: true,
     listeners: { stderr: (data) => (errorOutput += data.toString()) }
   })
@@ -249,7 +252,8 @@ function pullRequestNumber(): number | undefined {
   const eventPath = process.env.GITHUB_EVENT_PATH
   if (process.env.GITHUB_EVENT_NAME !== 'pull_request' || !eventPath)
     return undefined
-  return JSON.parse(readFileSync(eventPath, 'utf8')).pull_request?.number
+  const event = JSON.parse(readFileSync(eventPath, 'utf8')) as PullRequestEvent
+  return event.pull_request.number
 }
 
 // Without them the scanner analyses the whole directory, which for a project picked by its package.json
@@ -306,7 +310,7 @@ async function listArtifacts(
     core.warning(`Not running in GitHub Actions, analysing ${local}`)
     return { local }
   }
-  const [owner, repo] = context.repository.split('/')
+  const [owner = '', repo = ''] = context.repository.split('/')
   const options: FindOptions =
     origin.runId === undefined
       ? {}
@@ -344,7 +348,9 @@ async function analyze(inputs: Inputs, report: Reporter): Promise<void> {
   const eventPath = process.env.GITHUB_EVENT_PATH
   const context: Context = {
     eventName: process.env.GITHUB_EVENT_NAME ?? '',
-    event: eventPath ? JSON.parse(readFileSync(eventPath, 'utf8')) : {},
+    event: eventPath
+      ? (JSON.parse(readFileSync(eventPath, 'utf8')) as unknown)
+      : {},
     repository: process.env.GITHUB_REPOSITORY ?? '',
     sha: process.env.GITHUB_SHA ?? '',
     refName: process.env.GITHUB_REF_NAME ?? '',
@@ -425,14 +431,10 @@ async function analyzeCommit(
   const temp = tempDirectory()
   const artifact = await downloadArtifact(found, temp)
   checkNoLinks(artifact)
-  const manifest = JSON.parse(
-    readFileSync(join(artifact, 'settings.json'), 'utf8')
+  const manifest = readManifest(
+    readFileSync(join(artifact, 'settings.json'), 'utf8'),
+    name
   )
-  if (manifest.format !== ARTIFACT_FORMAT) {
-    throw new Error(
-      `${name} was prepared by an incompatible version of this action`
-    )
-  }
 
   // Sources are checked against the checkout before anything is unpacked into it.
   const home = join(temp, 'home')
@@ -545,7 +547,8 @@ function workflowRunReporter(): Reporter {
   return trackedReporter({
     apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
     repository,
-    sha: JSON.parse(readFileSync(eventPath, 'utf8')).workflow_run.head_sha,
+    sha: (JSON.parse(readFileSync(eventPath, 'utf8')) as WorkflowRunEvent)
+      .workflow_run.head_sha,
     token: core.getInput('github-token'),
     name: projectKey
       ? `Sonar fork analysis (${projectKey})`

@@ -70,6 +70,8 @@ export function statusReporter(target: StatusTarget): Reporter {
 export const noReporter: Reporter = () => Promise.resolve(false)
 
 const NOTE = 'pending-status'
+
+type Note = Omit<StatusTarget, 'token'> & { state: State; description: string }
 const INTERRUPTED = 'The analysis ended without reporting its result'
 
 // The note is from the main step to the post step, which runs even when the job is cancelled or
@@ -78,7 +80,12 @@ const INTERRUPTED = 'The analysis ended without reporting its result'
 function leaveNote(target: StatusTarget, state: State, description: string) {
   core.saveState(
     NOTE,
-    JSON.stringify({ ...target, token: undefined, state, description })
+    JSON.stringify({
+      ...target,
+      token: undefined,
+      state,
+      description
+    } satisfies Note & { token: undefined })
   )
 }
 
@@ -110,7 +117,7 @@ export function trackedReporter(target: StatusTarget): Reporter {
 export async function reportInterrupted(): Promise<void> {
   const saved = core.getState(NOTE)
   if (!saved) return
-  const { state, description, ...target } = JSON.parse(saved)
+  const { state, description, ...target } = JSON.parse(saved) as Note
   await statusReporter({
     ...target,
     apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',

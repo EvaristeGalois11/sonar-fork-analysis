@@ -17,6 +17,7 @@ import fc from 'fast-check'
 import {
   checkNoLinks,
   formatProperties,
+  readManifest,
   recreateLinks,
   removeOutwardLinks,
   removeProjectSettings,
@@ -479,15 +480,53 @@ describe('unpackWorkspace', () => {
   })
 })
 
+describe('readManifest', () => {
+  const read = (manifest: unknown) =>
+    readManifest(JSON.stringify(manifest), 'the artifact')
+
+  it('takes text settings and leaves links and the pull request to their own checks', () => {
+    expect(
+      read({ format: 1, settings: { 'sonar.sources': 'src' }, links: 'x' })
+    ).toEqual({
+      settings: { 'sonar.sources': 'src' },
+      links: 'x',
+      pullRequest: undefined
+    })
+  })
+
+  it('refuses another format or no object at all', () => {
+    for (const manifest of [{ format: 2, settings: {} }, null, [], 'text'])
+      expect(() => read(manifest)).toThrow(
+        'the artifact was prepared by an incompatible version of this action'
+      )
+  })
+
+  it('refuses settings that are not all text', () => {
+    for (const settings of [
+      null,
+      ['sonar.sources'],
+      { 'sonar.sources': ['src'] },
+      { 'sonar.sources': 1 }
+    ])
+      expect(() => read({ format: 1, settings })).toThrow(
+        'the artifact holds settings that are not all text'
+      )
+  })
+})
+
 describe('checkNoLinks', () => {
   it('rejects an artifact containing a symlink', () => {
     symlinkSync('/etc/passwd', join(artifact, 'passwd'))
-    expect(() => checkNoLinks(artifact)).toThrow(/link or special file/)
+    expect(() => {
+      checkNoLinks(artifact)
+    }).toThrow(/link or special file/)
   })
 
   it('accepts plain files and directories', () => {
     file(join(artifact, 'a/b.txt'))
-    expect(() => checkNoLinks(artifact)).not.toThrow()
+    expect(() => {
+      checkNoLinks(artifact)
+    }).not.toThrow()
   })
 })
 
@@ -643,7 +682,7 @@ describe('resolveSettings on any artifact', () => {
   )
   // How the scanner reads each kind of setting, written out here rather than taken from the code:
   // lists or single paths, and whether the private home may hold what they point to.
-  const kinds: Record<string, { list: boolean; home: boolean }> = {
+  const kinds: Partial<Record<string, { list: boolean; home: boolean }>> = {
     'sonar.java.binaries': { list: true, home: true },
     'sonar.coverageReportPaths': { list: true, home: true },
     'sonar.jacoco.reportPath': { list: false, home: true },
@@ -672,8 +711,9 @@ describe('resolveSettings on any artifact', () => {
   // by the engine's list parser (Unicode spaces too), with that parser's \r read as \n, and with
   // half a character pair read as '?' by Java.
   const readings = (path: string): string[] => {
-    // eslint-disable-next-line no-control-regex
-    const trimmed = path.replace(/^[\x00-\x20\s]+|[\x00-\x20\s]+$/g, '')
+    // eslint-disable-next-line no-control-regex -- control characters are what it trims
+    const ends = /^[\s\0-\x08\x0e-\x1f]+|[\s\0-\x08\x0e-\x1f]+$/g
+    const trimmed = path.replace(ends, '')
     return [path, trimmed, trimmed.replace(/\r/g, '\n')].flatMap((read) => [
       read,
       read.replace(/\p{Cs}/gu, '?')

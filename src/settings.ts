@@ -24,9 +24,9 @@ export const WILDCARD = /[*?]/
 // \r turns into \n, and entries lose control characters and Unicode spaces (except no-break ones) at
 // either end (scanner CLI 8.1, engine 13.7). A list with these is not read the way it was checked.
 // In module lists any whitespace but a space is refused, so both sides trim the same ids the same way.
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- control characters are what it looks for
 export const REREAD_IN_LIST = /["\x00-\x1f]|[^\S ]/
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- control characters are what it looks for
 export const REREAD_PATH = /["\x00-\x1f]|^\s|\s$/
 
 // What TypeScript reads from node_modules to know a project's types: declarations, the package.json

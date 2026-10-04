@@ -22,6 +22,7 @@ import {
   sep
 } from 'node:path'
 import type { PullRequest } from './origin.js'
+import { ARTIFACT_FORMAT } from './prepare.js'
 import {
   CHECKOUT_PATH_KEYS,
   OUTPUT_PATH_KEYS,
@@ -88,6 +89,34 @@ export type Resolved = {
   // The report files the settings name, where they land in the checkout.
   reports: string[]
   warnings: string[]
+}
+
+export type Manifest = {
+  settings: Record<string, string>
+  // Checked entry by entry where they are used.
+  links: unknown
+  pullRequest: unknown
+}
+
+// The artifact's settings.json comes from the fork's build, so its shape is checked before anything
+// reads it.
+export function readManifest(text: string, name: string): Manifest {
+  const manifest: unknown = JSON.parse(text)
+  if (!isRecord(manifest) || manifest.format !== ARTIFACT_FORMAT)
+    throw new Error(
+      `${name} was prepared by an incompatible version of this action`
+    )
+  const { settings, links, pullRequest } = manifest
+  if (
+    !isRecord(settings) ||
+    !Object.values(settings).every((value) => typeof value === 'string')
+  )
+    throw new Error(`${name} holds settings that are not all text`)
+  return { settings: settings as Record<string, string>, links, pullRequest }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 // Where the analysis may find the files the settings name, as given and as really located.
@@ -305,7 +334,7 @@ function isGitDirectory(segment: string): boolean {
   let end = segment.length
   while (end > 0 && (segment[end - 1] === '.' || segment[end - 1] === ' '))
     end--
-  return /^(\.git|git~\d+)$/i.test(segment.slice(0, end))
+  return /^(?:\.git|git~\d+)$/i.test(segment.slice(0, end))
 }
 
 // Type information prepare ships from node_modules, which the analyzers read but by default don't
@@ -348,8 +377,9 @@ function insideAny(
     const id = identity(directory)
     if (id === undefined) return false
     if (roots.has(id)) return true
-    if (i === segments.length) return false
-    directory = join(directory, segments[i])
+    const segment = segments[i]
+    if (segment === undefined) return false
+    directory = join(directory, segment)
   }
 }
 
@@ -466,8 +496,7 @@ export function recreateLinks(workspace: string, links: unknown): string[] {
   const warnings: string[] = []
   const realWorkspace = realpathSync(workspace)
   for (const link of links) {
-    const path = (link as { path?: unknown })?.path
-    const target = (link as { target?: unknown })?.target
+    const { path, target } = isRecord(link) ? link : {}
     if (typeof path !== 'string' || typeof target !== 'string') {
       warnings.push(
         `Skipped a link: ${JSON.stringify(link)} names no path and target`
@@ -606,8 +635,8 @@ export type Target = {
 
 export type Analysed = {
   headSha: string
-  pullRequest?: PullRequest
-  branch?: string
+  pullRequest?: PullRequest | undefined
+  branch?: string | undefined
 }
 
 // Set by the trusted side only; they override anything that came with the artifact.

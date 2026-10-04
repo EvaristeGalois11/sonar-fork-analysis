@@ -787,7 +787,7 @@ describe('run in analyze mode', () => {
       built('sonar-fork-analysis-other_project', 'sonar-fork-analysis-key')
       artifact.downloadArtifact.mockImplementation(async (_id, options) => {
         cpSync(artifactDir, options!.path!, { recursive: true })
-        return { downloadPath: options!.path }
+        return { downloadPath: options!.path! }
       })
 
       await run()
@@ -867,7 +867,7 @@ describe('run in analyze mode', () => {
       built('sonar-fork-analysis-key+direct', 'sonar-fork-analysis-key')
       artifact.downloadArtifact.mockImplementation(async (_id, options) => {
         cpSync(artifactDir, options!.path!, { recursive: true })
-        return { downloadPath: options!.path }
+        return { downloadPath: options!.path! }
       })
 
       await run()
@@ -951,7 +951,7 @@ describe('run in analyze mode', () => {
     })
     artifact.downloadArtifact.mockImplementation(async (_id, options) => {
       cpSync(artifactDir, options!.path!, { recursive: true })
-      return { downloadPath: options!.path }
+      return { downloadPath: options!.path! }
     })
 
     await run()
