@@ -74,7 +74,7 @@ async function direct(inputs: Inputs): Promise<void> {
 
   core.info(`Analysing the ${tool.name} build in ${workingDirectory}`)
   // The token goes through the environment, which the scanner reads, so it never shows up in a command line.
-  const env = { ...process.env, SONAR_TOKEN: inputs.token }
+  const env = { ...jobEnvironment(), SONAR_TOKEN: inputs.token }
   const reportsBefore = snapshotReports(workingDirectory)
   let errorOutput = ''
   const exitCode = await exec(await executable(tool), args, {
@@ -92,6 +92,19 @@ async function direct(inputs: Inputs): Promise<void> {
 }
 
 const NOTE_DAYS = 35
+
+// The job's environment without what the runner gives only the action: its inputs, the Sonar token
+// and the GitHub token among them, and the runtime's own tokens.
+function jobEnvironment(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] =>
+        entry[1] !== undefined &&
+        !entry[0].startsWith('INPUT_') &&
+        !entry[0].startsWith('ACTIONS_')
+    )
+  )
+}
 
 const RUNNER_FILES = new Set([
   'GITHUB_ENV',
@@ -155,12 +168,12 @@ async function prepare(inputs: Inputs): Promise<void> {
   core.info(
     `Preparing the analysis of the ${tool.name} build in ${workingDirectory}`
   )
-  const env: Record<string, string | undefined> = { ...process.env }
+  const env = jobEnvironment()
   delete env.SONAR_TOKEN
   let errorOutput = ''
   const exitCode = await exec(await executable(tool), args, {
     cwd: workingDirectory,
-    env: env as Record<string, string>,
+    env,
     ignoreReturnCode: true,
     listeners: { stderr: (data) => (errorOutput += data.toString()) }
   })
@@ -480,15 +493,10 @@ async function analyzeCommit(
 
   const scanner = await installScanner()
   core.info(`Analysing ${name}`)
-  // The scanner reads untrusted content, and needs none of the action's inputs, the runner's own
-  // tokens, nor the files through which a step talks to the runner.
+  // The scanner reads untrusted content, and needs neither the files through which a step talks to
+  // the runner nor a GitHub token.
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([name]) =>
-        !name.startsWith('INPUT_') &&
-        !name.startsWith('ACTIONS_') &&
-        !RUNNER_FILES.has(name)
-    )
+    Object.entries(jobEnvironment()).filter(([name]) => !RUNNER_FILES.has(name))
   )
   env.SONAR_TOKEN = inputs.token
   // Java names files in the locale's encoding; without a UTF-8 one, e.g. in a bare container, it reads
@@ -509,7 +517,7 @@ async function analyzeCommit(
       [`-Dproject.settings=${settingsFile}`, ...inputs.buildArguments],
       {
         cwd,
-        env: env as Record<string, string>,
+        env,
         ignoreReturnCode: true
       }
     )

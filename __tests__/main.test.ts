@@ -33,6 +33,22 @@ let inputs: Record<string, string>
 
 let analyses = 0
 
+// What the runner gives an action and not a step: its inputs, as INPUT_ and the input's name, and the
+// runtime's tokens.
+function runAsAction(): void {
+  process.env['INPUT_SONAR-TOKEN'] = TOKEN
+  process.env['INPUT_GITHUB-TOKEN'] = 'gh-token'
+  process.env.ACTIONS_RUNTIME_TOKEN = 'runtime'
+  process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'oidc'
+  process.env.GITHUB_STEP_SUMMARY = '/runner/summary'
+}
+
+function actionOnly(env: Record<string, string>): string[] {
+  return Object.keys(env).filter(
+    (name) => name.startsWith('INPUT_') || name.startsWith('ACTIONS_')
+  )
+}
+
 function writeReport(directory: string): void {
   mkdirSync(join(directory, 'target', 'sonar'), { recursive: true })
   writeFileSync(
@@ -70,6 +86,7 @@ describe('run', () => {
   })
 
   it('passes the token only through the environment', async () => {
+    runAsAction()
     exec.mockImplementation(async (_tool, _args, options) => {
       writeReport(options!.cwd!)
       return 0
@@ -304,11 +321,13 @@ describe('run in prepare mode', () => {
     const event = join(project, 'event.json')
     writeFileSync(event, JSON.stringify({ pull_request: { number: 12 } }))
     process.env.GITHUB_EVENT_PATH = event
+    runAsAction()
 
     await run()
 
     expect(core.setFailed).not.toHaveBeenCalled()
     expect(exec.mock.calls[0][2]!.env!.SONAR_TOKEN).toBeUndefined()
+    expect(actionOnly(exec.mock.calls[0][2]!.env!)).toEqual([])
     const [name, files, staging, options] =
       artifact.uploadArtifact.mock.calls[0]
     expect(name).toBe('sonar-fork-analysis-key')
