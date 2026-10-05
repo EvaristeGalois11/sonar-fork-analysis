@@ -97,12 +97,19 @@ describeScanner('the scanner CLI', () => {
       '1',
       ' ',
       '\\',
-      'é'
+      'é',
+      '${other}',
+      '${env.NAME}'
     )
-    const samples = fc.sample(
-      fc.array(piece, { maxLength: 8 }).map((pieces) => pieces.join('')),
-      { numRuns: 2000, seed }
-    )
+    // Two that expand for sure, so the check below never depends on chance.
+    const samples = [
+      '${other}',
+      'a${env.NAME}b',
+      ...fc.sample(
+        fc.array(piece, { maxLength: 8 }).map((pieces) => pieces.join('')),
+        { numRuns: 2000, seed }
+      )
+    ]
     const letThrough = (value: string): boolean => {
       try {
         formatProperties(new Map([['value', value]]))
