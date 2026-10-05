@@ -80,6 +80,45 @@ describeScanner('the scanner CLI', () => {
       })
     })
   })
+
+  it('expands no value the analysis lets through', () => {
+    const seed = Date.now()
+    const piece = fc.constantFrom(
+      '$',
+      '{',
+      '}',
+      '$$',
+      'env.',
+      'NAME',
+      'other',
+      'x',
+      '.',
+      '_',
+      '1',
+      ' ',
+      '\\',
+      'é'
+    )
+    const samples = fc.sample(
+      fc.array(piece, { maxLength: 8 }).map((pieces) => pieces.join('')),
+      { numRuns: 2000, seed }
+    )
+    const letThrough = (value: string): boolean => {
+      try {
+        formatProperties(new Map([['value', value]]))
+        return true
+      } catch {
+        return false
+      }
+    }
+    const read = probe.resolvePlaceholders(samples)
+    const changed = samples
+      .filter((value, index) => letThrough(value) && read[index] !== value)
+      .map((value) => ({ value, read: read[samples.indexOf(value)] }))
+    expect({ seed, changed }).toEqual({ seed, changed: [] })
+    // The probe resolves: some of what the analysis refuses does get expanded.
+    expect(read.some((value, index) => value !== samples[index])).toBe(true)
+  })
 })
 
 describeScanner.each([

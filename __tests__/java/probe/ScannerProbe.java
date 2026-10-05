@@ -25,6 +25,8 @@ import java.util.jar.JarFile;
 //   modules <file>     each case, walked into modules the way the engine builds the project, with the
 //                      keys each module gets
 //   processes <jar>    the engine classes that can start a process
+//   resolve <file>     each line, as a setting's value once the CLI resolves its placeholders, next to
+//                      a setting other=OTHER and an environment holding NAME=ENV
 public class ScannerProbe {
     public static void main(String[] args) throws Exception {
         switch (args[0]) {
@@ -32,6 +34,7 @@ public class ScannerProbe {
             case "csv" -> csv(Path.of(args[1]));
             case "modules" -> modules(Path.of(args[1]));
             case "processes" -> processes(new File(args[1]));
+            case "resolve" -> resolve(Path.of(args[1]));
             default -> throw new IllegalArgumentException(args[0]);
         }
     }
@@ -46,6 +49,23 @@ public class ScannerProbe {
             System.out.println("file " + file.getName());
             for (String key : properties.stringPropertyNames()) {
                 System.out.println("entry " + hex(key) + " " + hex(properties.getProperty(key)));
+            }
+        }
+    }
+
+    private static void resolve(Path input) throws Exception {
+        Class<?> resolver = Class.forName("org.sonarsource.scanner.cli.PropertyResolver");
+        var create = resolver.getConstructor(Properties.class, Map.class);
+        Method run = resolver.getMethod("resolve");
+        for (String line : Files.readAllLines(input, StandardCharsets.UTF_8)) {
+            Properties settings = new Properties();
+            settings.setProperty("value", unhex(line));
+            settings.setProperty("other", "OTHER");
+            try {
+                Properties resolved = (Properties) run.invoke(create.newInstance(settings, Map.of("NAME", "ENV")));
+                System.out.println("resolved " + hex(resolved.getProperty("value")));
+            } catch (InvocationTargetException failed) {
+                System.out.println("refused " + hex(String.valueOf(failed.getCause().getMessage())));
             }
         }
     }
