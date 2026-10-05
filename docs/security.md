@@ -127,11 +127,12 @@ information about the pull request, not as a review of it.
 - Pin the action to a commit SHA.
 - Give the Sonar job only the permissions from the [setup](../README.md#setup),
   and no extra secrets or steps.
-- Don't add caching to the Sonar job, and don't give it write access to the
-  cache with `cache-mode`. GitHub only lets `workflow_run` jobs read the default
-  branch's cache, so they can't poison later builds. The one exception is
+- Don't add caching to the Sonar job or give it write access to the cache with
+  `cache-mode`. The one exception is
   [the Sonar scanner's directory](../README.md#caching-the-sonar-scanner): the
-  action checks the scanner against its checksum every time.
+  action checks the scanner against its checksum every time. GitHub only lets
+  `workflow_run` jobs read the default branch's cache, so they can't poison
+  later builds.
 - Use a dedicated Sonar token, as the [setup](../README.md#setup) describes.
 - If you want an extra layer, require approval before workflows from outside
   contributors run (Settings → Actions → General). The analysis is safe without
