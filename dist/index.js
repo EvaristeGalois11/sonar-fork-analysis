@@ -46,7 +46,7 @@ import https$1 from 'node:https';
 import { createHmac, randomInt, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
-import fs$1, { realpathSync, mkdirSync, cpSync, writeFileSync, lstatSync, globSync, existsSync as existsSync$1, readdirSync, statSync, unlinkSync, rmSync, copyFileSync, constants as constants$8, symlinkSync, accessSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
+import fs$1, { realpathSync, lstatSync, mkdirSync, cpSync, writeFileSync, globSync, existsSync as existsSync$1, readdirSync, statSync, unlinkSync, rmSync, copyFileSync, constants as constants$8, symlinkSync, accessSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
 import require$$1$7, { dirname, join, relative, isAbsolute, resolve as resolve$1, sep as sep$2, basename } from 'node:path';
@@ -127304,6 +127304,28 @@ If the error persists, please check whether Actions and API requests are operati
 // after a link to the link's path rather than its target, so a/up/../x is a/x to it even when up
 // leads elsewhere.
 const realPath = realpathSync.native;
+function present(path) {
+    try {
+        return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
+    }
+    catch {
+        // On the way through a file, say.
+        return false;
+    }
+}
+// Where a path lands once it exists: its deepest existing part resolved, the rest added, since
+// what is made later is made as plain directories. Undefined when that part is a link to nowhere.
+function realLocation(path) {
+    let existing = path;
+    while (!present(existing))
+        existing = dirname(existing);
+    try {
+        return join(realPath(existing), relative(existing, path));
+    }
+    catch {
+        return undefined;
+    }
+}
 
 // Analysis settings that may travel from the build to the analysis. Everything else in a dump is
 // dropped: environment variables, JVM properties, and whatever the analysis must decide itself
@@ -127848,7 +127870,8 @@ function resolveSettings(settings, workspace, home) {
         workspace,
         home,
         realWorkspace: realPath(workspace),
-        realHome: existsSync$1(home) ? realPath(home) : home
+        // The analysis makes it after resolving, so it doesn't exist yet.
+        realHome: realLocation(home) ?? home
     };
     const bases = moduleBases(kept, tree, places);
     let sourceRoots = [];
@@ -127955,18 +127978,13 @@ function acceptedPath(entry, bareKey, base, places) {
     // Shipped paths may live in the private home; output directories appear when unpacking;
     // checkout paths must already be in the checkout.
     const shipped = isShippedPath(bareKey);
-    let accepted;
-    if (existsSync$1(path)) {
-        const real = realPath(path);
-        accepted =
-            isWithin(real, places.realWorkspace) ||
-                (shipped && isWithin(real, places.realHome));
-    }
-    else {
-        accepted =
-            shipped ||
-                (OUTPUT_PATH_KEYS.has(bareKey) && isWithin(path, places.workspace));
-    }
+    if (!existsSync$1(path) && !shipped && !OUTPUT_PATH_KEYS.has(bareKey))
+        return undefined;
+    // A path that appears later lands under its deepest existing directory, which may be a link.
+    const real = realLocation(path);
+    const accepted = real !== undefined &&
+        (isWithin(real, places.realWorkspace) ||
+            (shipped && isWithin(real, places.realHome)));
     return accepted ? path : undefined;
 }
 // Every entry under a directory, links included but never followed: Node's recursive readdir follows
@@ -132409,8 +132427,12 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
         });
     }
     await verifyCheckout(workspace, origin.headSha);
-    const removedLinks = removeOutwardLinks(workspace);
     const temp = tempDirectory();
+    // /proc/self/cwd leads to the working directory of whichever process reads it: the checkout for the
+    // action, where the runner starts it, so the sweep would keep a link to it. From here it leads out
+    // of the checkout, as it does for the scanner.
+    process.chdir(temp);
+    const removedLinks = removeOutwardLinks(workspace);
     const artifact = await downloadArtifact(found, temp);
     checkNoLinks(artifact);
     const manifest = readManifest(readFileSync$1(join(artifact, 'settings.json'), 'utf8'), name);
