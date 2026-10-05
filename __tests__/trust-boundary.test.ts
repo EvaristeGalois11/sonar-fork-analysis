@@ -461,10 +461,12 @@ describe('removeOutwardLinks on any checkout', () => {
           for (const decoy of ['outside', 'a/outside', 'a/b/outside'])
             mkdirSync(join(workspace, decoy), { recursive: true })
           file(join(workspace, 'a/b/outside/secret'))
+          // Of a directory: Windows would otherwise look at the target, which a loop makes fail.
           for (const link of links)
             symlinkSync(
               link.target.replace('{outside}', outside),
-              join(workspace, link.location)
+              join(workspace, link.location),
+              'dir'
             )
           const before = snapshot(workspace)
 
