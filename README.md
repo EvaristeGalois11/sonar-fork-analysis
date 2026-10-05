@@ -436,6 +436,30 @@ branch.
     # …
 ```
 
+### Caching the Sonar scanner
+
+The action downloads Sonar's scanner every time it runs it, in the Sonar
+workflow and in the build of [other projects](#other-projects). That's about 50
+MB. The action keeps the download in
+`${{ runner.tool_cache }}/sonar-fork-analysis` and checks it against the pinned
+checksum before each use. So caching that directory is safe:
+
+```yaml
+- uses: actions/cache@v4
+  with:
+    path: ${{ runner.tool_cache }}/sonar-fork-analysis
+    key:
+      sonar-scanner-${{ runner.os }}-${{ runner.arch }}-${{
+      hashFiles('.github/workflows/*.yml') }}
+    restore-keys: sonar-scanner-${{ runner.os }}-${{ runner.arch }}-
+```
+
+Add it before the action. The Sonar workflow can only restore what a build on
+your main branch saved. Only builds of other projects run the scanner, so Maven
+and Gradle projects gain nothing there. The key changes whenever your workflows
+do, so a new version of the action saves its own copy. Self-hosted runners keep
+the directory between jobs without this step.
+
 ## Real-world examples
 
 [Instancio](https://github.com/instancio/instancio) analyses its pull requests

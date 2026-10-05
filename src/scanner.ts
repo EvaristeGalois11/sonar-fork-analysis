@@ -1,12 +1,19 @@
 import * as core from '@actions/core'
 import * as tc from '@actions/tool-cache'
 import { createHash } from 'node:crypto'
-import { readFileSync, renameSync } from 'node:fs'
-import { join } from 'node:path'
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 
 const VERSION = '8.1.0.6389'
-// The tool cache wants semver, which has no fourth component; the build goes in the prerelease.
-const CACHE_VERSION = '8.1.0-build.6389'
 
 type Build = { suffix: string; sha256: string }
 
@@ -44,6 +51,72 @@ export function scannerBuild(platform: string, arch: string): Build {
   return BUNDLED[`${platform}-${arch}`] ?? PLAIN
 }
 
+// Where the zip is kept between runs, documented for users to cache. Other jobs or a restored cache
+// may have put anything there: it's checked on every use, and nothing runs from it.
+export function keptZip(name: string): string {
+  return join(
+    process.env.RUNNER_TOOL_CACHE ?? tmpdir(),
+    'sonar-fork-analysis',
+    VERSION,
+    `${name}.zip`
+  )
+}
+
+function digest(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+// Only a plain file of a sane size: reading a link to /dev/zero would never end.
+function readKept(path: string): Buffer | undefined {
+  try {
+    const stats = lstatSync(path)
+    return stats.isFile() && stats.size < 512 * 1024 * 1024
+      ? readFileSync(path)
+      : undefined
+  } catch {
+    // Missing, or under a file.
+    return undefined
+  }
+}
+
+function keep(path: string, bytes: Buffer): void {
+  // A name of its own, written only if nothing is there: wx refuses any entry, links included.
+  const part = `${path}.${String(process.pid)}.part`
+  let written = false
+  try {
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(part, bytes, { flag: 'wx' })
+    written = true
+    renameSync(part, path)
+  } catch (error) {
+    core.debug(`Not keeping the scanner in ${dirname(path)}: ${String(error)}`)
+    if (written) rmSync(part, { force: true })
+  }
+}
+
+// The zip's bytes, checked against the pinned digest: the kept copy if it matches, else a download.
+export async function scannerZip(
+  name: string,
+  sha256: string
+): Promise<Buffer> {
+  const kept = keptZip(name)
+  const bytes = readKept(kept)
+  if (bytes && digest(bytes) === sha256) return bytes
+  const download = await tc.downloadTool(
+    `https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${name}.zip`
+  )
+  const downloaded = readFileSync(download)
+  rmSync(download, { force: true })
+  const actual = digest(downloaded)
+  if (actual !== sha256) {
+    throw new Error(
+      `The downloaded scanner has SHA-256 ${actual}, expected ${sha256}`
+    )
+  }
+  keep(kept, downloaded)
+  return downloaded
+}
+
 export async function installScanner(
   platform: string = process.platform,
   arch: string = process.arch
@@ -54,29 +127,21 @@ export async function installScanner(
       `No scanner with a bundled Java runtime for ${platform}-${arch}, using the Java on the runner`
     )
   }
-  const tool = `sonar-scanner-cli${build.suffix}`
-  let directory = tc.find(tool, CACHE_VERSION)
-  if (!directory) {
-    const name = `sonar-scanner-cli-${VERSION}${build.suffix}`
-    const download = await tc.downloadTool(
-      `https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${name}.zip`
-    )
-    // PowerShell 5.1, which extracts on some Windows runners, refuses a file without the extension.
-    const zip = `${download}.zip`
-    renameSync(download, zip)
-    const actual = createHash('sha256').update(readFileSync(zip)).digest('hex')
-    if (actual !== build.sha256) {
-      throw new Error(
-        `The downloaded scanner has SHA-256 ${actual}, expected ${build.sha256}`
-      )
-    }
-    const extracted = await tc.extractZip(zip)
-    directory = await tc.cacheDir(
-      join(extracted, `sonar-scanner-${VERSION}${build.suffix}`),
-      tool,
-      CACHE_VERSION
-    )
-  }
+  const name = `sonar-scanner-cli-${VERSION}${build.suffix}`
+  const bytes = await scannerZip(name, build.sha256)
+  // The bytes just checked, unpacked where only this job writes.
+  const directory = mkdtempSync(
+    join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-scanner-')
+  )
+  // PowerShell 5.1, which extracts on some Windows runners, refuses a file without the extension.
+  const zip = join(directory, `${name}.zip`)
+  writeFileSync(zip, bytes)
+  const extracted = await tc.extractZip(zip, join(directory, 'scanner'))
   const script = platform === 'win32' ? 'sonar-scanner.bat' : 'sonar-scanner'
-  return join(directory, 'bin', script)
+  return join(
+    extracted,
+    `sonar-scanner-${VERSION}${build.suffix}`,
+    'bin',
+    script
+  )
 }

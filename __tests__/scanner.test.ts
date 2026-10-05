@@ -1,8 +1,26 @@
-import * as tc from '@actions/tool-cache'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { jest } from '@jest/globals'
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { installScanner, scannerBuild } from '../src/scanner.js'
+import { dirname, join } from 'node:path'
+import { posixIt } from '../__fixtures__/platform.js'
+
+const downloadTool = jest.fn<(url: string) => Promise<string>>()
+jest.unstable_mockModule('@actions/tool-cache', () => ({
+  downloadTool,
+  extractZip: jest.fn()
+}))
+
+const { keptZip, scannerBuild, scannerZip } = await import('../src/scanner.js')
 
 describe('scannerBuild', () => {
   it('picks the build with a bundled Java runtime where one exists', () => {
@@ -20,14 +38,23 @@ describe('scannerBuild', () => {
   })
 })
 
-describe('installScanner', () => {
+describe('scannerZip', () => {
+  const zip = Buffer.from('the scanner')
+  const sha256 = createHash('sha256').update(zip).digest('hex')
   let root: string
+  let served: Buffer
   const saved = { ...process.env }
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'scanner-'))
     process.env.RUNNER_TOOL_CACHE = join(root, 'cache')
-    process.env.RUNNER_TEMP = join(root, 'temp')
+    served = zip
+    let downloads = 0
+    downloadTool.mockImplementation(async () => {
+      const file = join(root, `download-${String(++downloads)}`)
+      writeFileSync(file, served)
+      return file
+    })
   })
 
   afterEach(() => {
@@ -35,17 +62,52 @@ describe('installScanner', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
-  it('uses a scanner already in the tool cache without downloading', async () => {
-    const scanner = join(root, 'scanner')
-    mkdirSync(join(scanner, 'bin'), { recursive: true })
-    const cached = await tc.cacheDir(
-      scanner,
-      'sonar-scanner-cli-linux-x64',
-      '8.1.0-build.6389'
-    )
+  it('downloads, checks and keeps the zip, then uses the kept copy', async () => {
+    expect(await scannerZip('cli', sha256)).toEqual(zip)
+    expect(readFileSync(keptZip('cli'))).toEqual(zip)
+    downloadTool.mockClear()
 
-    await expect(installScanner('linux', 'x64')).resolves.toBe(
-      join(cached, 'bin', 'sonar-scanner')
+    expect(await scannerZip('cli', sha256)).toEqual(zip)
+    expect(downloadTool).not.toHaveBeenCalled()
+  })
+
+  it('downloads again over a kept copy that fails the check', async () => {
+    mkdirSync(dirname(keptZip('cli')), { recursive: true })
+    writeFileSync(keptZip('cli'), 'tampered')
+
+    expect(await scannerZip('cli', sha256)).toEqual(zip)
+    expect(downloadTool).toHaveBeenCalled()
+    expect(readFileSync(keptZip('cli'))).toEqual(zip)
+  })
+
+  it('refuses a download that fails the check, and keeps nothing', async () => {
+    served = Buffer.from('not the scanner')
+
+    await expect(scannerZip('cli', sha256)).rejects.toThrow(
+      `expected ${sha256}`
     )
+    expect(existsSync(keptZip('cli'))).toBe(false)
+  })
+
+  posixIt(
+    'reads and writes through no link where the zip is kept',
+    async () => {
+      const kept = keptZip('cli')
+      mkdirSync(dirname(kept), { recursive: true })
+      // Endless to read, and a file elsewhere to write to.
+      symlinkSync('/dev/zero', kept)
+      const target = join(root, 'target')
+      symlinkSync(target, `${kept}.${String(process.pid)}.part`)
+
+      expect(await scannerZip('cli', sha256)).toEqual(zip)
+      expect(existsSync(target)).toBe(false)
+    }
+  )
+
+  it("works where the zip can't be kept", async () => {
+    writeFileSync(join(root, 'cache'), 'a file, not a directory')
+
+    expect(await scannerZip('cli', sha256)).toEqual(zip)
+    expect(lstatSync(join(root, 'cache')).isFile()).toBe(true)
   })
 })

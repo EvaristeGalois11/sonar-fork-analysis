@@ -41,13 +41,10 @@ if (!process.argv.includes('--update')) {
   process.exit(0)
 }
 
-const [major = '', minor = '', patch = '', build = ''] = latest.split('.')
-source = source
-  .replace(/^const VERSION = '.*'$/m, `const VERSION = '${latest}'`)
-  .replace(
-    /^const CACHE_VERSION = '.*'$/m,
-    `const CACHE_VERSION = '${major}.${minor}.${patch}-build.${build}'`
-  )
+source = source.replace(
+  /^const VERSION = '.*'$/m,
+  `const VERSION = '${latest}'`
+)
 // Each build's digest follows its suffix in the source.
 const suffixes = Array.from(
   source.matchAll(/suffix: '([^']*)'/g),
