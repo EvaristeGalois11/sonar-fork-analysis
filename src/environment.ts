@@ -1,8 +1,8 @@
 // Hygiene, not a boundary: a process of the same user can still read the action's own environment,
 // e.g. from /proc. What must not reach a process must not be in the job at all.
 
-// The job's environment without the action's inputs, the Sonar token and the GitHub token among
-// them, which a step of its own wouldn't see either.
+// The job's environment without the action's inputs. The Sonar and GitHub tokens are among them,
+// and a step of its own wouldn't see them either.
 export function jobEnvironment(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(process.env).filter(
@@ -21,8 +21,8 @@ const RUNNER_FILES = new Set([
   'GITHUB_TOKEN'
 ])
 
-// For tools that read the pull request's content, which need neither the runtime's tokens, nor the
-// files through which a step talks to the runner, nor a GitHub token.
+// For tools that read the pull request's content. They need no runtime or GitHub token, and none of
+// the files through which a step talks to the runner.
 export function toolEnvironment(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(jobEnvironment()).filter(

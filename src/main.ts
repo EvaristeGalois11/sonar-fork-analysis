@@ -503,8 +503,8 @@ async function analyzeCommit(
     throw new Error(`The Sonar scanner failed with exit code ${exitCode}`)
 }
 
-// Whether the run a workflow_run follows built code no one here reviewed: a pull request's, a fork's
-// or Dependabot's among them, or another repository's.
+// Whether the run a workflow_run follows built code no one here reviewed: a pull request's,
+// Dependabot's too, or another repository's.
 function followsUnreviewedRun(eventName: string): boolean {
   const eventPath = process.env.GITHUB_EVENT_PATH
   if (eventName !== 'workflow_run' || !eventPath) return false

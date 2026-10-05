@@ -128354,8 +128354,8 @@ function detectBuildTool(directory, requested = 'auto') {
 
 // Hygiene, not a boundary: a process of the same user can still read the action's own environment,
 // e.g. from /proc. What must not reach a process must not be in the job at all.
-// The job's environment without the action's inputs, the Sonar token and the GitHub token among
-// them, which a step of its own wouldn't see either.
+// The job's environment without the action's inputs. The Sonar and GitHub tokens are among them,
+// and a step of its own wouldn't see them either.
 function jobEnvironment() {
     return Object.fromEntries(Object.entries(process.env).filter((entry) => entry[1] !== undefined && !entry[0].startsWith('INPUT_')));
 }
@@ -128367,8 +128367,8 @@ const RUNNER_FILES = new Set([
     'GITHUB_STEP_SUMMARY',
     'GITHUB_TOKEN'
 ]);
-// For tools that read the pull request's content, which need neither the runtime's tokens, nor the
-// files through which a step talks to the runner, nor a GitHub token.
+// For tools that read the pull request's content. They need no runtime or GitHub token, and none of
+// the files through which a step talks to the runner.
 function toolEnvironment() {
     return Object.fromEntries(Object.entries(jobEnvironment()).filter(([name]) => !name.startsWith('ACTIONS_') && !RUNNER_FILES.has(name)));
 }
@@ -128575,8 +128575,8 @@ const MODES = ['auto', 'direct', 'prepare', 'analyze'];
 // Events that run with the base repository's secrets and write token. Building a pull request
 // there would hand those to its code, which is exactly what this action exists to avoid.
 const PRIVILEGED_EVENTS = new Set(['pull_request_target', 'issue_comment']);
-// unreviewedRun: on workflow_run, whether the run it follows built code no one here reviewed, a
-// pull request's or another repository's.
+// unreviewedRun: on workflow_run, whether the run it follows built a pull request's code or another
+// repository's.
 function resolveMode(requested, eventName, token, unreviewedRun) {
     if (!MODES.includes(requested)) {
         throw new Error(`Unknown mode '${requested}', expected one of: ${MODES.join(', ')}`);
@@ -128602,10 +128602,10 @@ function checkBuild(mode, eventName, token, unreviewedRun) {
         throw new Error(`Refusing to build on ${eventName}, which runs with the repository's secrets; trigger the build on pull_request instead.`);
     }
     if (mode === 'prepare') {
-        // Removing it from the build's environment can't keep it from the build: a process of the same
-        // user reads the action's own, e.g. from /proc.
+        // Leaving it out of the build's environment doesn't help: a process of the same user can read
+        // the action's own, e.g. from /proc.
         if (token)
-            throw new Error('Mode prepare builds without the Sonar token, but the sonar-token input is set, and the build could still read it from the job; remove sonar-token, or use mode auto.');
+            throw new Error('The sonar-token input is set, but mode prepare must build without the token: the build could read it from the job. Remove sonar-token or use mode auto.');
         return { mode };
     }
     if (!token) {
@@ -128614,7 +128614,7 @@ function checkBuild(mode, eventName, token, unreviewedRun) {
     if (eventName !== 'workflow_run')
         return { mode };
     if (unreviewedRun)
-        throw new Error("Refusing to build a pull request's code on workflow_run, which runs with the repository's secrets; use mode auto to analyse it.");
+        throw new Error("Refusing to build a pull request's code on workflow_run: it would run with the repository's secrets. Use mode auto to analyse it.");
     return {
         mode,
         warning: 'Direct analysis on workflow_run builds the checked-out code with the Sonar token; make sure it is not code from a fork.'
@@ -132523,8 +132523,8 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     if (exitCode !== 0)
         throw new Error(`The Sonar scanner failed with exit code ${exitCode}`);
 }
-// Whether the run a workflow_run follows built code no one here reviewed: a pull request's, a fork's
-// or Dependabot's among them, or another repository's.
+// Whether the run a workflow_run follows built code no one here reviewed: a pull request's,
+// Dependabot's too, or another repository's.
 function followsUnreviewedRun(eventName) {
     const eventPath = process.env.GITHUB_EVENT_PATH;
     if (eventName !== 'workflow_run' || !eventPath)
