@@ -23,24 +23,21 @@ the scanner would otherwise trust:
 
 - Links that lead outside the checkout. The scanner follows them, so a link to
   `/proc/self` would get the scanner's own environment, token included, indexed
-  and sent to Sonar.
+  and sent to Sonar. A link could hide behind a file name that isn't valid
+  UTF-8, so the action refuses such names.
 - `sonar-project.properties` files, which the scanner would read as
   configuration.
 
-It refuses a checkout or an artifact with a file name that isn't valid UTF-8.
-The action and the scanner read such a name differently, so a link could hide
-behind it.
-
-**The artifact.** The action refuses an artifact with links or special files in
-it. It unpacks the build output next to the sources, never over an existing file
-or through a link. It adds only two kinds of files to the source directories:
-report files that the settings name and type information in `node_modules`
-(declaration, `package.json` and `tsconfig` files). The analyzers read the type
-information to learn the types the code uses and by default never report on it
-as part of the project. The action also recreates the links a Node project had
-in `node_modules`. It only recreates links that sit in a `node_modules`
-directory and lead to a directory in the checkout, never into `.git`. A fork
-could commit links like these itself.
+**The artifact.** The action refuses an artifact with links, special files or
+file names that aren't valid UTF-8 in it. It unpacks the build output next to
+the sources, never over an existing file or through a link. It adds only two
+kinds of files to the source directories: report files that the settings name
+and type information in `node_modules` (declaration, `package.json` and
+`tsconfig` files). The analyzers read the type information to learn the types
+the code uses and by default never report on it as part of the project. The
+action also recreates the links a Node project had in `node_modules`. It only
+recreates links that sit in a `node_modules` directory and lead to a directory
+in the checkout, never into `.git`. A fork could commit links like these itself.
 
 **The settings.** The build's settings go through the same
 [allowlist](#what-the-fork-path-carries) again, and every path in them must lead
