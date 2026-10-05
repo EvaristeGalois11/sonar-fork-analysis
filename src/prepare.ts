@@ -5,13 +5,13 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
-  realpathSync,
   statSync,
   writeFileSync,
   type Dirent
 } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { BuildTool } from './build-tool.js'
+import { realPath } from './real-path.js'
 import {
   CHECKOUT_PATH_KEYS,
   OUTPUT_PATH_KEYS,
@@ -99,7 +99,7 @@ export function typeInformation(
 ): TypeInformation {
   const walk: Walk = {
     workspace,
-    realWorkspace: realpathSync(workspace),
+    realWorkspace: realPath(workspace),
     seen: new Set(),
     packages: [],
     found: { files: [], links: [], outside: 0 }
@@ -149,7 +149,7 @@ function visitPackages(walk: Walk, path: string): void {
 }
 
 function firstVisit(walk: Walk, path: string): boolean {
-  const real = realpathSync(path)
+  const real = realPath(path)
   if (walk.seen.has(real)) return false
   walk.seen.add(real)
   return true
@@ -184,7 +184,7 @@ function posix(path: string): string {
 // directory elsewhere. Links to files, such as node_modules/.bin, and broken ones don't count.
 function linkTarget(link: string, realWorkspace: string): string | undefined {
   try {
-    const target = realpathSync(link)
+    const target = realPath(link)
     if (!statSync(target).isDirectory()) return undefined
     const rel = relative(realWorkspace, target)
     if (rel === '') return undefined
