@@ -1,4 +1,4 @@
-// For what Windows doesn't have: file names it refuses, the executable bit.
+// For what Windows doesn't have: file names it refuses, the executable bit, a '..' after a link.
 export const posixIt = process.platform === 'win32' ? it.skip : it
 
 // For file names that aren't valid UTF-8, which macOS refuses. NTFS holds them as lone surrogates.

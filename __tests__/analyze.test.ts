@@ -190,7 +190,7 @@ describe('resolveSettings', () => {
     expect(resolved.warnings).toHaveLength(4)
   })
 
-  it('drops paths through a link that climbs out of the checkout', () => {
+  posixIt('drops paths through a link that climbs out of the checkout', () => {
     climbOut()
     const resolved = resolveSettings(
       { 'sonar.java.binaries': '{workspace}/a/leak' },
@@ -615,13 +615,16 @@ describe('removeProjectSettings', () => {
 })
 
 describe('removeOutwardLinks', () => {
-  it('removes a link that climbs out of the checkout through another link', () => {
-    climbOut()
-    expect(removeOutwardLinks(workspace)).toEqual([
-      `Removed ${join('a', 'leak')}: a link leading out of the checkout`
-    ])
-    expect(lstatSync(join(workspace, 'a/up')).isSymbolicLink()).toBe(true)
-  })
+  posixIt(
+    'removes a link that climbs out of the checkout through another link',
+    () => {
+      climbOut()
+      expect(removeOutwardLinks(workspace)).toEqual([
+        `Removed ${join('a', 'leak')}: a link leading out of the checkout`
+      ])
+      expect(lstatSync(join(workspace, 'a/up')).isSymbolicLink()).toBe(true)
+    }
+  )
 
   invalidUtf8It(
     'refuses a checkout with a file name that is not valid UTF-8',
@@ -987,14 +990,17 @@ describe('recreateLinks', () => {
     )
   })
 
-  it('refuses a target that climbs out of the checkout through another link', () => {
-    climbOut()
-    expect(
-      recreateLinks(workspace, [{ path: 'node_modules/x', target: 'a/leak' }])
-    ).toEqual([
-      'Skipped link node_modules/x: it does not lead to a directory in the checkout'
-    ])
-  })
+  posixIt(
+    'refuses a target that climbs out of the checkout through another link',
+    () => {
+      climbOut()
+      expect(
+        recreateLinks(workspace, [{ path: 'node_modules/x', target: 'a/leak' }])
+      ).toEqual([
+        'Skipped link node_modules/x: it does not lead to a directory in the checkout'
+      ])
+    }
+  )
 
   it('refuses links leaving the checkout, entering .git or outside node_modules', () => {
     mkdirSync(join(workspace, '.git/hooks'), { recursive: true })
@@ -1157,7 +1163,8 @@ describe('recreateLinks', () => {
 })
 
 // a/leak leads out of the checkout: up leads to the checkout, and .. leaves it from there. Node's own
-// realpathSync drops up/.. first, so it finds the decoy a/outside.
+// realpathSync drops up/.. first, so it finds the decoy a/outside. Windows reads the target that way
+// too, so there the link really leads to the decoy.
 function climbOut(): void {
   mkdirSync(join(workspace, 'a/outside'), { recursive: true })
   symlinkSync('..', join(workspace, 'a/up'))
