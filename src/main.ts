@@ -426,9 +426,13 @@ async function analyzeCommit(
     })
   }
   await verifyCheckout(workspace, origin.headSha)
+  const temp = tempDirectory()
+  // /proc/self/cwd leads to the working directory of whichever process reads it: the checkout for the
+  // action, where the runner starts it, so the sweep would keep a link to it. From here it leads out
+  // of the checkout, as it does for the scanner.
+  process.chdir(temp)
   const removedLinks = removeOutwardLinks(workspace)
 
-  const temp = tempDirectory()
   const artifact = await downloadArtifact(found, temp)
   checkNoLinks(artifact)
   const manifest = readManifest(
