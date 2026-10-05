@@ -15,12 +15,15 @@ import { dirname, join } from 'node:path'
 import { posixIt } from '../__fixtures__/platform.js'
 
 const downloadTool = jest.fn<(url: string) => Promise<string>>()
+const extractZip =
+  jest.fn<(file: string, destination?: string) => Promise<string>>()
 jest.unstable_mockModule('@actions/tool-cache', () => ({
   downloadTool,
-  extractZip: jest.fn()
+  extractZip
 }))
 
-const { keptZip, scannerBuild, scannerZip } = await import('../src/scanner.js')
+const { keptZip, scannerBuild, scannerZip, unpackScanner } =
+  await import('../src/scanner.js')
 
 describe('scannerBuild', () => {
   it('picks the build with a bundled Java runtime where one exists', () => {
@@ -109,5 +112,45 @@ describe('scannerZip', () => {
 
     expect(await scannerZip('cli', sha256)).toEqual(zip)
     expect(lstatSync(join(root, 'cache')).isFile()).toBe(true)
+  })
+})
+
+describe('unpackScanner', () => {
+  let root: string
+  const saved = { ...process.env }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'scanner-'))
+    process.env.RUNNER_TEMP = root
+  })
+
+  afterEach(() => {
+    process.env = { ...saved }
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('unpacks exactly the checked bytes into a directory of its own', async () => {
+    let unpacked: Buffer | undefined
+    extractZip.mockImplementation(async (file, destination) => {
+      expect(file.startsWith(root)).toBe(true)
+      expect(file.endsWith('.zip')).toBe(true)
+      unpacked = readFileSync(file)
+      return destination ?? ''
+    })
+
+    const script = await unpackScanner(
+      Buffer.from('checked'),
+      '-linux-x64',
+      'linux'
+    )
+
+    expect(unpacked).toEqual(Buffer.from('checked'))
+    expect(script.startsWith(root)).toBe(true)
+    expect(script).toMatch(
+      /sonar-scanner-[\d.]+-linux-x64[/\\]bin[/\\]sonar-scanner$/
+    )
+    expect(
+      await unpackScanner(Buffer.from('checked'), '-windows-x64', 'win32')
+    ).toMatch(/sonar-scanner\.bat$/)
   })
 })
