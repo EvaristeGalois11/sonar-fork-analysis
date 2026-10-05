@@ -128572,22 +128572,27 @@ function resolveMode(requested, eventName, token, fromAnotherRepository = false)
     }
     if (mode === 'analyze')
         return { mode };
+    return checkBuild(mode, eventName, token, fromAnotherRepository);
+}
+// Whether a mode that builds may build on this event.
+function checkBuild(mode, eventName, token, fromAnotherRepository) {
     if (PRIVILEGED_EVENTS.has(eventName) ||
         (mode === 'prepare' && eventName === 'workflow_run')) {
         throw new Error(`Refusing to build on ${eventName}, which runs with the repository's secrets; trigger the build on pull_request instead.`);
     }
-    if (mode === 'direct' && !token) {
+    if (mode === 'prepare')
+        return { mode };
+    if (!token) {
         throw new Error('No Sonar token available, set the sonar-token input. On pull requests from forks, use mode auto.');
     }
-    if (mode === 'direct' && eventName === 'workflow_run') {
-        if (fromAnotherRepository)
-            throw new Error("Refusing to build another repository's code on workflow_run, which runs with the repository's secrets; use mode auto to analyse it.");
-        return {
-            mode,
-            warning: 'Direct analysis on workflow_run builds the checked-out code with the Sonar token; make sure it is not code from a fork.'
-        };
-    }
-    return { mode };
+    if (eventName !== 'workflow_run')
+        return { mode };
+    if (fromAnotherRepository)
+        throw new Error("Refusing to build another repository's code on workflow_run, which runs with the repository's secrets; use mode auto to analyse it.");
+    return {
+        mode,
+        warning: 'Direct analysis on workflow_run builds the checked-out code with the Sonar token; make sure it is not code from a fork.'
+    };
 }
 
 // workflow_run payloads carry no pull request for forks, so it is looked up by its head.
