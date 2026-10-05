@@ -332,7 +332,8 @@ describe('recreateLinks on any links', () => {
         'missing',
         'self',
         'g',
-        'g/hooks'
+        'g/hooks',
+        'src/leak'
       )
     },
     { weight: 1, arbitrary: pathText }
@@ -365,8 +366,12 @@ describe('recreateLinks on any links', () => {
           // Committed links to the checkout itself and into .git, which only resolving reveals.
           symlinkSync('.', join(workspace, 'self'))
           symlinkSync('.git', join(workspace, 'g'))
+          // Out of the checkout through src/up, to Node's own realpathSync the decoy src/outside.
+          mkdirSync(join(workspace, 'src/outside'))
+          symlinkSync('..', join(workspace, 'src/up'))
+          symlinkSync('up/../outside', join(workspace, 'src/leak'))
           file(join(workspace, 'README.md'))
-          const realWorkspace = realpathSync(workspace)
+          const realWorkspace = realpathSync.native(workspace)
           const before = snapshot(root)
 
           recreateLinks(workspace, links)
@@ -383,7 +388,7 @@ describe('recreateLinks on any links', () => {
             ).toBe(false)
             if (!stats.isSymbolicLink()) continue
             expect(segments.slice(0, -1)).toContain('node_modules')
-            const target = realpathSync(join(workspace, path))
+            const target = realpathSync.native(join(workspace, path))
             expect(statSync(target).isDirectory()).toBe(true)
             expect(target).not.toBe(realWorkspace)
             expect(within(target, realWorkspace)).toBe(true)
@@ -443,7 +448,7 @@ describe('unpackWorkspace on any artifact', () => {
           symlinkSync('src', join(workspace, 'lnk'))
           // A check that follows links would see nothing here, and write through it.
           symlinkSync(join(outside, 'new'), join(workspace, 'dangling'))
-          const realSources = realpathSync(join(workspace, 'src'))
+          const realSources = realpathSync.native(join(workspace, 'src'))
           const report = join(realSources, 'report.xml')
           const before = snapshot(root)
 
@@ -459,7 +464,7 @@ describe('unpackWorkspace on any artifact', () => {
             expect(segments.some(isGit)).toBe(false)
             // The scanner reads settings from a file by that name in any case; a directory only
             // matters by its exact name, which is the one Linux has.
-            const real = join(realpathSync(workspace), path)
+            const real = join(realpathSync.native(workspace), path)
             const isDirectory = lstatSync(real).isDirectory()
             const name = segments.at(-1) ?? ''
             expect(isDirectory ? name : name.toLowerCase()).not.toBe(

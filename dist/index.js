@@ -127300,6 +127300,11 @@ If the error persists, please check whether Actions and API requests are operati
     }
 }
 
+// Where the system, and the scanner with it, really lands. Node's own realpathSync applies a '..'
+// after a link to the link's path rather than its target, so a/up/../x is a/x to it even when up
+// leads elsewhere.
+const realPath = realpathSync.native;
+
 // Analysis settings that may travel from the build to the analysis. Everything else in a dump is
 // dropped: environment variables, JVM properties, and whatever the analysis must decide itself
 // (server, token, organization, project key, scanner, branch and pull request settings).
@@ -127596,7 +127601,7 @@ function missingDump(tool) {
 function typeInformation(directory, workspace) {
     const walk = {
         workspace,
-        realWorkspace: realpathSync(workspace),
+        realWorkspace: realPath(workspace),
         seen: new Set(),
         packages: [],
         found: { files: [], links: [], outside: 0 }
@@ -127637,7 +127642,7 @@ function visitPackages(walk, path) {
         visitDirectory(walk, path, true);
 }
 function firstVisit(walk, path) {
-    const real = realpathSync(path);
+    const real = realPath(path);
     if (walk.seen.has(real))
         return false;
     walk.seen.add(real);
@@ -127671,7 +127676,7 @@ function posix(path) {
 // directory elsewhere. Links to files, such as node_modules/.bin, and broken ones don't count.
 function linkTarget(link, realWorkspace) {
     try {
-        const target = realpathSync(link);
+        const target = realPath(link);
         if (!statSync(target).isDirectory())
             return undefined;
         const rel = relative(realWorkspace, target);
@@ -127842,8 +127847,8 @@ function resolveSettings(settings, workspace, home) {
     const places = {
         workspace,
         home,
-        realWorkspace: realpathSync(workspace),
-        realHome: existsSync$1(home) ? realpathSync(home) : home
+        realWorkspace: realPath(workspace),
+        realHome: existsSync$1(home) ? realPath(home) : home
     };
     const bases = moduleBases(kept, tree, places);
     let sourceRoots = [];
@@ -127866,7 +127871,7 @@ function resolveSettings(settings, workspace, home) {
         if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests') {
             withSources.add(prefix);
             // concat, as a spread would put every entry on the stack, which a long list overflows.
-            sourceRoots = sourceRoots.concat(paths.map((path) => realpathSync(path)));
+            sourceRoots = sourceRoots.concat(paths.map((path) => realPath(path)));
         }
         if (isReport(bareKey))
             reports = reports.concat(paths
@@ -127876,7 +127881,7 @@ function resolveSettings(settings, workspace, home) {
     // Without either setting the scanner analyses the whole base directory.
     for (const [prefix, base] of bases) {
         if (!withSources.has(prefix))
-            sourceRoots.push(realpathSync(base));
+            sourceRoots.push(realPath(base));
     }
     return { properties, sourceRoots, reports, warnings };
 }
@@ -127916,7 +127921,7 @@ function moduleBases(kept, tree, places) {
             WILDCARD.test(mapped) ||
             REREAD_PATH.test(mapped) ||
             !existsSync$1(mapped) ||
-            !isWithin(realpathSync(mapped), places.realWorkspace)) {
+            !isWithin(realPath(mapped), places.realWorkspace)) {
             const subject = prefix ? `module ${prefix.slice(0, -1)}` : 'the project';
             throw new Error(`The artifact gives ${subject} no base directory in the checkout`);
         }
@@ -127952,7 +127957,7 @@ function acceptedPath(entry, bareKey, base, places) {
     const shipped = isShippedPath(bareKey);
     let accepted;
     if (existsSync$1(path)) {
-        const real = realpathSync(path);
+        const real = realPath(path);
         accepted =
             isWithin(real, places.realWorkspace) ||
                 (shipped && isWithin(real, places.realHome));
@@ -128050,7 +128055,7 @@ function unpackFile(source, rel, workspace, protectedRoots, reports) {
     if (basename(rel).toLowerCase() === 'sonar-project.properties')
         return 'the scanner would read it as settings';
     // Directories on the way are never links (checked below), so this is where the file really lands.
-    const real = join(realpathSync(workspace), rel);
+    const real = join(realPath(workspace), rel);
     if (insideAny(workspace, rel, protectedRoots) &&
         !mayJoinSources(rel, real, reports))
         return 'inside the sources';
@@ -128105,7 +128110,7 @@ function unpackWorkspace(from, workspace, protectedRoots, reports = []) {
 // in the checkout to anywhere else, /proc/self for one, would have Sonar index and upload what is
 // there. Links staying in the checkout are left to the checks on settings and the scanner's own.
 function removeOutwardLinks(workspace) {
-    const realWorkspace = realpathSync(workspace);
+    const realWorkspace = realPath(workspace);
     const warnings = [];
     const entries = entriesUnder(workspace);
     for (const entry of entries) {
@@ -128114,7 +128119,7 @@ function removeOutwardLinks(workspace) {
         const path = join(entry.parentPath, entry.name);
         let target;
         try {
-            target = realpathSync(path);
+            target = realPath(path);
         }
         catch {
             target = undefined;
@@ -128133,7 +128138,7 @@ function recreateLinks(workspace, links) {
     if (!Array.isArray(links))
         return [];
     const warnings = [];
-    const realWorkspace = realpathSync(workspace);
+    const realWorkspace = realPath(workspace);
     for (const link of links) {
         const { path, target } = isRecord(link) ? link : {};
         if (typeof path !== 'string' || typeof target !== 'string') {
@@ -128177,7 +128182,7 @@ function recreateLink(workspace, realWorkspace, path, target) {
     if (at.some((segment) => segment.toLowerCase() === 'sonar-project.properties'))
         return 'it makes a sonar-project.properties';
     const destination = join(workspace, ...to);
-    const real = existsSync$1(destination) ? realpathSync(destination) : undefined;
+    const real = existsSync$1(destination) ? realPath(destination) : undefined;
     const directory = real === undefined ? undefined : identity(real);
     if (real === undefined ||
         directory === undefined ||

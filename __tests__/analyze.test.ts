@@ -43,7 +43,7 @@ function file(path: string, content = 'x'): string {
 
 beforeEach(() => {
   // The real path, as analyze compares them: macOS's temporary directory is behind a link.
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'analyze-')))
+  root = realpathSync.native(mkdtempSync(join(tmpdir(), 'analyze-')))
   workspace = join(root, 'work')
   home = join(root, 'home')
   artifact = join(root, 'artifact')
@@ -90,7 +90,7 @@ describe('resolveSettings', () => {
       home
     )
     expect(resolved.reports).toEqual([
-      join(realpathSync(workspace), 'coverage/lcov.info')
+      join(realpathSync.native(workspace), 'coverage/lcov.info')
     ])
   })
 
@@ -188,6 +188,17 @@ describe('resolveSettings', () => {
     )
     expect(resolved.properties.get('sonar.java.binaries')).toBe('')
     expect(resolved.warnings).toHaveLength(4)
+  })
+
+  it('drops paths through a link that climbs out of the checkout', () => {
+    climbOut()
+    const resolved = resolveSettings(
+      { 'sonar.java.binaries': '{workspace}/a/leak' },
+      workspace,
+      home
+    )
+    expect(resolved.properties.get('sonar.java.binaries')).toBe('')
+    expect(resolved.warnings).toHaveLength(1)
   })
 
   it('accepts build directories that only appear when unpacking', () => {
@@ -445,7 +456,7 @@ describe('unpackWorkspace', () => {
 
   it('lets only reports and type declarations join the sources', () => {
     // A Node project analysing the whole of it: sonar.sources=.
-    const real = realpathSync(workspace)
+    const real = realpathSync.native(workspace)
     file(join(artifact, 'coverage/lcov.info'))
     file(join(artifact, 'node_modules/express/index.d.ts'))
     file(join(artifact, 'node_modules/express/package.json'))
@@ -604,6 +615,14 @@ describe('removeProjectSettings', () => {
 })
 
 describe('removeOutwardLinks', () => {
+  it('removes a link that climbs out of the checkout through another link', () => {
+    climbOut()
+    expect(removeOutwardLinks(workspace)).toEqual([
+      `Removed ${join('a', 'leak')}: a link leading out of the checkout`
+    ])
+    expect(lstatSync(join(workspace, 'a/up')).isSymbolicLink()).toBe(true)
+  })
+
   invalidUtf8It(
     'refuses a checkout with a file name that is not valid UTF-8',
     () => {
@@ -701,6 +720,9 @@ describe('resolveSettings on any artifact', () => {
     'b',
     'out',
     'secret',
+    'up',
+    'leak',
+    'outside',
     'a\ud800',
     'x',
     'x ',
@@ -722,7 +744,13 @@ describe('resolveSettings on any artifact', () => {
     relativePath.map((path) => `{workspace}/${path}`),
     relativePath.map((path) => `{home}/${path}`),
     relativePath.map((path) => `/${path}`),
-    fc.constantFrom('{workspace}', '{home}', '{other}/a')
+    fc.constantFrom(
+      '{workspace}',
+      '{home}',
+      '{other}/a',
+      '{workspace}/a/leak',
+      '{workspace}/a/leak/secret'
+    )
   )
   // How the scanner reads each kind of setting, written out here rather than taken from the code:
   // lists or single paths, and whether the private home may hold what they point to.
@@ -768,7 +796,8 @@ describe('resolveSettings on any artifact', () => {
     // Links the checkout could hold, to a file the analysis must never read.
     file(join(outside, 'secret'))
     symlinkSync(outside, join(workspace, 'out'))
-    mkdirSync(join(workspace, 'a'))
+    // a/leak climbs out through a/up, a/outside is the decoy Node's own realpathSync would find.
+    climbOut()
     mkdirSync(join(workspace, 'b'))
     // Names the scanner reads as the links next to them: trimmed, and \r as \n.
     mkdirSync(join(workspace, 'x '))
@@ -782,7 +811,7 @@ describe('resolveSettings on any artifact', () => {
     }
     // The analysis creates the private home only after resolving, when it unpacks the artifact.
     rmSync(home, { recursive: true })
-    const realWorkspace = realpathSync(workspace)
+    const realWorkspace = realpathSync.native(workspace)
     const within = (path: string, root: string): boolean =>
       path === root || path.startsWith(root + sep)
 
@@ -808,7 +837,7 @@ describe('resolveSettings on any artifact', () => {
               ? [workspace, realWorkspace, home]
               : [workspace, realWorkspace]
             for (const read of readings(path)) {
-              const real = existsSync(read) ? realpathSync(read) : read
+              const real = existsSync(read) ? realpathSync.native(read) : read
               expect(roots.some((root) => within(real, root))).toBe(true)
             }
           }
@@ -958,6 +987,15 @@ describe('recreateLinks', () => {
     )
   })
 
+  it('refuses a target that climbs out of the checkout through another link', () => {
+    climbOut()
+    expect(
+      recreateLinks(workspace, [{ path: 'node_modules/x', target: 'a/leak' }])
+    ).toEqual([
+      'Skipped link node_modules/x: it does not lead to a directory in the checkout'
+    ])
+  })
+
   it('refuses links leaving the checkout, entering .git or outside node_modules', () => {
     mkdirSync(join(workspace, '.git/hooks'), { recursive: true })
     mkdirSync(join(workspace, 'src'))
@@ -1084,8 +1122,8 @@ describe('recreateLinks', () => {
         { path: 'node_modules/@app/shared', target: 'packages/shared' }
       ])
     ).toEqual([])
-    expect(realpathSync(join(viaLink, 'node_modules/@app/shared'))).toBe(
-      realpathSync(join(real, 'packages/shared'))
+    expect(realpathSync.native(join(viaLink, 'node_modules/@app/shared'))).toBe(
+      realpathSync.native(join(real, 'packages/shared'))
     )
   })
 
@@ -1117,6 +1155,14 @@ describe('recreateLinks', () => {
     expect(recreateLinks(workspace, undefined)).toEqual([])
   })
 })
+
+// a/leak leads out of the checkout: up leads to the checkout, and .. leaves it from there. Node's own
+// realpathSync drops up/.. first, so it finds the decoy a/outside.
+function climbOut(): void {
+  mkdirSync(join(workspace, 'a/outside'), { recursive: true })
+  symlinkSync('..', join(workspace, 'a/up'))
+  symlinkSync('up/../outside', join(workspace, 'a/leak'))
+}
 
 // Makes a directory whose name isn't valid UTF-8, next to a decoy named as Node reads both.
 function hideBehindDecoy(parent: string): Buffer {

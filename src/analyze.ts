@@ -8,7 +8,6 @@ import {
   statSync,
   mkdirSync,
   readdirSync,
-  realpathSync,
   rmSync,
   symlinkSync,
   unlinkSync
@@ -24,6 +23,7 @@ import {
 } from 'node:path'
 import type { PullRequest } from './origin.js'
 import { ARTIFACT_FORMAT } from './prepare.js'
+import { realPath } from './real-path.js'
 import {
   CHECKOUT_PATH_KEYS,
   OUTPUT_PATH_KEYS,
@@ -141,8 +141,8 @@ export function resolveSettings(
   const places: Places = {
     workspace,
     home,
-    realWorkspace: realpathSync(workspace),
-    realHome: existsSync(home) ? realpathSync(home) : home
+    realWorkspace: realPath(workspace),
+    realHome: existsSync(home) ? realPath(home) : home
   }
   const bases = moduleBases(kept, tree, places)
   let sourceRoots: string[] = []
@@ -166,7 +166,7 @@ export function resolveSettings(
     if (bareKey === 'sonar.sources' || bareKey === 'sonar.tests') {
       withSources.add(prefix)
       // concat, as a spread would put every entry on the stack, which a long list overflows.
-      sourceRoots = sourceRoots.concat(paths.map((path) => realpathSync(path)))
+      sourceRoots = sourceRoots.concat(paths.map((path) => realPath(path)))
     }
     if (isReport(bareKey))
       reports = reports.concat(
@@ -177,7 +177,7 @@ export function resolveSettings(
   }
   // Without either setting the scanner analyses the whole base directory.
   for (const [prefix, base] of bases) {
-    if (!withSources.has(prefix)) sourceRoots.push(realpathSync(base))
+    if (!withSources.has(prefix)) sourceRoots.push(realPath(base))
   }
   return { properties, sourceRoots, reports, warnings }
 }
@@ -233,7 +233,7 @@ function moduleBases(
       WILDCARD.test(mapped) ||
       REREAD_PATH.test(mapped) ||
       !existsSync(mapped) ||
-      !isWithin(realpathSync(mapped), places.realWorkspace)
+      !isWithin(realPath(mapped), places.realWorkspace)
     ) {
       const subject = prefix ? `module ${prefix.slice(0, -1)}` : 'the project'
       throw new Error(
@@ -283,7 +283,7 @@ function acceptedPath(
   const shipped = isShippedPath(bareKey)
   let accepted: boolean
   if (existsSync(path)) {
-    const real = realpathSync(path)
+    const real = realPath(path)
     accepted =
       isWithin(real, places.realWorkspace) ||
       (shipped && isWithin(real, places.realHome))
@@ -406,7 +406,7 @@ function unpackFile(
   if (basename(rel).toLowerCase() === 'sonar-project.properties')
     return 'the scanner would read it as settings'
   // Directories on the way are never links (checked below), so this is where the file really lands.
-  const real = join(realpathSync(workspace), rel)
+  const real = join(realPath(workspace), rel)
   if (
     insideAny(workspace, rel, protectedRoots) &&
     !mayJoinSources(rel, real, reports)
@@ -474,7 +474,7 @@ export function unpackWorkspace(
 // in the checkout to anywhere else, /proc/self for one, would have Sonar index and upload what is
 // there. Links staying in the checkout are left to the checks on settings and the scanner's own.
 export function removeOutwardLinks(workspace: string): string[] {
-  const realWorkspace = realpathSync(workspace)
+  const realWorkspace = realPath(workspace)
   const warnings: string[] = []
   const entries = entriesUnder(workspace)
   for (const entry of entries) {
@@ -482,7 +482,7 @@ export function removeOutwardLinks(workspace: string): string[] {
     const path = join(entry.parentPath, entry.name)
     let target: string | undefined
     try {
-      target = realpathSync(path)
+      target = realPath(path)
     } catch {
       target = undefined
     }
@@ -502,7 +502,7 @@ export function removeOutwardLinks(workspace: string): string[] {
 export function recreateLinks(workspace: string, links: unknown): string[] {
   if (!Array.isArray(links)) return []
   const warnings: string[] = []
-  const realWorkspace = realpathSync(workspace)
+  const realWorkspace = realPath(workspace)
   for (const link of links) {
     const { path, target } = isRecord(link) ? link : {}
     if (typeof path !== 'string' || typeof target !== 'string') {
@@ -556,7 +556,7 @@ function recreateLink(
   )
     return 'it makes a sonar-project.properties'
   const destination = join(workspace, ...to)
-  const real = existsSync(destination) ? realpathSync(destination) : undefined
+  const real = existsSync(destination) ? realPath(destination) : undefined
   const directory = real === undefined ? undefined : identity(real)
   if (
     real === undefined ||

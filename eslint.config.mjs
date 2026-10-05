@@ -59,6 +59,18 @@ export default defineConfig(
     }
   },
   {
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.name='realpathSync']",
+          message:
+            "Node's own realpathSync resolves a '..' after a link differently from the system: use realPath from src/real-path.ts, or realpathSync.native."
+        }
+      ]
+    }
+  },
+  {
     plugins: { 'import-x': importX, n },
     settings: {
       'import-x/resolver-next': [createTypeScriptImportResolver()]
