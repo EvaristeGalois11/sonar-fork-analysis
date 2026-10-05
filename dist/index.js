@@ -131869,16 +131869,18 @@ async function installScanner(platform = process.platform, arch = process.arch) 
     if (build === PLAIN) {
         info(`No scanner with a bundled Java runtime for ${platform}-${arch}, using the Java on the runner`);
     }
-    const name = `sonar-scanner-cli-${VERSION}${build.suffix}`;
-    const bytes = await scannerZip(name, build.sha256);
-    // The bytes just checked, unpacked where only this job writes.
+    const bytes = await scannerZip(`sonar-scanner-cli-${VERSION}${build.suffix}`, build.sha256);
+    return unpackScanner(bytes, build.suffix, platform);
+}
+// The bytes just checked, unpacked where only this job writes; gives the script to run.
+async function unpackScanner(bytes, suffix, platform) {
     const directory = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-scanner-'));
     // PowerShell 5.1, which extracts on some Windows runners, refuses a file without the extension.
-    const zip = join(directory, `${name}.zip`);
+    const zip = join(directory, `sonar-scanner-cli-${VERSION}${suffix}.zip`);
     writeFileSync(zip, bytes);
     const extracted = await extractZip(zip, join(directory, 'scanner'));
     const script = platform === 'win32' ? 'sonar-scanner.bat' : 'sonar-scanner';
-    return join(extracted, `sonar-scanner-${VERSION}${build.suffix}`, 'bin', script);
+    return join(extracted, `sonar-scanner-${VERSION}${suffix}`, 'bin', script);
 }
 
 // A workflow_run run does not show among a pull request's checks, so a failed analysis would go
