@@ -1,3 +1,4 @@
+import { isUtf8 } from 'node:buffer'
 import {
   type Dirent,
   constants,
@@ -300,6 +301,16 @@ function entriesUnder(directory: string): Dirent[] {
   const entries: Dirent[] = []
   const pending = [directory]
   for (let current = pending.pop(); current; current = pending.pop()) {
+    // Node reads a name that isn't valid UTF-8 with U+FFFD for the bad bytes, so a walk would visit a
+    // decoy with those characters twice and never the entry itself, which Java opens.
+    if (
+      !readdirSync(current, { encoding: 'buffer' }).every((name) =>
+        isUtf8(name)
+      )
+    )
+      throw new Error(
+        `A file name in ${relative(directory, current) || '.'} isn't valid UTF-8`
+      )
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       entries.push(entry)
       if (entry.isDirectory()) pending.push(join(current, entry.name))

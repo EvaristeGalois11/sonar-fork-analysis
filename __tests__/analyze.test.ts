@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import fc from 'fast-check'
-import { posixIt } from '../__fixtures__/platform.js'
+import { linuxIt, posixIt } from '../__fixtures__/platform.js'
 import {
   checkNoLinks,
   formatProperties,
@@ -542,6 +542,14 @@ describe('checkNoLinks', () => {
       checkNoLinks(artifact)
     }).not.toThrow()
   })
+
+  linuxIt('rejects a file name that is not valid UTF-8', () => {
+    const hidden = hideBehindDecoy(join(artifact, 'a'))
+    symlinkSync('/etc/passwd', Buffer.concat([hidden, Buffer.from('/passwd')]))
+    expect(() => {
+      checkNoLinks(artifact)
+    }).toThrow("A file name in a isn't valid UTF-8")
+  })
 })
 
 describe('removeProjectSettings', () => {
@@ -585,6 +593,14 @@ describe('removeProjectSettings', () => {
 })
 
 describe('removeOutwardLinks', () => {
+  linuxIt('refuses a checkout with a file name that is not valid UTF-8', () => {
+    const hidden = hideBehindDecoy(join(workspace, 'src'))
+    symlinkSync('/proc/self', Buffer.concat([hidden, Buffer.from('/proc')]))
+    expect(() => removeOutwardLinks(workspace)).toThrow(
+      "A file name in src isn't valid UTF-8"
+    )
+  })
+
   it('removes links leading out of the checkout, and keeps the others', () => {
     file(join(workspace, 'src/A.java'))
     symlinkSync(outside, join(workspace, 'src/leak'))
@@ -1087,6 +1103,17 @@ describe('recreateLinks', () => {
     expect(recreateLinks(workspace, undefined)).toEqual([])
   })
 })
+
+// Makes the directory x\xFF in parent, next to a decoy x\uFFFD, the name Node reads both by.
+function hideBehindDecoy(parent: string): Buffer {
+  mkdirSync(join(parent, 'x\uFFFD'), { recursive: true })
+  const hidden = Buffer.concat([
+    Buffer.from(join(parent, 'x')),
+    Buffer.from([0xff])
+  ])
+  mkdirSync(hidden)
+  return hidden
+}
 
 function readdirOrEmpty(directory: string): string[] {
   return existsSync(directory) ? readdirSync(directory) : []
