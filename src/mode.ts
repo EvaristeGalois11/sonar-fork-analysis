@@ -8,13 +8,13 @@ const MODES = ['auto', 'direct', 'prepare', 'analyze']
 // there would hand those to its code, which is exactly what this action exists to avoid.
 const PRIVILEGED_EVENTS = new Set(['pull_request_target', 'issue_comment'])
 
-// fromAnotherRepository: on workflow_run, whether the run it follows built another repository's
-// code, a fork's.
+// unreviewedRun: on workflow_run, whether the run it follows built code no one here reviewed, a
+// pull request's or another repository's.
 export function resolveMode(
   requested: string,
   eventName: string,
   token: string,
-  fromAnotherRepository = false
+  unreviewedRun: boolean
 ): Resolution {
   if (!MODES.includes(requested)) {
     throw new Error(
@@ -31,7 +31,7 @@ export function resolveMode(
     mode = requested as Mode
   }
   if (mode === 'analyze') return { mode }
-  return checkBuild(mode, eventName, token, fromAnotherRepository)
+  return checkBuild(mode, eventName, token, unreviewedRun)
 }
 
 // Whether a mode that builds may build on this event.
@@ -39,7 +39,7 @@ function checkBuild(
   mode: 'direct' | 'prepare',
   eventName: string,
   token: string,
-  fromAnotherRepository: boolean
+  unreviewedRun: boolean
 ): Resolution {
   if (
     PRIVILEGED_EVENTS.has(eventName) ||
@@ -49,16 +49,24 @@ function checkBuild(
       `Refusing to build on ${eventName}, which runs with the repository's secrets; trigger the build on pull_request instead.`
     )
   }
-  if (mode === 'prepare') return { mode }
+  if (mode === 'prepare') {
+    // Removing it from the build's environment can't keep it from the build: a process of the same
+    // user reads the action's own, e.g. from /proc.
+    if (token)
+      throw new Error(
+        'Mode prepare builds without the Sonar token, but the sonar-token input is set, and the build could still read it from the job; remove sonar-token, or use mode auto.'
+      )
+    return { mode }
+  }
   if (!token) {
     throw new Error(
       'No Sonar token available, set the sonar-token input. On pull requests from forks, use mode auto.'
     )
   }
   if (eventName !== 'workflow_run') return { mode }
-  if (fromAnotherRepository)
+  if (unreviewedRun)
     throw new Error(
-      "Refusing to build another repository's code on workflow_run, which runs with the repository's secrets; use mode auto to analyse it."
+      "Refusing to build a pull request's code on workflow_run, which runs with the repository's secrets; use mode auto to analyse it."
     )
   return {
     mode,

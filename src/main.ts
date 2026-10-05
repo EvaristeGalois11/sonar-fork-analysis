@@ -33,6 +33,7 @@ import {
   missingAnalysis,
   sonarProperties
 } from './direct.js'
+import { jobEnvironment, toolEnvironment } from './environment.js'
 import { readInputs, type Inputs } from './inputs.js'
 import { resolveMode } from './mode.js'
 import {
@@ -92,28 +93,6 @@ async function direct(inputs: Inputs): Promise<void> {
 }
 
 const NOTE_DAYS = 35
-
-// The job's environment without what the runner gives only the action: its inputs, the Sonar token
-// and the GitHub token among them, and the runtime's own tokens.
-function jobEnvironment(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[1] !== undefined &&
-        !entry[0].startsWith('INPUT_') &&
-        !entry[0].startsWith('ACTIONS_')
-    )
-  )
-}
-
-const RUNNER_FILES = new Set([
-  'GITHUB_ENV',
-  'GITHUB_OUTPUT',
-  'GITHUB_PATH',
-  'GITHUB_STATE',
-  'GITHUB_STEP_SUMMARY',
-  'GITHUB_TOKEN'
-])
 
 // Tells a fork path's analysis, which runs after every build, that this one already analysed.
 async function leaveDirectNote(projectKey: string): Promise<void> {
@@ -493,11 +472,7 @@ async function analyzeCommit(
 
   const scanner = await installScanner()
   core.info(`Analysing ${name}`)
-  // The scanner reads untrusted content, and needs neither the files through which a step talks to
-  // the runner nor a GitHub token.
-  const env = Object.fromEntries(
-    Object.entries(jobEnvironment()).filter(([name]) => !RUNNER_FILES.has(name))
-  )
+  const env = toolEnvironment()
   env.SONAR_TOKEN = inputs.token
   // Java names files in the locale's encoding; without a UTF-8 one, e.g. in a bare container, it reads
   // a non-ASCII name as '?', which is not the path checked here.
@@ -528,14 +503,17 @@ async function analyzeCommit(
     throw new Error(`The Sonar scanner failed with exit code ${exitCode}`)
 }
 
-// Whether the run a workflow_run follows built another repository's code, a fork's.
-function followsAnotherRepository(eventName: string): boolean {
+// Whether the run a workflow_run follows built code no one here reviewed: a pull request's, a fork's
+// or Dependabot's among them, or another repository's.
+function followsUnreviewedRun(eventName: string): boolean {
   const eventPath = process.env.GITHUB_EVENT_PATH
   if (eventName !== 'workflow_run' || !eventPath) return false
-  const event = JSON.parse(readFileSync(eventPath, 'utf8')) as WorkflowRunEvent
+  const run = (JSON.parse(readFileSync(eventPath, 'utf8')) as WorkflowRunEvent)
+    .workflow_run
   return (
-    event.workflow_run.head_repository.full_name.toLowerCase() !==
-    (process.env.GITHUB_REPOSITORY ?? '').toLowerCase()
+    run.event.startsWith('pull_request') ||
+    run.head_repository.full_name.toLowerCase() !==
+      (process.env.GITHUB_REPOSITORY ?? '').toLowerCase()
   )
 }
 
@@ -545,7 +523,7 @@ async function dispatch(inputs: Inputs, report: Reporter): Promise<void> {
     inputs.mode,
     eventName,
     inputs.token,
-    followsAnotherRepository(eventName)
+    followsUnreviewedRun(eventName)
   )
   if (resolution.warning) core.warning(resolution.warning)
   core.info(`Mode: ${resolution.mode}`)
