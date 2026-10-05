@@ -7,12 +7,14 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import * as artifact from '../__fixtures__/artifact.js'
 import * as core from '../__fixtures__/core.js'
+import { linuxIt } from '../__fixtures__/platform.js'
 import { exec, getExecOutput } from '../__fixtures__/exec.js'
 
 // Mocks must be declared before the module under test is imported.
@@ -472,6 +474,8 @@ describe('run in prepare mode', () => {
 
 describe('run in analyze mode', () => {
   const saved = { ...process.env }
+  // The analysis moves to its own directory.
+  const cwd = process.cwd()
   let artifactDir: string
   let head: string
 
@@ -527,6 +531,7 @@ describe('run in analyze mode', () => {
   })
 
   afterEach(() => {
+    process.chdir(cwd)
     process.env = { ...saved }
     if (artifactDir) rmSync(artifactDir, { recursive: true, force: true })
   })
@@ -546,6 +551,28 @@ describe('run in analyze mode', () => {
       ).isSymbolicLink()
     ).toBe(true)
   })
+
+  linuxIt(
+    'removes a link to its working directory, which the scanner has elsewhere',
+    async () => {
+      prepared({ 'sonar.projectBaseDir': '{workspace}' })
+      symlinkSync('/proc/self/cwd', join(project, 'cwd'))
+      // Where the runner starts the action, with its temporary directory elsewhere.
+      process.chdir(project)
+      const runnerTemp = mkdtempSync(join(tmpdir(), 'runner-'))
+      process.env.RUNNER_TEMP = runnerTemp
+      try {
+        await run()
+      } finally {
+        rmSync(runnerTemp, { recursive: true, force: true })
+      }
+
+      expect(core.setFailed).not.toHaveBeenCalled()
+      expect(lstatSync(join(project, 'cwd'), { throwIfNoEntry: false })).toBe(
+        undefined
+      )
+    }
+  )
 
   it('scans with trusted settings and the token only in the environment', async () => {
     process.env['INPUT_GITHUB-TOKEN'] = 'gh-token'
