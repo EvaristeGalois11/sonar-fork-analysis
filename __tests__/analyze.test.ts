@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import fc from 'fast-check'
-import { linuxIt, posixIt } from '../__fixtures__/platform.js'
+import { invalidUtf8It, posixIt } from '../__fixtures__/platform.js'
 import {
   checkNoLinks,
   formatProperties,
@@ -543,7 +543,18 @@ describe('checkNoLinks', () => {
     }).not.toThrow()
   })
 
-  linuxIt('rejects a file name that is not valid UTF-8', () => {
+  it('accepts names in any language', () => {
+    for (const name of ['café', '日本語', '😀', 'x\uFFFD'])
+      file(join(artifact, name, name))
+    expect(() => {
+      checkNoLinks(artifact)
+    }).not.toThrow()
+    for (const name of ['café', '日本語', '😀', 'x\uFFFD'])
+      symlinkSync(outside, join(workspace, name))
+    expect(removeOutwardLinks(workspace)).toHaveLength(4)
+  })
+
+  invalidUtf8It('rejects a file name that is not valid UTF-8', () => {
     const hidden = hideBehindDecoy(join(artifact, 'a'))
     symlinkSync('/etc/passwd', Buffer.concat([hidden, Buffer.from('/passwd')]))
     expect(() => {
@@ -593,13 +604,16 @@ describe('removeProjectSettings', () => {
 })
 
 describe('removeOutwardLinks', () => {
-  linuxIt('refuses a checkout with a file name that is not valid UTF-8', () => {
-    const hidden = hideBehindDecoy(join(workspace, 'src'))
-    symlinkSync('/proc/self', Buffer.concat([hidden, Buffer.from('/proc')]))
-    expect(() => removeOutwardLinks(workspace)).toThrow(
-      "A file name in src isn't valid UTF-8"
-    )
-  })
+  invalidUtf8It(
+    'refuses a checkout with a file name that is not valid UTF-8',
+    () => {
+      const hidden = hideBehindDecoy(join(workspace, 'src'))
+      symlinkSync('/proc/self', Buffer.concat([hidden, Buffer.from('/proc')]))
+      expect(() => removeOutwardLinks(workspace)).toThrow(
+        "A file name in src isn't valid UTF-8"
+      )
+    }
+  )
 
   it('removes links leading out of the checkout, and keeps the others', () => {
     file(join(workspace, 'src/A.java'))
@@ -1104,13 +1118,15 @@ describe('recreateLinks', () => {
   })
 })
 
-// Makes the directory x\xFF in parent, next to a decoy x\uFFFD, the name Node reads both by.
+// Makes a directory whose name isn't valid UTF-8, next to a decoy named as Node reads both.
 function hideBehindDecoy(parent: string): Buffer {
-  mkdirSync(join(parent, 'x\uFFFD'), { recursive: true })
-  const hidden = Buffer.concat([
-    Buffer.from(join(parent, 'x')),
-    Buffer.from([0xff])
-  ])
+  // A byte UTF-8 never has, or on Windows a lone surrogate, which NTFS holds and Node reads as these
+  // bytes.
+  const bad = Buffer.from(
+    process.platform === 'win32' ? [0xed, 0xa0, 0x80] : [0xff]
+  )
+  mkdirSync(join(parent, `x${bad.toString()}`), { recursive: true })
+  const hidden = Buffer.concat([Buffer.from(join(parent, 'x')), bad])
   mkdirSync(hidden)
   return hidden
 }
