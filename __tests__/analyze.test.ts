@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import fc from 'fast-check'
+import { identitiesUnder, landsOn } from '../__fixtures__/identity.js'
 import { invalidUtf8It, posixIt } from '../__fixtures__/platform.js'
 import {
   checkNoLinks,
@@ -194,6 +195,17 @@ describe('resolveSettings', () => {
     climbOut()
     const resolved = resolveSettings(
       { 'sonar.java.binaries': '{workspace}/a/leak' },
+      workspace,
+      home
+    )
+    expect(resolved.properties.get('sonar.java.binaries')).toBe('')
+    expect(resolved.warnings).toHaveLength(1)
+  })
+
+  it('drops paths that would appear behind a link out of the checkout', () => {
+    symlinkSync(outside, join(workspace, 'out'))
+    const resolved = resolveSettings(
+      { 'sonar.java.binaries': '{workspace}/out/classes' },
       workspace,
       home
     )
@@ -799,7 +811,7 @@ describe('resolveSettings on any artifact', () => {
     // Links the checkout could hold, to a file the analysis must never read.
     file(join(outside, 'secret'))
     symlinkSync(outside, join(workspace, 'out'))
-    // a/leak climbs out through a/up, a/outside is the decoy Node's own realpathSync would find.
+    // a/leak climbs out through a/up, except on Windows, which leads it to the decoy a/outside.
     climbOut()
     mkdirSync(join(workspace, 'b'))
     // Names the scanner reads as the links next to them: trimmed, and \r as \n.
@@ -814,7 +826,7 @@ describe('resolveSettings on any artifact', () => {
     }
     // The analysis creates the private home only after resolving, when it unpacks the artifact.
     rmSync(home, { recursive: true })
-    const realWorkspace = realpathSync.native(workspace)
+    const inCheckout = identitiesUnder(workspace)
     const within = (path: string, root: string): boolean =>
       path === root || path.startsWith(root + sep)
 
@@ -836,12 +848,14 @@ describe('resolveSettings on any artifact', () => {
             expect(path).toBe(resolve(path))
             expect(/[*?]/.test(path)).toBe(false)
             expect(kind.list && path.includes('"')).toBe(false)
-            const roots = kind.home
-              ? [workspace, realWorkspace, home]
-              : [workspace, realWorkspace]
             for (const read of readings(path)) {
-              const real = existsSync(read) ? realpathSync.native(read) : read
-              expect(roots.some((root) => within(real, root))).toBe(true)
+              // The analysis makes the private home, fresh, only after resolving.
+              if (kind.home && within(read, home)) continue
+              const lands = landsOn(read)
+              expect({
+                read,
+                inCheckout: lands && inCheckout.has(lands)
+              }).toEqual({ read, inCheckout: true })
             }
           }
         }

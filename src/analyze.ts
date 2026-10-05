@@ -23,7 +23,7 @@ import {
 } from 'node:path'
 import type { PullRequest } from './origin.js'
 import { ARTIFACT_FORMAT } from './prepare.js'
-import { realPath } from './real-path.js'
+import { realLocation, realPath } from './real-path.js'
 import {
   CHECKOUT_PATH_KEYS,
   OUTPUT_PATH_KEYS,
@@ -142,7 +142,8 @@ export function resolveSettings(
     workspace,
     home,
     realWorkspace: realPath(workspace),
-    realHome: existsSync(home) ? realPath(home) : home
+    // The analysis makes it after resolving, so it doesn't exist yet.
+    realHome: realLocation(home) ?? home
   }
   const bases = moduleBases(kept, tree, places)
   let sourceRoots: string[] = []
@@ -281,17 +282,14 @@ function acceptedPath(
   // Shipped paths may live in the private home; output directories appear when unpacking;
   // checkout paths must already be in the checkout.
   const shipped = isShippedPath(bareKey)
-  let accepted: boolean
-  if (existsSync(path)) {
-    const real = realPath(path)
-    accepted =
-      isWithin(real, places.realWorkspace) ||
-      (shipped && isWithin(real, places.realHome))
-  } else {
-    accepted =
-      shipped ||
-      (OUTPUT_PATH_KEYS.has(bareKey) && isWithin(path, places.workspace))
-  }
+  if (!existsSync(path) && !shipped && !OUTPUT_PATH_KEYS.has(bareKey))
+    return undefined
+  // A path that appears later lands under its deepest existing directory, which may be a link.
+  const real = realLocation(path)
+  const accepted =
+    real !== undefined &&
+    (isWithin(real, places.realWorkspace) ||
+      (shipped && isWithin(real, places.realHome)))
   return accepted ? path : undefined
 }
 

@@ -14,11 +14,13 @@ import {
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, sep } from 'node:path'
+import { basename, dirname, join, relative, sep } from 'node:path'
 import fc from 'fast-check'
+import { identitiesUnder, landsOn } from '../__fixtures__/identity.js'
 import {
   readManifest,
   recreateLinks,
+  removeOutwardLinks,
   resolveSettings,
   unpackWorkspace
 } from '../src/analyze.js'
@@ -366,16 +368,21 @@ describe('recreateLinks on any links', () => {
           // Committed links to the checkout itself and into .git, which only resolving reveals.
           symlinkSync('.', join(workspace, 'self'))
           symlinkSync('.git', join(workspace, 'g'))
-          // Out of the checkout through src/up, to Node's own realpathSync the decoy src/outside.
+          // Out of the checkout through src/up, except on Windows, which leads it to the decoy
+          // src/outside.
           mkdirSync(join(workspace, 'src/outside'))
           symlinkSync('..', join(workspace, 'src/up'))
           symlinkSync('up/../outside', join(workspace, 'src/leak'))
           file(join(workspace, 'README.md'))
-          const realWorkspace = realpathSync.native(workspace)
           const before = snapshot(root)
 
           recreateLinks(workspace, links)
 
+          // Directories of the checkout outside .git, those the call made on the way included.
+          const allowed = identitiesUnder(workspace, (path) =>
+            isGit(basename(path))
+          )
+          const checkout = landsOn(workspace)
           for (const path of addedToCheckout(before, snapshot(root))) {
             const stats = lstatSync(join(workspace, path))
             expect(stats.isFile()).toBe(false)
@@ -388,14 +395,107 @@ describe('recreateLinks on any links', () => {
             ).toBe(false)
             if (!stats.isSymbolicLink()) continue
             expect(segments.slice(0, -1)).toContain('node_modules')
-            const target = realpathSync.native(join(workspace, path))
-            expect(statSync(target).isDirectory()).toBe(true)
-            expect(target).not.toBe(realWorkspace)
-            expect(within(target, realWorkspace)).toBe(true)
-            expect(relative(realWorkspace, target).split(sep).some(isGit)).toBe(
-              false
-            )
+            expect(statSync(join(workspace, path)).isDirectory()).toBe(true)
+            const lands = landsOn(join(workspace, path))
+            expect(lands).not.toBe(checkout)
+            expect(lands !== undefined && allowed.has(lands)).toBe(true)
           }
+        } finally {
+          rmSync(root, { recursive: true, force: true })
+        }
+      }),
+      { numRuns: 500 }
+    )
+  })
+})
+
+describe('removeOutwardLinks on any checkout', () => {
+  // Links anywhere in the checkout, to anywhere: up and back again, through each other, round in
+  // circles, into /proc, out of the checkout and to decoys named outside within it.
+  const location = fc.constantFrom('l', 'up', 'a/l', 'a/up', 'a/b/l', 'a/b/up')
+  const target = fc.oneof(
+    {
+      weight: 4,
+      arbitrary: fc.constantFrom(
+        '.',
+        '..',
+        '../..',
+        'outside',
+        '../outside',
+        '../../outside',
+        'up/../outside',
+        'up/../../outside',
+        'up/up/../outside',
+        'l/../outside',
+        'a',
+        'a/b',
+        'l',
+        'up',
+        'missing',
+        '/proc/self',
+        '/proc/self/cwd',
+        '/proc/self/root',
+        '{outside}'
+      )
+    },
+    {
+      weight: 1,
+      arbitrary: fc
+        .array(fc.constantFrom('..', '.', 'a', 'b', 'l', 'up', 'outside'), {
+          minLength: 1,
+          maxLength: 5
+        })
+        .map((segments) => segments.join('/'))
+    }
+  )
+  const links = fc.uniqueArray(fc.record({ location, target }), {
+    maxLength: 6,
+    selector: (link) => link.location
+  })
+
+  it('leaves only links that lead into the checkout, and everything else', () => {
+    fc.assert(
+      fc.property(links, (links) => {
+        freshDirectories()
+        try {
+          for (const decoy of ['outside', 'a/outside', 'a/b/outside'])
+            mkdirSync(join(workspace, decoy), { recursive: true })
+          file(join(workspace, 'a/b/outside/secret'))
+          for (const link of links)
+            symlinkSync(
+              link.target.replace('{outside}', outside),
+              join(workspace, link.location)
+            )
+          const before = snapshot(workspace)
+
+          removeOutwardLinks(workspace)
+
+          const after = snapshot(workspace)
+          const inCheckout = identitiesUnder(workspace)
+          const isLink = ([, was]: [string, string]): boolean =>
+            was.startsWith('link ')
+          const kept = [...before]
+            .filter(isLink)
+            .map(([path]) => path)
+            .filter((path) => after.has(path))
+          // Each link left leads into the checkout, where the system reaches it.
+          expect(
+            kept.map((path) => {
+              const lands = landsOn(join(workspace, path))
+              const reached = outcome(() => statSync(join(workspace, path)))
+              return {
+                path,
+                inCheckout:
+                  lands !== undefined &&
+                  inCheckout.has(lands) &&
+                  reached.value !== undefined
+              }
+            })
+          ).toEqual(kept.map((path) => ({ path, inCheckout: true })))
+          const others = [...before].filter((entry) => !isLink(entry))
+          expect(others.map(([path]) => [path, after.get(path)])).toEqual(
+            others
+          )
         } finally {
           rmSync(root, { recursive: true, force: true })
         }
