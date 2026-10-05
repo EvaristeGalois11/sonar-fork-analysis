@@ -624,9 +624,9 @@ describe('run in analyze mode', () => {
       }
 
       expect(core.setFailed).not.toHaveBeenCalled()
-      expect(lstatSync(join(project, 'cwd'), { throwIfNoEntry: false })).toBe(
-        undefined
-      )
+      expect(
+        lstatSync(join(project, 'cwd'), { throwIfNoEntry: false })
+      ).toBeUndefined()
     }
   )
 
