@@ -99,7 +99,7 @@ export default defineConfig(
       '@typescript-eslint/require-await': 'off',
       'jest/no-standalone-expect': [
         'error',
-        { additionalTestBlockFunctions: ['linuxIt', 'posixIt'] }
+        { additionalTestBlockFunctions: ['invalidUtf8It', 'posixIt'] }
       ]
     }
   },
