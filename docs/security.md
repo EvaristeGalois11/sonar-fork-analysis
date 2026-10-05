@@ -14,8 +14,8 @@ decide.
 ## What the Sonar workflow does
 
 It never runs Maven, Gradle, npm or a wrapper script. It checks out the pull
-request, unpacks the artifact and runs the Sonar scanner, which only reads
-files.
+request, unpacks the artifact and runs the Sonar scanner, which reads the pull
+request's files but never runs them.
 
 **The checkout.** The action checks out the pull request itself, without ever
 writing the GitHub token to disk. `origin` points at your repository, because
@@ -42,12 +42,14 @@ in the checkout, never into `.git`. A fork could commit links like these itself.
 
 **The settings.** The build's settings go through the same
 [allowlist](#what-the-fork-path-carries) again, and every path in them must lead
-inside the checkout. The action also drops any value the scanner might read
-differently from how it was checked. The main example is a `${…}` placeholder:
-the scanner expands those, so `${env.SONAR_TOKEN}` would turn into the token.
-Quotes, control characters, path patterns and stray spaces are dropped for the
-same reason. Modules are worked out the same way the scanner's engine does it,
-and each one needs its own base directory inside the checkout.
+inside the checkout or the action's private home. That's where the action puts
+libraries from the build's home, such as Maven's `~/.m2`. The action also drops
+any value the scanner might read differently from how it was checked. The main
+example is a `${…}` placeholder: the scanner expands those, so
+`${env.SONAR_TOKEN}` would turn into the token. Quotes, control characters, path
+patterns and stray spaces are dropped for the same reason. Modules are worked
+out the same way the scanner's engine does it, and each one needs its own base
+directory inside the checkout.
 
 Then the action sets the settings that matter for safety itself, whatever the
 artifact says: the project key, the analysed commit, the working directory and
@@ -130,9 +132,14 @@ information about the pull request, not as a review of it.
 - Don't add caching to the Sonar job or give it write access to the cache with
   `cache-mode`. The one exception is
   [the Sonar scanner's directory](../README.md#caching-the-sonar-scanner): the
-  action checks the scanner against its checksum every time. By default, GitHub
-  only lets `workflow_run` jobs read the default branch's cache, so they can't
-  poison later builds.
+  action checks the scanner against its checksum every time.
+  [By default](https://github.blog/changelog/2026-06-26-read-only-actions-cache-for-untrusted-triggers/),
+  GitHub only lets `workflow_run` jobs read the default branch's cache, so they
+  can't poison later builds.
+- Keep the Sonar token away from builds of pull requests from forks and from
+  Dependabot. GitHub withholds it from those builds unless you change one of two
+  settings. Leave both alone: don't let a private repository send secrets to
+  pull requests from forks, and don't add `SONAR_TOKEN` to Dependabot's secrets.
 - Use a dedicated Sonar token, as the [setup](../README.md#setup) describes.
 - If you want an extra layer, require approval before workflows from outside
   contributors run (Settings → Actions → General). The analysis is safe without
@@ -167,8 +174,15 @@ Older SonarQube Server versions and commercial editions aren't tested.
 ## v1
 
 v1 runs Maven or Gradle on the pull request's checkout in the job that holds the
-Sonar token, so a fork can run code with the token. It gets no fixes. Move to
-v2.
+Sonar token, so a fork's code can run with the token. Until June 2026 that code
+could also save entries in your default branch's Actions cache, which later
+builds restore.
+
+v1 gets no more fixes, so plan the move to v2 now. If v1 has analysed pull
+requests from forks, also rotate your Sonar token and delete your repository's
+Actions caches as a precaution. Your repository's **Actions** tab lists them
+under **Caches** in its sidebar. Delete each one there, or all at once with
+`gh cache delete --all`.
 
 ## Reporting a vulnerability
 
