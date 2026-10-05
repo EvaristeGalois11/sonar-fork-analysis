@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { getExecOutput } from '@actions/exec'
 import { readdirSync } from 'node:fs'
+import { toolEnvironment } from './environment.js'
 import { retry } from './retry.js'
 
 // Never wait for a password, and never let the checkout's attributes send git-lfs to a server.
@@ -13,7 +14,7 @@ async function git(
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return getExecOutput('git', args, {
     cwd: workspace,
-    env: { ...process.env, ...QUIET_GIT, ...env },
+    env: { ...toolEnvironment(), ...QUIET_GIT, ...env },
     ignoreReturnCode: true,
     silent: true
   })

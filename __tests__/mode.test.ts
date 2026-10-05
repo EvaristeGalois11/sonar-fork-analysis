@@ -1,4 +1,12 @@
-import { resolveMode } from '../src/mode.js'
+import { resolveMode as resolveModeOf } from '../src/mode.js'
+
+// After a push to this repository, unless a test says otherwise.
+const resolveMode = (
+  requested: string,
+  eventName: string,
+  token: string,
+  unreviewedRun = false
+) => resolveModeOf(requested, eventName, token, unreviewedRun)
 
 describe('resolveMode', () => {
   it('analyses directly when the token is available', () => {
@@ -25,9 +33,7 @@ describe('resolveMode', () => {
 
   it('honours a forced mode', () => {
     expect(resolveMode('direct', 'push', 'token')).toEqual({ mode: 'direct' })
-    expect(resolveMode('prepare', 'push', 'token')).toEqual({
-      mode: 'prepare'
-    })
+    expect(resolveMode('prepare', 'push', '')).toEqual({ mode: 'prepare' })
     expect(resolveMode('analyze', 'push', 'token')).toEqual({
       mode: 'analyze'
     })
@@ -55,6 +61,13 @@ describe('resolveMode', () => {
     }
   )
 
+  it('refuses a forced prepare with the Sonar token in the job', () => {
+    for (const event of ['push', 'pull_request'])
+      expect(() => resolveMode('prepare', event, 'token')).toThrow(
+        /the build could still read it/
+      )
+  })
+
   it('refuses a forced prepare on workflow_run', () => {
     expect(() => resolveMode('prepare', 'workflow_run', '')).toThrow(
       /Refusing to build on workflow_run/
@@ -67,9 +80,9 @@ describe('resolveMode', () => {
     })
   })
 
-  it("refuses a forced direct analysis of another repository's code on workflow_run", () => {
+  it("refuses a forced direct analysis of a pull request's code on workflow_run", () => {
     expect(() => resolveMode('direct', 'workflow_run', 'token', true)).toThrow(
-      /Refusing to build another repository's code on workflow_run/
+      /Refusing to build a pull request's code on workflow_run/
     )
     expect(resolveMode('auto', 'workflow_run', 'token', true)).toEqual({
       mode: 'analyze'

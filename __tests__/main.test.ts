@@ -33,8 +33,8 @@ let inputs: Record<string, string>
 
 let analyses = 0
 
-// What the runner gives an action and not a step: its inputs, as INPUT_ and the input's name, and the
-// runtime's tokens.
+// What the runner gives an action: its inputs, as INPUT_ and the input's name, which a step doesn't
+// get, and the runtime's tokens.
 function runAsAction(): void {
   process.env['INPUT_SONAR-TOKEN'] = TOKEN
   process.env['INPUT_GITHUB-TOKEN'] = 'gh-token'
@@ -43,10 +43,8 @@ function runAsAction(): void {
   process.env.GITHUB_STEP_SUMMARY = '/runner/summary'
 }
 
-function actionOnly(env: Record<string, string>): string[] {
-  return Object.keys(env).filter(
-    (name) => name.startsWith('INPUT_') || name.startsWith('ACTIONS_')
-  )
+function inputVariables(env: Record<string, string>): string[] {
+  return Object.keys(env).filter((name) => name.startsWith('INPUT_'))
 }
 
 function writeReport(directory: string): void {
@@ -100,11 +98,13 @@ describe('run', () => {
     expect(tool).toBe('mvn')
     expect(args!.join(' ')).not.toContain(TOKEN)
     expect(options!.env!.SONAR_TOKEN).toBe(TOKEN)
-    expect(actionOnly(options!.env!)).toEqual([])
+    expect(inputVariables(options!.env!)).toEqual([])
+    // A step of its own would have it, with id-token: write.
+    expect(options!.env!.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe('oidc')
     expect(options!.env!.GITHUB_STEP_SUMMARY).toBe('/runner/summary')
   })
 
-  it("refuses to build a fork's run on workflow_run, and only warns for this repository's", async () => {
+  it("refuses to build a pull request's or another repository's run on workflow_run, and only warns for a push here", async () => {
     inputs.mode = 'direct'
     process.env.GITHUB_EVENT_NAME = 'workflow_run'
     process.env.GITHUB_REPOSITORY = 'owner/repo'
@@ -114,29 +114,46 @@ describe('run', () => {
       writeReport(options!.cwd!)
       return 0
     })
-    const from = (repository: string): void => {
+    // The failure status of a refused run.
+    const fetch = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 201 }))
+    const after = async (runEvent: string, repository: string) => {
+      jest.clearAllMocks()
       writeFileSync(
         event,
         JSON.stringify({
-          workflow_run: { head_repository: { full_name: repository } }
+          workflow_run: {
+            event: runEvent,
+            head_repository: { full_name: repository }
+          }
         })
       )
+      await run()
     }
 
-    from('fork/repo')
-    await run()
-    expect(core.setFailed).toHaveBeenCalledWith(
-      expect.stringContaining("Refusing to build another repository's code")
-    )
-    expect(exec).not.toHaveBeenCalled()
+    try {
+      // A pull request from this repository's own branch, as Dependabot opens them.
+      await after('pull_request', 'owner/repo')
+      expect(core.setFailed).toHaveBeenCalledWith(
+        expect.stringContaining("Refusing to build a pull request's code")
+      )
+      expect(exec).not.toHaveBeenCalled()
 
-    jest.clearAllMocks()
-    from('Owner/Repo')
-    await run()
-    expect(core.setFailed).not.toHaveBeenCalled()
-    expect(core.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Direct analysis on workflow_run')
-    )
+      await after('push', 'fork/repo')
+      expect(core.setFailed).toHaveBeenCalledWith(
+        expect.stringContaining("Refusing to build a pull request's code")
+      )
+      expect(exec).not.toHaveBeenCalled()
+
+      await after('push', 'Owner/Repo')
+      expect(core.setFailed).not.toHaveBeenCalled()
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Direct analysis on workflow_run')
+      )
+    } finally {
+      fetch.mockRestore()
+    }
   })
 
   it('analyses a Node project with the scanner it pins', async () => {
@@ -364,7 +381,7 @@ describe('run in prepare mode', () => {
 
     expect(core.setFailed).not.toHaveBeenCalled()
     expect(exec.mock.calls[0][2]!.env!.SONAR_TOKEN).toBeUndefined()
-    expect(actionOnly(exec.mock.calls[0][2]!.env!)).toEqual([])
+    expect(inputVariables(exec.mock.calls[0][2]!.env!)).toEqual([])
     const [name, files, staging, options] =
       artifact.uploadArtifact.mock.calls[0]
     expect(name).toBe('sonar-fork-analysis-key')

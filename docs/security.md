@@ -2,8 +2,9 @@
 
 Code in a pull request from a fork hasn't been reviewed, so GitHub builds it
 without your secrets. This action keeps it that way. The build runs without the
-Sonar token or the runner's own tokens. The Sonar workflow has the token but
-never runs anything from the pull request.
+Sonar token. A build can read anything its job holds, so the action refuses to
+prepare in a job that has the token. The Sonar workflow has the token but never
+runs anything from the pull request.
 
 Everything the Sonar workflow gets from the pull request could be hostile: the
 files in the checkout and the artifact the pull request's build left behind.
