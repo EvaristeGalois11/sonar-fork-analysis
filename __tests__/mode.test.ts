@@ -67,6 +67,15 @@ describe('resolveMode', () => {
     })
   })
 
+  it("refuses a forced direct analysis of another repository's code on workflow_run", () => {
+    expect(() => resolveMode('direct', 'workflow_run', 'token', true)).toThrow(
+      /Refusing to build another repository's code on workflow_run/
+    )
+    expect(resolveMode('auto', 'workflow_run', 'token', true)).toEqual({
+      mode: 'analyze'
+    })
+  })
+
   it('warns about a forced direct analysis on workflow_run', () => {
     expect(resolveMode('direct', 'workflow_run', 'token')).toEqual({
       mode: 'direct',

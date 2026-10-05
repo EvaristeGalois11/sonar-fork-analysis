@@ -528,11 +528,24 @@ async function analyzeCommit(
     throw new Error(`The Sonar scanner failed with exit code ${exitCode}`)
 }
 
+// Whether the run a workflow_run follows built another repository's code, a fork's.
+function followsAnotherRepository(eventName: string): boolean {
+  const eventPath = process.env.GITHUB_EVENT_PATH
+  if (eventName !== 'workflow_run' || !eventPath) return false
+  const event = JSON.parse(readFileSync(eventPath, 'utf8')) as WorkflowRunEvent
+  return (
+    event.workflow_run.head_repository.full_name.toLowerCase() !==
+    (process.env.GITHUB_REPOSITORY ?? '').toLowerCase()
+  )
+}
+
 async function dispatch(inputs: Inputs, report: Reporter): Promise<void> {
+  const eventName = process.env.GITHUB_EVENT_NAME ?? ''
   const resolution = resolveMode(
     inputs.mode,
-    process.env.GITHUB_EVENT_NAME ?? '',
-    inputs.token
+    eventName,
+    inputs.token,
+    followsAnotherRepository(eventName)
   )
   if (resolution.warning) core.warning(resolution.warning)
   core.info(`Mode: ${resolution.mode}`)

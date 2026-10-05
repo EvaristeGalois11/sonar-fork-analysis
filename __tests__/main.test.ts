@@ -100,6 +100,43 @@ describe('run', () => {
     expect(tool).toBe('mvn')
     expect(args!.join(' ')).not.toContain(TOKEN)
     expect(options!.env!.SONAR_TOKEN).toBe(TOKEN)
+    expect(actionOnly(options!.env!)).toEqual([])
+    expect(options!.env!.GITHUB_STEP_SUMMARY).toBe('/runner/summary')
+  })
+
+  it("refuses to build a fork's run on workflow_run, and only warns for this repository's", async () => {
+    inputs.mode = 'direct'
+    process.env.GITHUB_EVENT_NAME = 'workflow_run'
+    process.env.GITHUB_REPOSITORY = 'owner/repo'
+    const event = join(project, 'event.json')
+    process.env.GITHUB_EVENT_PATH = event
+    exec.mockImplementation(async (_tool, _args, options) => {
+      writeReport(options!.cwd!)
+      return 0
+    })
+    const from = (repository: string): void => {
+      writeFileSync(
+        event,
+        JSON.stringify({
+          workflow_run: { head_repository: { full_name: repository } }
+        })
+      )
+    }
+
+    from('fork/repo')
+    await run()
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining("Refusing to build another repository's code")
+    )
+    expect(exec).not.toHaveBeenCalled()
+
+    jest.clearAllMocks()
+    from('Owner/Repo')
+    await run()
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Direct analysis on workflow_run')
+    )
   })
 
   it('analyses a Node project with the scanner it pins', async () => {

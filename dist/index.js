@@ -128554,7 +128554,9 @@ const MODES = ['auto', 'direct', 'prepare', 'analyze'];
 // Events that run with the base repository's secrets and write token. Building a pull request
 // there would hand those to its code, which is exactly what this action exists to avoid.
 const PRIVILEGED_EVENTS = new Set(['pull_request_target', 'issue_comment']);
-function resolveMode(requested, eventName, token) {
+// fromAnotherRepository: on workflow_run, whether the run it follows built another repository's
+// code, a fork's.
+function resolveMode(requested, eventName, token, fromAnotherRepository = false) {
     if (!MODES.includes(requested)) {
         throw new Error(`Unknown mode '${requested}', expected one of: ${MODES.join(', ')}`);
     }
@@ -128578,6 +128580,8 @@ function resolveMode(requested, eventName, token) {
         throw new Error('No Sonar token available, set the sonar-token input. On pull requests from forks, use mode auto.');
     }
     if (mode === 'direct' && eventName === 'workflow_run') {
+        if (fromAnotherRepository)
+            throw new Error("Refusing to build another repository's code on workflow_run, which runs with the repository's secrets; use mode auto to analyse it.");
         return {
             mode,
             warning: 'Direct analysis on workflow_run builds the checked-out code with the Sonar token; make sure it is not code from a fork.'
@@ -132170,7 +132174,7 @@ async function direct(inputs) {
     const args = sonarBuildArguments(tool, inputs.buildGoals, sonarProperties(inputs), inputs.buildArguments);
     info(`Analysing the ${tool.name} build in ${workingDirectory}`);
     // The token goes through the environment, which the scanner reads, so it never shows up in a command line.
-    const env = { ...process.env, SONAR_TOKEN: inputs.token };
+    const env = { ...jobEnvironment(), SONAR_TOKEN: inputs.token };
     const reportsBefore = snapshotReports(workingDirectory);
     let errorOutput = '';
     const exitCode = await exec(await executable(tool), args, {
@@ -132188,6 +132192,13 @@ async function direct(inputs) {
     await leaveDirectNote(inputs.projectKey);
 }
 const NOTE_DAYS = 35;
+// The job's environment without what the runner gives only the action: its inputs, the Sonar token
+// and the GitHub token among them, and the runtime's own tokens.
+function jobEnvironment() {
+    return Object.fromEntries(Object.entries(process.env).filter((entry) => entry[1] !== undefined &&
+        !entry[0].startsWith('INPUT_') &&
+        !entry[0].startsWith('ACTIONS_')));
+}
 const RUNNER_FILES = new Set([
     'GITHUB_ENV',
     'GITHUB_OUTPUT',
@@ -132235,12 +132246,12 @@ async function prepare(inputs) {
     const dump = join(temp, 'dump.properties');
     const args = sonarBuildArguments(tool, inputs.buildGoals, simulationProperties(dump), inputs.buildArguments);
     info(`Preparing the analysis of the ${tool.name} build in ${workingDirectory}`);
-    const env = { ...process.env };
+    const env = jobEnvironment();
     delete env.SONAR_TOKEN;
     let errorOutput = '';
     const exitCode = await exec(await executable(tool), args, {
         cwd: workingDirectory,
-        env: env,
+        env,
         ignoreReturnCode: true,
         listeners: { stderr: (data) => (errorOutput += data.toString()) }
     });
@@ -132468,11 +132479,9 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     writeFileSync(settingsFile, formatProperties(properties));
     const scanner = await installScanner();
     info(`Analysing ${name}`);
-    // The scanner reads untrusted content, and needs none of the action's inputs, the runner's own
-    // tokens, nor the files through which a step talks to the runner.
-    const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('INPUT_') &&
-        !name.startsWith('ACTIONS_') &&
-        !RUNNER_FILES.has(name)));
+    // The scanner reads untrusted content, and needs neither the files through which a step talks to
+    // the runner nor a GitHub token.
+    const env = Object.fromEntries(Object.entries(jobEnvironment()).filter(([name]) => !RUNNER_FILES.has(name)));
     env.SONAR_TOKEN = inputs.token;
     // Java names files in the locale's encoding; without a UTF-8 one, e.g. in a bare container, it reads
     // a non-ASCII name as '?', which is not the path checked here.
@@ -132490,7 +132499,7 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     try {
         exitCode = await exec(scanner, [`-Dproject.settings=${settingsFile}`, ...inputs.buildArguments], {
             cwd,
-            env: env,
+            env,
             ignoreReturnCode: true
         });
     }
@@ -132500,8 +132509,18 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
     if (exitCode !== 0)
         throw new Error(`The Sonar scanner failed with exit code ${exitCode}`);
 }
+// Whether the run a workflow_run follows built another repository's code, a fork's.
+function followsAnotherRepository(eventName) {
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    if (eventName !== 'workflow_run' || !eventPath)
+        return false;
+    const event = JSON.parse(readFileSync$1(eventPath, 'utf8'));
+    return (event.workflow_run.head_repository.full_name.toLowerCase() !==
+        (process.env.GITHUB_REPOSITORY ?? '').toLowerCase());
+}
 async function dispatch(inputs, report) {
-    const resolution = resolveMode(inputs.mode, process.env.GITHUB_EVENT_NAME ?? '', inputs.token);
+    const eventName = process.env.GITHUB_EVENT_NAME ?? '';
+    const resolution = resolveMode(inputs.mode, eventName, inputs.token, followsAnotherRepository(eventName));
     if (resolution.warning)
         warning(resolution.warning);
     info(`Mode: ${resolution.mode}`);

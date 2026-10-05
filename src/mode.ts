@@ -8,10 +8,13 @@ const MODES = ['auto', 'direct', 'prepare', 'analyze']
 // there would hand those to its code, which is exactly what this action exists to avoid.
 const PRIVILEGED_EVENTS = new Set(['pull_request_target', 'issue_comment'])
 
+// fromAnotherRepository: on workflow_run, whether the run it follows built another repository's
+// code, a fork's.
 export function resolveMode(
   requested: string,
   eventName: string,
-  token: string
+  token: string,
+  fromAnotherRepository = false
 ): Resolution {
   if (!MODES.includes(requested)) {
     throw new Error(
@@ -43,6 +46,10 @@ export function resolveMode(
     )
   }
   if (mode === 'direct' && eventName === 'workflow_run') {
+    if (fromAnotherRepository)
+      throw new Error(
+        "Refusing to build another repository's code on workflow_run, which runs with the repository's secrets; use mode auto to analyse it."
+      )
     return {
       mode,
       warning:
