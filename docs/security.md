@@ -120,8 +120,8 @@ information about the pull request, not as a review of it.
 ## Hardening your setup
 
 - Don't run fork builds on self-hosted runners that also run the Sonar workflow.
-  A fork's build could leave something behind on the machine, such as a tampered
-  copy of the scanner the action caches there. GitHub
+  A fork's build could leave something behind on the machine, such as tampered
+  tools or a tampered Sonar cache. GitHub
   [advises against self-hosted runners for public repositories](https://docs.github.com/en/actions/reference/security/secure-use#hardening-for-self-hosted-runners)
   anyway.
 - Pin the action to a commit SHA.
@@ -129,7 +129,9 @@ information about the pull request, not as a review of it.
   and no extra secrets or steps.
 - Don't add caching to the Sonar job, and don't give it write access to the
   cache with `cache-mode`. GitHub only lets `workflow_run` jobs read the default
-  branch's cache, so they can't poison later builds.
+  branch's cache, so they can't poison later builds. The one exception is
+  [the Sonar scanner's directory](../README.md#caching-the-sonar-scanner): the
+  action checks the scanner against its checksum every time.
 - Use a dedicated Sonar token, as the [setup](../README.md#setup) describes.
 - If you want an extra layer, require approval before workflows from outside
   contributors run (Settings → Actions → General). The analysis is safe without

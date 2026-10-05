@@ -40,13 +40,13 @@ import { setTimeout as setTimeout$1 } from 'timers';
 import * as require$$0$2 from 'stream';
 import require$$0__default$1, { Readable } from 'stream';
 import require$$0$d, { Buffer as Buffer$1 } from 'buffer';
-import os$1, { EOL as EOL$1, homedir, tmpdir } from 'node:os';
+import os$1, { EOL as EOL$1, tmpdir, homedir } from 'node:os';
 import process$2 from 'node:process';
 import https$1 from 'node:https';
 import { createHmac, randomInt, createHash, randomUUID as randomUUID$2 } from 'node:crypto';
 import require$$1$6 from 'tty';
 import require$$5$5 from 'url';
-import fs$1, { realpathSync, lstatSync, mkdirSync, cpSync, writeFileSync, globSync, existsSync as existsSync$1, readdirSync, statSync, unlinkSync, rmSync, copyFileSync, constants as constants$8, symlinkSync, accessSync, readFileSync as readFileSync$1, renameSync, mkdtempSync } from 'node:fs';
+import fs$1, { realpathSync, lstatSync, mkdirSync, cpSync, writeFileSync, globSync, existsSync as existsSync$1, readdirSync, statSync, unlinkSync, rmSync, copyFileSync, constants as constants$8, symlinkSync, accessSync, readFileSync as readFileSync$1, mkdtempSync, renameSync } from 'node:fs';
 import fs$2, { realpath } from 'fs/promises';
 import require$$0$c from 'constants';
 import require$$1$7, { dirname, join, relative, isAbsolute, resolve as resolve$1, sep as sep$2, basename } from 'node:path';
@@ -29335,31 +29335,9 @@ var __awaiter$g = (undefined && undefined.__awaiter) || function (thisArg, _argu
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-const { chmod, copyFile: copyFile$1, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, symlink, unlink } = fs.promises;
+const { chmod, copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, symlink, unlink } = fs.promises;
 // export const {open} = 'fs'
 const IS_WINDOWS$2 = process.platform === 'win32';
-/**
- * Custom implementation of readlink to ensure Windows junctions
- * maintain trailing backslash for backward compatibility with Node.js < 24
- *
- * In Node.js 20, Windows junctions (directory symlinks) always returned paths
- * with trailing backslashes. Node.js 24 removed this behavior, which breaks
- * code that relied on this format for path operations.
- *
- * This implementation restores the Node 20 behavior by adding a trailing
- * backslash to all junction results on Windows.
- */
-function readlink(fsPath) {
-    return __awaiter$g(this, void 0, void 0, function* () {
-        const result = yield fs.promises.readlink(fsPath);
-        // On Windows, restore Node 20 behavior: add trailing backslash to all results
-        // since junctions on Windows are always directory links
-        if (IS_WINDOWS$2 && !result.endsWith('\\')) {
-            return `${result}\\`;
-        }
-        return result;
-    });
-}
 fs.constants.O_RDONLY;
 function exists$1(fsPath) {
     return __awaiter$g(this, void 0, void 0, function* () {
@@ -29500,47 +29478,6 @@ var __awaiter$f = (undefined && undefined.__awaiter) || function (thisArg, _argu
     });
 };
 /**
- * Copies a file or folder.
- * Based off of shelljs - https://github.com/shelljs/shelljs/blob/9237f66c52e5daa40458f94f9565e18e8132f5a6/src/cp.js
- *
- * @param     source    source path
- * @param     dest      destination path
- * @param     options   optional. See CopyOptions.
- */
-function cp(source_1, dest_1) {
-    return __awaiter$f(this, arguments, void 0, function* (source, dest, options = {}) {
-        const { force, recursive, copySourceDirectory } = readCopyOptions(options);
-        const destStat = (yield exists$1(dest)) ? yield stat(dest) : null;
-        // Dest is an existing file, but not forcing
-        if (destStat && destStat.isFile() && !force) {
-            return;
-        }
-        // If dest is an existing directory, should copy inside.
-        const newDest = destStat && destStat.isDirectory() && copySourceDirectory
-            ? path$1.join(dest, path$1.basename(source))
-            : dest;
-        if (!(yield exists$1(source))) {
-            throw new Error(`no such file or directory: ${source}`);
-        }
-        const sourceStat = yield stat(source);
-        if (sourceStat.isDirectory()) {
-            if (!recursive) {
-                throw new Error(`Failed to copy. ${source} is a directory, but tried to copy without recursive flag.`);
-            }
-            else {
-                yield cpDirRecursive(source, newDest, 0, force);
-            }
-        }
-        else {
-            if (path$1.relative(source, newDest) === '') {
-                // a file cannot be copied to itself
-                throw new Error(`'${newDest}' and '${source}' are the same file`);
-            }
-            yield copyFile(source, newDest, force);
-        }
-    });
-}
-/**
  * Remove a path recursively with force
  *
  * @param inputPath path to remove
@@ -29668,64 +29605,6 @@ function findInPath(tool) {
             }
         }
         return matches;
-    });
-}
-function readCopyOptions(options) {
-    const force = options.force == null ? true : options.force;
-    const recursive = Boolean(options.recursive);
-    const copySourceDirectory = options.copySourceDirectory == null
-        ? true
-        : Boolean(options.copySourceDirectory);
-    return { force, recursive, copySourceDirectory };
-}
-function cpDirRecursive(sourceDir, destDir, currentDepth, force) {
-    return __awaiter$f(this, void 0, void 0, function* () {
-        // Ensure there is not a run away recursive copy
-        if (currentDepth >= 255)
-            return;
-        currentDepth++;
-        yield mkdirP(destDir);
-        const files = yield readdir(sourceDir);
-        for (const fileName of files) {
-            const srcFile = `${sourceDir}/${fileName}`;
-            const destFile = `${destDir}/${fileName}`;
-            const srcFileStat = yield lstat(srcFile);
-            if (srcFileStat.isDirectory()) {
-                // Recurse
-                yield cpDirRecursive(srcFile, destFile, currentDepth, force);
-            }
-            else {
-                yield copyFile(srcFile, destFile, force);
-            }
-        }
-        // Change the mode for the newly created directory
-        yield chmod(destDir, (yield stat(sourceDir)).mode);
-    });
-}
-// Buffered file copy
-function copyFile(srcFile, destFile, force) {
-    return __awaiter$f(this, void 0, void 0, function* () {
-        if ((yield lstat(srcFile)).isSymbolicLink()) {
-            // unlink/re-link it
-            try {
-                yield lstat(destFile);
-                yield unlink(destFile);
-            }
-            catch (e) {
-                // Try to override file permission
-                if (e.code === 'EPERM') {
-                    yield chmod(destFile, '0666');
-                    yield unlink(destFile);
-                }
-                // other errors = it doesn't exist, no work to do
-            }
-            // Copy over symlink
-            const symlinkFull = yield readlink(srcFile);
-            yield symlink(symlinkFull, destFile, IS_WINDOWS$2 ? 'junction' : null);
-        }
-        else if (!(yield exists$1(destFile)) || force) {
-            yield copyFile$1(srcFile, destFile);
-        }
     });
 }
 
@@ -131623,7 +131502,7 @@ function requireSemver () {
 	return semver;
 }
 
-var semverExports = requireSemver();
+requireSemver();
 
 (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -131872,96 +131751,6 @@ function extractZipNix(file, dest) {
         yield exec(`"${unzipPath}"`, args, { cwd: dest });
     });
 }
-/**
- * Caches a directory and installs it into the tool cacheDir
- *
- * @param sourceDir    the directory to cache into tools
- * @param tool          tool name
- * @param version       version of the tool.  semver format
- * @param arch          architecture of the tool.  Optional.  Defaults to machine architecture
- */
-function cacheDir(sourceDir, tool, version, arch) {
-    return __awaiter(this, void 0, void 0, function* () {
-        version = semverExports.clean(version) || version;
-        arch = arch || os.arch();
-        debug(`Caching tool ${tool} ${version} ${arch}`);
-        debug(`source dir: ${sourceDir}`);
-        if (!fs.statSync(sourceDir).isDirectory()) {
-            throw new Error('sourceDir is not a directory');
-        }
-        // Create the tool dir
-        const destPath = yield _createToolPath(tool, version, arch);
-        // copy each child item. do not move. move can fail on Windows
-        // due to anti-virus software having an open handle on a file.
-        for (const itemName of fs.readdirSync(sourceDir)) {
-            const s = path$1.join(sourceDir, itemName);
-            yield cp(s, destPath, { recursive: true });
-        }
-        // write .complete
-        _completeToolPath(tool, version, arch);
-        return destPath;
-    });
-}
-/**
- * Finds the path to a tool version in the local installed tool cache
- *
- * @param toolName      name of the tool
- * @param versionSpec   version of the tool
- * @param arch          optional arch.  defaults to arch of computer
- */
-function find(toolName, versionSpec, arch) {
-    if (!toolName) {
-        throw new Error('toolName parameter is required');
-    }
-    if (!versionSpec) {
-        throw new Error('versionSpec parameter is required');
-    }
-    arch = arch || os.arch();
-    // attempt to resolve an explicit version
-    if (!isExplicitVersion(versionSpec)) {
-        const localVersions = findAllVersions(toolName, arch);
-        const match = evaluateVersions(localVersions, versionSpec);
-        versionSpec = match;
-    }
-    // check for the explicit version in the cache
-    let toolPath = '';
-    if (versionSpec) {
-        versionSpec = semverExports.clean(versionSpec) || '';
-        const cachePath = path$1.join(_getCacheDirectory(), toolName, versionSpec, arch);
-        debug(`checking cache: ${cachePath}`);
-        if (fs.existsSync(cachePath) && fs.existsSync(`${cachePath}.complete`)) {
-            debug(`Found tool in cache ${toolName} ${versionSpec} ${arch}`);
-            toolPath = cachePath;
-        }
-        else {
-            debug('not found');
-        }
-    }
-    return toolPath;
-}
-/**
- * Finds the paths to all versions of a tool that are installed in the local tool cache
- *
- * @param toolName  name of the tool
- * @param arch      optional arch.  defaults to arch of computer
- */
-function findAllVersions(toolName, arch) {
-    const versions = [];
-    arch = arch || os.arch();
-    const toolPath = path$1.join(_getCacheDirectory(), toolName);
-    if (fs.existsSync(toolPath)) {
-        const children = fs.readdirSync(toolPath);
-        for (const child of children) {
-            if (isExplicitVersion(child)) {
-                const fullPath = path$1.join(toolPath, child, arch || '');
-                if (fs.existsSync(fullPath) && fs.existsSync(`${fullPath}.complete`)) {
-                    versions.push(child);
-                }
-            }
-        }
-    }
-    return versions;
-}
 function _createExtractFolder(dest) {
     return __awaiter(this, void 0, void 0, function* () {
         if (!dest) {
@@ -131971,74 +131760,6 @@ function _createExtractFolder(dest) {
         yield mkdirP(dest);
         return dest;
     });
-}
-function _createToolPath(tool, version, arch) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const folderPath = path$1.join(_getCacheDirectory(), tool, semverExports.clean(version) || version, arch || '');
-        debug(`destination ${folderPath}`);
-        const markerPath = `${folderPath}.complete`;
-        yield rmRF(folderPath);
-        yield rmRF(markerPath);
-        yield mkdirP(folderPath);
-        return folderPath;
-    });
-}
-function _completeToolPath(tool, version, arch) {
-    const folderPath = path$1.join(_getCacheDirectory(), tool, semverExports.clean(version) || version, arch || '');
-    const markerPath = `${folderPath}.complete`;
-    fs.writeFileSync(markerPath, '');
-    debug('finished caching tool');
-}
-/**
- * Check if version string is explicit
- *
- * @param versionSpec      version string to check
- */
-function isExplicitVersion(versionSpec) {
-    const c = semverExports.clean(versionSpec) || '';
-    debug(`isExplicit: ${c}`);
-    const valid = semverExports.valid(c) != null;
-    debug(`explicit? ${valid}`);
-    return valid;
-}
-/**
- * Get the highest satisfiying semantic version in `versions` which satisfies `versionSpec`
- *
- * @param versions        array of versions to evaluate
- * @param versionSpec     semantic version spec to satisfy
- */
-function evaluateVersions(versions, versionSpec) {
-    let version = '';
-    debug(`evaluating ${versions.length} versions`);
-    versions = versions.sort((a, b) => {
-        if (semverExports.gt(a, b)) {
-            return 1;
-        }
-        return -1;
-    });
-    for (let i = versions.length - 1; i >= 0; i--) {
-        const potential = versions[i];
-        const satisfied = semverExports.satisfies(potential, versionSpec);
-        if (satisfied) {
-            version = potential;
-            break;
-        }
-    }
-    if (version) {
-        debug(`matched: ${version}`);
-    }
-    else {
-        debug('match not found');
-    }
-    return version;
-}
-/**
- * Gets RUNNER_TOOL_CACHE
- */
-function _getCacheDirectory() {
-    const cacheDirectory = process.env['RUNNER_TOOL_CACHE'] || '';
-    ok(cacheDirectory, 'Expected RUNNER_TOOL_CACHE to be defined');
-    return cacheDirectory;
 }
 /**
  * Gets RUNNER_TEMP
@@ -132059,8 +131780,6 @@ function _getGlobal(key, defaultValue) {
 }
 
 const VERSION = '8.1.0.6389';
-// The tool cache wants semver, which has no fourth component; the build goes in the prerelease.
-const CACHE_VERSION = '8.1.0-build.6389';
 // Builds with their own Java runtime, so the analysis needs no Java on the runner.
 const BUNDLED = {
     'linux-x64': {
@@ -132092,28 +131811,74 @@ const PLAIN = {
 function scannerBuild(platform, arch) {
     return BUNDLED[`${platform}-${arch}`] ?? PLAIN;
 }
+// Where the zip is kept between runs, documented for users to cache. Other jobs or a restored cache
+// may have put anything there: it's checked on every use, and nothing runs from it.
+function keptZip(name) {
+    return join(process.env.RUNNER_TOOL_CACHE ?? tmpdir(), 'sonar-fork-analysis', VERSION, `${name}.zip`);
+}
+function digest(bytes) {
+    return createHash('sha256').update(bytes).digest('hex');
+}
+// Only a plain file of a sane size: reading a link to /dev/zero would never end.
+function readKept(path) {
+    try {
+        const stats = lstatSync(path);
+        return stats.isFile() && stats.size < 512 * 1024 * 1024
+            ? readFileSync$1(path)
+            : undefined;
+    }
+    catch {
+        // Missing, or under a file.
+        return undefined;
+    }
+}
+function keep(path, bytes) {
+    // A name of its own, written only if nothing is there: wx refuses any entry, links included.
+    const part = `${path}.${String(process.pid)}.part`;
+    let written = false;
+    try {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(part, bytes, { flag: 'wx' });
+        written = true;
+        renameSync(part, path);
+    }
+    catch (error) {
+        debug(`Not keeping the scanner in ${dirname(path)}: ${String(error)}`);
+        if (written)
+            rmSync(part, { force: true });
+    }
+}
+// The zip's bytes, checked against the pinned digest: the kept copy if it matches, else a download.
+async function scannerZip(name, sha256) {
+    const kept = keptZip(name);
+    const bytes = readKept(kept);
+    if (bytes && digest(bytes) === sha256)
+        return bytes;
+    const download = await downloadTool(`https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${name}.zip`);
+    const downloaded = readFileSync$1(download);
+    rmSync(download, { force: true });
+    const actual = digest(downloaded);
+    if (actual !== sha256) {
+        throw new Error(`The downloaded scanner has SHA-256 ${actual}, expected ${sha256}`);
+    }
+    keep(kept, downloaded);
+    return downloaded;
+}
 async function installScanner(platform = process.platform, arch = process.arch) {
     const build = scannerBuild(platform, arch);
     if (build === PLAIN) {
         info(`No scanner with a bundled Java runtime for ${platform}-${arch}, using the Java on the runner`);
     }
-    const tool = `sonar-scanner-cli${build.suffix}`;
-    let directory = find(tool, CACHE_VERSION);
-    if (!directory) {
-        const name = `sonar-scanner-cli-${VERSION}${build.suffix}`;
-        const download = await downloadTool(`https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${name}.zip`);
-        // PowerShell 5.1, which extracts on some Windows runners, refuses a file without the extension.
-        const zip = `${download}.zip`;
-        renameSync(download, zip);
-        const actual = createHash('sha256').update(readFileSync$1(zip)).digest('hex');
-        if (actual !== build.sha256) {
-            throw new Error(`The downloaded scanner has SHA-256 ${actual}, expected ${build.sha256}`);
-        }
-        const extracted = await extractZip(zip);
-        directory = await cacheDir(join(extracted, `sonar-scanner-${VERSION}${build.suffix}`), tool, CACHE_VERSION);
-    }
+    const name = `sonar-scanner-cli-${VERSION}${build.suffix}`;
+    const bytes = await scannerZip(name, build.sha256);
+    // The bytes just checked, unpacked where only this job writes.
+    const directory = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'sonar-scanner-'));
+    // PowerShell 5.1, which extracts on some Windows runners, refuses a file without the extension.
+    const zip = join(directory, `${name}.zip`);
+    writeFileSync(zip, bytes);
+    const extracted = await extractZip(zip, join(directory, 'scanner'));
     const script = platform === 'win32' ? 'sonar-scanner.bat' : 'sonar-scanner';
-    return join(directory, 'bin', script);
+    return join(extracted, `sonar-scanner-${VERSION}${build.suffix}`, 'bin', script);
 }
 
 // A workflow_run run does not show among a pull request's checks, so a failed analysis would go
