@@ -64,7 +64,7 @@ describe('resolveMode', () => {
   it('refuses a forced prepare with the Sonar token in the job', () => {
     for (const event of ['push', 'pull_request'])
       expect(() => resolveMode('prepare', event, 'token')).toThrow(
-        /the build could still read it/
+        /the build could read it from the job/
       )
   })
 

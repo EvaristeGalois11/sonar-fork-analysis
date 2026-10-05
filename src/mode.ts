@@ -8,8 +8,8 @@ const MODES = ['auto', 'direct', 'prepare', 'analyze']
 // there would hand those to its code, which is exactly what this action exists to avoid.
 const PRIVILEGED_EVENTS = new Set(['pull_request_target', 'issue_comment'])
 
-// unreviewedRun: on workflow_run, whether the run it follows built code no one here reviewed, a
-// pull request's or another repository's.
+// unreviewedRun: on workflow_run, whether the run it follows built a pull request's code or another
+// repository's.
 export function resolveMode(
   requested: string,
   eventName: string,
@@ -50,11 +50,11 @@ function checkBuild(
     )
   }
   if (mode === 'prepare') {
-    // Removing it from the build's environment can't keep it from the build: a process of the same
-    // user reads the action's own, e.g. from /proc.
+    // Leaving it out of the build's environment doesn't help: a process of the same user can read
+    // the action's own, e.g. from /proc.
     if (token)
       throw new Error(
-        'Mode prepare builds without the Sonar token, but the sonar-token input is set, and the build could still read it from the job; remove sonar-token, or use mode auto.'
+        'The sonar-token input is set, but mode prepare must build without the token: the build could read it from the job. Remove sonar-token or use mode auto.'
       )
     return { mode }
   }
@@ -66,7 +66,7 @@ function checkBuild(
   if (eventName !== 'workflow_run') return { mode }
   if (unreviewedRun)
     throw new Error(
-      "Refusing to build a pull request's code on workflow_run, which runs with the repository's secrets; use mode auto to analyse it."
+      "Refusing to build a pull request's code on workflow_run: it would run with the repository's secrets. Use mode auto to analyse it."
     )
   return {
     mode,
