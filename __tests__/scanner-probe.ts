@@ -195,6 +195,16 @@ export class Probe {
     })
   }
 
+  // Each value as the CLI resolves its placeholders, next to other=OTHER and an environment holding
+  // NAME=ENV; undefined where the CLI refuses it.
+  resolvePlaceholders(values: string[]): (string | undefined)[] {
+    return this.withInput(values.map(hex), (input) =>
+      this.run('resolve', input).map(([kind, value]) =>
+        kind === 'resolved' ? unhex(value) : undefined
+      )
+    )
+  }
+
   // The classes of a jar that can start a process.
   processClasses(jar: string): string[] {
     return this.run('processes', jar).map(([, name]) => name)
@@ -226,7 +236,9 @@ export class Probe {
     )
       .split('\n')
       .filter((line) =>
-        /^(?:file|entry|split|case|refused|module|key|class)(?: |$)/.test(line)
+        /^(?:file|entry|split|case|refused|module|key|class|resolved)(?: |$)/.test(
+          line
+        )
       )
       .map((line) => line.split(' '))
   }
