@@ -178,6 +178,19 @@ describe('resolveSettings', () => {
     }
   )
 
+  it('refuses a base directory inside .git, also through a link', () => {
+    mkdirSync(join(workspace, '.git/hooks'), { recursive: true })
+    symlinkSync('.git', join(workspace, 'git'))
+    for (const base of ['{workspace}/.git/hooks', '{workspace}/git/hooks'])
+      expect(() =>
+        resolveSettings(
+          { 'sonar.modules': 'm', 'm.sonar.projectBaseDir': base },
+          workspace,
+          home
+        )
+      ).toThrow('gives module m no base directory in the checkout')
+  })
+
   it('drops paths escaping the workspace or home', () => {
     const resolved = resolveSettings(
       {
