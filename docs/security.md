@@ -27,6 +27,10 @@ the scanner would otherwise trust:
 - `sonar-project.properties` files, which the scanner would read as
   configuration.
 
+It refuses a checkout or an artifact with a file name that isn't valid UTF-8.
+The action and the scanner read such a name differently, so a link could hide
+behind it.
+
 **The artifact.** The action refuses an artifact with links or special files in
 it. It unpacks the build output next to the sources, never over an existing file
 or through a link. It adds only two kinds of files to the source directories:

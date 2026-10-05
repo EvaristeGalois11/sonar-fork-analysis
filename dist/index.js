@@ -20,7 +20,7 @@ import require$$0$6 from 'node:assert';
 import require$$0$8 from 'node:net';
 import http$1 from 'node:http';
 import require$$0$7, { Transform, Readable as Readable$1 } from 'node:stream';
-import require$$0$4 from 'node:buffer';
+import require$$0$4, { isUtf8 } from 'node:buffer';
 import require$$0$9, { inspect as inspect$1 } from 'node:util';
 import require$$7 from 'node:querystring';
 import require$$0$5 from 'node:events';
@@ -127970,6 +127970,10 @@ function entriesUnder(directory) {
     const entries = [];
     const pending = [directory];
     for (let current = pending.pop(); current; current = pending.pop()) {
+        // Node reads a name that isn't valid UTF-8 with U+FFFD for the bad bytes, so a walk would visit a
+        // decoy with those characters twice and never the entry itself, which Java opens.
+        if (!readdirSync(current, { encoding: 'buffer' }).every((name) => isUtf8(name)))
+            throw new Error(`A file name in ${relative(directory, current) || '.'} isn't valid UTF-8`);
         for (const entry of readdirSync(current, { withFileTypes: true })) {
             entries.push(entry);
             if (entry.isDirectory())
