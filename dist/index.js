@@ -127939,12 +127939,16 @@ function moduleBases(kept, tree, places) {
             ? places.workspace
             : base && mapPlaceholder(base, places.workspace, places.home);
         // The scanner reads patterns in report paths, and a checkout may hold a directory named **.
+        // Inside .git, reached through a link, the sweep of settings files wouldn't look.
         if (!mapped ||
             mapped.includes(',') ||
             WILDCARD.test(mapped) ||
             REREAD_PATH.test(mapped) ||
             !existsSync$1(mapped) ||
-            !isWithin(realPath(mapped), places.realWorkspace)) {
+            !isWithin(realPath(mapped), places.realWorkspace) ||
+            relative(places.realWorkspace, realPath(mapped))
+                .split(sep$2)
+                .some(isGitDirectory)) {
             const subject = prefix ? `module ${prefix.slice(0, -1)}` : 'the project';
             throw new Error(`The artifact gives ${subject} no base directory in the checkout`);
         }
