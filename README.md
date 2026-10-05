@@ -448,10 +448,7 @@ checksum before each use. So caching that directory is safe:
 - uses: actions/cache@v4
   with:
     path: ${{ runner.tool_cache }}/sonar-fork-analysis
-    key:
-      sonar-scanner-${{ runner.os }}-${{ runner.arch }}-${{
-      hashFiles('.github/workflows/*.yml') }}
-    restore-keys: sonar-scanner-${{ runner.os }}-${{ runner.arch }}-
+    key: sonar-scanner-${{ hashFiles('.github/workflows/*.yml') }}
 ```
 
 Add it before the action. The Sonar workflow can only restore what a build on
