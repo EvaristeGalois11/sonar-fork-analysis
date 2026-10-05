@@ -62,7 +62,7 @@ jobs:
         run: |
           npm run bundle
           git add --intent-to-add dist
-          git diff --exit-code --ignore-space-at-eol --text dist/
+          git diff --exit-code --text dist/
 
       - name: 'Upload the expected dist'
         if: ${{ failure() && steps.check-dist.outcome == 'failure' }}
