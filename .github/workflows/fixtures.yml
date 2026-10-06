@@ -29,9 +29,9 @@ jobs:
           - fixture: gradle
             name: Gradle
           - fixture: npm
-            name: npm
+            name: Npm
           - fixture: pnpm
-            name: pnpm
+            name: Pnpm
     env:
       # Forks and Dependabot get no Actions secrets, and a forced direct analysis fails without the
       # token, so skip it there.
@@ -197,9 +197,9 @@ jobs:
           - fixture: gradle
             name: Gradle
           - fixture: npm
-            name: npm
+            name: Npm
           - fixture: pnpm
-            name: pnpm
+            name: Pnpm
     env:
       HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
     # No checkout step: the action checks out the analysed commit itself, as it does for users.
