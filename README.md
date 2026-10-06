@@ -523,7 +523,7 @@ v2 also has a new home. Replace `evaristegalois11/sonar-fork-analysis` with
 `galois-groups/sonar-fork-analysis` in your workflows.
 
 In v1, the Sonar workflow analysed every build. In v2, the build analyses pushes
-and your own pull requests itself, and the Sonar workflow only analyses pull
+and your own pull requests itself. The Sonar workflow only analyses pull
 requests from forks and Dependabot.
 
 In the build workflow, the action replaces your build step and now gets the
