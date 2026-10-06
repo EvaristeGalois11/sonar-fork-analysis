@@ -98,7 +98,8 @@ Thumbs.db
 __tests__/runner/*
 
 # IDE files
-.idea
+.idea/*
+!.idea/icon.svg
 *.iml
 *.code-workspace
 
