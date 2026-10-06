@@ -61,7 +61,7 @@ inputs:
       shows it.
     default: ${{ github.token }}
 branding:
-  icon: search
+  icon: shield
   color: blue
 runs:
   using: node24
