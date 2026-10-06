@@ -1,9 +1,9 @@
 # Sonar Fork Analysis
 
-[![CI](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/ci.yml)
-[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=evaristegalois11_sonar-fork-analysis&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=evaristegalois11_sonar-fork-analysis)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=evaristegalois11_sonar-fork-analysis&metric=coverage)](https://sonarcloud.io/summary/new_code?id=evaristegalois11_sonar-fork-analysis)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvaristeGalois11/sonar-fork-analysis/badge)](https://scorecard.dev/viewer/?uri=github.com/EvaristeGalois11/sonar-fork-analysis)
+[![CI](https://github.com/galois-groups/sonar-fork-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/galois-groups/sonar-fork-analysis/actions/workflows/ci.yml)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=galois-groups_sonar-fork-analysis&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=galois-groups_sonar-fork-analysis)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=galois-groups_sonar-fork-analysis&metric=coverage)](https://sonarcloud.io/summary/new_code?id=galois-groups_sonar-fork-analysis)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/galois-groups/sonar-fork-analysis/badge)](https://scorecard.dev/viewer/?uri=github.com/galois-groups/sonar-fork-analysis)
 
 <!-- prettier-ignore -->
 > [!NOTE]
@@ -157,7 +157,7 @@ chooses the right part from where the action runs and whether it has a token.
              distribution: temurin
              java-version: 21
          # Add this in place of your build step.
-         - uses: evaristegalois11/sonar-fork-analysis@v2
+         - uses: galois-groups/sonar-fork-analysis@v2
            with:
              project-key: my-org_my-project
              sonar-organization: my-org
@@ -187,7 +187,7 @@ chooses the right part from where the action runs and whether it has a token.
          pull-requests: read
          statuses: write
        steps:
-         - uses: evaristegalois11/sonar-fork-analysis@v2
+         - uses: galois-groups/sonar-fork-analysis@v2
            with:
              project-key: my-org_my-project
              sonar-organization: my-org
@@ -225,7 +225,7 @@ steps:
   # Write coverage where sonar-project.properties says, e.g. coverage/lcov.info.
   - run: npm test -- --coverage
   # Add this after your tests.
-  - uses: evaristegalois11/sonar-fork-analysis@v2
+  - uses: galois-groups/sonar-fork-analysis@v2
     with:
       project-key: my-org_my-project
       sonar-organization: my-org
@@ -332,7 +332,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Your existing checkout and Java setup.
-      - uses: evaristegalois11/sonar-fork-analysis@v2
+      - uses: galois-groups/sonar-fork-analysis@v2
         with:
           project-key: ${{ matrix.project-key }}
           working-directory: ${{ matrix.working-directory }}
@@ -352,7 +352,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same permissions as for a single project.
     steps:
-      - uses: evaristegalois11/sonar-fork-analysis@v2
+      - uses: galois-groups/sonar-fork-analysis@v2
         with:
           project-key: ${{ matrix.project-key }}
           sonar-organization: my-org
@@ -407,7 +407,7 @@ always takes the fork path:
 
 <!-- prettier-ignore -->
 ```yaml
-- uses: evaristegalois11/sonar-fork-analysis@v2
+- uses: galois-groups/sonar-fork-analysis@v2
   if: >
     github.event.pull_request.head.repo.full_name != github.repository ||
     github.actor == 'dependabot[bot]'
@@ -434,7 +434,7 @@ branch.
     fetch-depth: 0
     persist-credentials: false
     submodules: true
-- uses: evaristegalois11/sonar-fork-analysis@v2
+- uses: galois-groups/sonar-fork-analysis@v2
   with:
     checkout: false
     # …
@@ -519,6 +519,9 @@ move to v2 now. If v1 has analysed pull requests from forks, also rotate your
 Sonar token and delete your repository's Actions caches as a precaution. See
 [security](docs/security.md#v1) for why.
 
+v2 also has a new home. Replace `evaristegalois11/sonar-fork-analysis` with
+`galois-groups/sonar-fork-analysis` in your workflows.
+
 In v1, the Sonar workflow analysed every build. In v2, the build analyses pushes
 and your own pull requests itself, and the Sonar workflow only analyses pull
 requests from forks and Dependabot.
@@ -549,7 +552,7 @@ steps:
     with:
       distribution: temurin
       java-version: 21
-  - uses: evaristegalois11/sonar-fork-analysis@v2
+  - uses: galois-groups/sonar-fork-analysis@v2
     with:
       project-key: my-org_my-project
       sonar-organization: my-org
@@ -593,7 +596,7 @@ jobs:
       pull-requests: read
       statuses: write
     steps:
-      - uses: evaristegalois11/sonar-fork-analysis@v2
+      - uses: galois-groups/sonar-fork-analysis@v2
         with:
           project-key: my-org_my-project
           sonar-organization: my-org
@@ -611,16 +614,16 @@ is committed.
 
 Three workflows besides CI check the action:
 
-- [![Fixtures](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/fixtures.yml)
+- [![Fixtures](https://github.com/galois-groups/sonar-fork-analysis/actions/workflows/fixtures.yml/badge.svg)](https://github.com/galois-groups/sonar-fork-analysis/actions/workflows/fixtures.yml)
   runs the action on sample Maven, Gradle, npm and pnpm projects. It analyses
   each one directly and through the fork path and compares the results. It also
   checks what differs on Windows and macOS: the Maven and Gradle wrappers and
   the scanner the action downloads.
-- [![Scanner and engines](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/scanner.yml)
+- [![Scanner and engines](https://github.com/galois-groups/sonar-fork-analysis/actions/workflows/scanner.yml/badge.svg)](https://github.com/galois-groups/sonar-fork-analysis/actions/workflows/scanner.yml)
   checks what the action assumes against the real scanner and the engines
   SonarCloud and SonarQube serve. Sonar updates the engines on its own schedule,
   so the workflow also runs every week and then reports any new scanner release.
-- [![CodeQL](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml/badge.svg)](https://github.com/EvaristeGalois11/sonar-fork-analysis/actions/workflows/codeql.yml)
+- [![CodeQL](https://github.com/galois-groups/sonar-fork-analysis/actions/workflows/codeql.yml/badge.svg)](https://github.com/galois-groups/sonar-fork-analysis/actions/workflows/codeql.yml)
   is GitHub's security analysis of the code and the workflows.
 
 `npm run test:scanner` runs the tests against the real scanner. They download
