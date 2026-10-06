@@ -11,7 +11,7 @@
 > README describes v2.
 
 Runs Sonar analysis, with coverage and test results, on pull requests from
-forks.
+forks. (Test of the fork path, not to be merged.)
 
 GitHub doesn't give secrets to workflows triggered by a fork, so the usual Sonar
 setup can't analyse their pull requests. This action splits the work in two. The
