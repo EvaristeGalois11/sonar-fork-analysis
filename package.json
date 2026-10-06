@@ -5,13 +5,13 @@
   "author": "Claudio Nave",
   "type": "module",
   "private": true,
-  "homepage": "https://github.com/EvaristeGalois11/sonar-fork-analysis",
+  "homepage": "https://github.com/galois-groups/sonar-fork-analysis",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/EvaristeGalois11/sonar-fork-analysis.git"
+    "url": "git+https://github.com/galois-groups/sonar-fork-analysis.git"
   },
   "bugs": {
-    "url": "https://github.com/EvaristeGalois11/sonar-fork-analysis/issues"
+    "url": "https://github.com/galois-groups/sonar-fork-analysis/issues"
   },
   "keywords": [
     "actions",

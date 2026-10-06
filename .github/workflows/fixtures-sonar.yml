@@ -59,8 +59,8 @@ jobs:
           SONAR_FORK_ANALYSIS_TRAP: ${{ runner.temp }}/traps/sprung
         with:
           project-key:
-            evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
-          sonar-organization: evaristegalois11
+            galois-groups_sonar-fork-analysis_${{ matrix.fixture }}_split
+          sonar-organization: galois-groups
           sonar-token: ${{ secrets.SONAR_TOKEN }}
           build-arguments:
             -Dsonar.projectName=Sonar fork analysis - ${{ matrix.name }} split

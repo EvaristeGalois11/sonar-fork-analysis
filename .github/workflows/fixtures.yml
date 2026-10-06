@@ -109,8 +109,8 @@ jobs:
           mode: direct
           working-directory: fixtures/${{ matrix.fixture }}
           project-key:
-            evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_direct
-          sonar-organization: evaristegalois11
+            galois-groups_sonar-fork-analysis_${{ matrix.fixture }}_direct
+          sonar-organization: galois-groups
           sonar-token: ${{ secrets.SONAR_TOKEN }}
           # SonarCloud names a project after the build (fixture-maven, fixture-gradle) and labels its PR
           # check with that name, so the direct and split projects of a fixture would post same-named
@@ -179,7 +179,7 @@ jobs:
         with:
           mode: prepare
           project-key:
-            evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
+            galois-groups_sonar-fork-analysis_${{ matrix.fixture }}_split
           working-directory: fixtures/${{ matrix.fixture }}
 
   # Analyses the prepared artifact in the same run, so changes to analyze mode are tested before they
@@ -230,8 +230,8 @@ jobs:
         with:
           mode: analyze
           project-key:
-            evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
-          sonar-organization: evaristegalois11
+            galois-groups_sonar-fork-analysis_${{ matrix.fixture }}_split
+          sonar-organization: galois-groups
           sonar-token: ${{ secrets.SONAR_TOKEN }}
           build-arguments:
             -Dsonar.projectName=Sonar fork analysis - ${{ matrix.name }} split
@@ -318,7 +318,7 @@ jobs:
         with:
           mode: prepare
           project-key:
-            evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_${{
+            galois-groups_sonar-fork-analysis_${{ matrix.fixture }}_${{
             runner.os }}
           working-directory: fixtures/${{ matrix.fixture }}
 
@@ -350,9 +350,9 @@ jobs:
       - name: 'Compare direct and fork path results'
         if: env.HAS_SONAR_TOKEN == 'true'
         run: >
-          node scripts/compare-analyses.ts
-          evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_direct
-          evaristegalois11_sonar-fork-analysis_${{ matrix.fixture }}_split
+          node scripts/compare-analyses.ts galois-groups_sonar-fork-analysis_${{
+          matrix.fixture }}_direct galois-groups_sonar-fork-analysis_${{
+          matrix.fixture }}_split
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}

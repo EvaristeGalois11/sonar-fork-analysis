@@ -14,7 +14,7 @@ anything that weakens that are very welcome.
 ## Reporting a vulnerability
 
 Please report it privately, through
-[GitHub's vulnerability reporting](https://github.com/EvaristeGalois11/sonar-fork-analysis/security/advisories/new),
+[GitHub's vulnerability reporting](https://github.com/galois-groups/sonar-fork-analysis/security/advisories/new),
 not in a public issue or pull request.
 
 Include what an attacker controls (e.g. a fork's branch name, its build, its
