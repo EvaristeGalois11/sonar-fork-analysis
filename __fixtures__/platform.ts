@@ -1,3 +1,5 @@
+import { it } from 'vitest'
+
 // For what Windows doesn't have: file names it refuses, the executable bit, a '..' after a link that
 // leads where the link does rather than back where the link sits.
 export const posixIt = process.platform === 'win32' ? it.skip : it

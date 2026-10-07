@@ -26,7 +26,7 @@
     "strictNullChecks": true,
     "target": "ES2022",
     "rootDir": ".",
-    "types": ["node", "jest"]
+    "types": ["node"]
   },
   "exclude": ["__fixtures__", "__tests__", "coverage", "dist", "node_modules"],
   "include": ["src"]

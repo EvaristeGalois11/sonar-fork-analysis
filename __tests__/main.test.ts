@@ -1,4 +1,12 @@
-import { jest } from '@jest/globals'
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  type MockInstance
+} from 'vitest'
 import {
   cpSync,
   lstatSync,
@@ -18,12 +26,12 @@ import { linuxIt } from '../__fixtures__/platform.js'
 import { exec, getExecOutput } from '../__fixtures__/exec.js'
 
 // Mocks must be declared before the module under test is imported.
-jest.unstable_mockModule('@actions/core', () => core)
-jest.unstable_mockModule('@actions/exec', () => ({ exec, getExecOutput }))
-jest.unstable_mockModule('../src/scanner.js', () => ({
+vi.doMock('@actions/core', () => core)
+vi.doMock('@actions/exec', () => ({ exec, getExecOutput }))
+vi.doMock('../src/scanner.js', () => ({
   installScanner: async () => '/opt/sonar-scanner/bin/sonar-scanner'
 }))
-jest.unstable_mockModule('@actions/artifact', () => artifact)
+vi.doMock('@actions/artifact', () => artifact)
 
 const { run } = await import('../src/main.js')
 
@@ -72,7 +80,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  jest.resetAllMocks()
+  vi.resetAllMocks()
   rmSync(project, { recursive: true, force: true })
 })
 
@@ -115,11 +123,11 @@ describe('run', () => {
       return 0
     })
     // The failure status of a refused run.
-    const fetch = jest
+    const fetch = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(null, { status: 201 }))
     const after = async (runEvent: string, repository: string) => {
-      jest.clearAllMocks()
+      vi.clearAllMocks()
       writeFileSync(
         event,
         JSON.stringify({
@@ -741,7 +749,7 @@ describe('run in analyze mode', () => {
       head: { sha: 'head-sha', ref: 'feature' },
       base: { ref: base }
     })
-    const fetch = jest.spyOn(globalThis, 'fetch')
+    const fetch = vi.spyOn(globalThis, 'fetch')
     const scan = async (hint: number): Promise<string> => {
       fetch.mockResolvedValue(
         new Response(JSON.stringify([pull(7, 'main'), pull(8, 'release')]))
@@ -764,7 +772,7 @@ describe('run in analyze mode', () => {
   })
 
   describe('on workflow_run', () => {
-    let fetch: jest.SpiedFunction<typeof globalThis.fetch>
+    let fetch: MockInstance<typeof globalThis.fetch>
 
     // Starts the analysis the way Fixtures Sonar does: after a build of owner/repo or of a fork.
     function triggeredBy(event: string, repository: string): void {
@@ -801,7 +809,7 @@ describe('run in analyze mode', () => {
     }
 
     beforeEach(() => {
-      fetch = jest
+      fetch = vi
         .spyOn(globalThis, 'fetch')
         .mockImplementation(async (_url, init) =>
           init?.method === 'POST'
@@ -1071,7 +1079,7 @@ describe('run in analyze mode', () => {
   })
 
   it('posts no status where the job itself shows on the pull request', async () => {
-    const fetch = jest.spyOn(globalThis, 'fetch')
+    const fetch = vi.spyOn(globalThis, 'fetch')
     prepared({})
 
     await run()

@@ -1,3 +1,4 @@
+import { describe, it, expect, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { DEFAULTS, readInputs } from '../src/inputs.js'
 

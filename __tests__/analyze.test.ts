@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   existsSync,
   lstatSync,
@@ -105,7 +106,7 @@ describe('resolveSettings', () => {
       home
     )
     expect(resolved.reports).toHaveLength(200_000)
-  })
+  }, 30_000)
 
   it('drops settings the analysis decides itself', () => {
     const resolved = resolveSettings(

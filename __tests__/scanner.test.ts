@@ -1,4 +1,4 @@
-import { jest } from '@jest/globals'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import {
   existsSync,
@@ -14,10 +14,10 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { posixIt } from '../__fixtures__/platform.js'
 
-const downloadTool = jest.fn<(url: string) => Promise<string>>()
+const downloadTool = vi.fn<(url: string) => Promise<string>>()
 const extractZip =
-  jest.fn<(file: string, destination?: string) => Promise<string>>()
-jest.unstable_mockModule('@actions/tool-cache', () => ({
+  vi.fn<(file: string, destination?: string) => Promise<string>>()
+vi.doMock('@actions/tool-cache', () => ({
   downloadTool,
   extractZip
 }))

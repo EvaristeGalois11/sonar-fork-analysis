@@ -1,4 +1,4 @@
 import { reportInterrupted } from './status.js'
 
-/* istanbul ignore next */
+/* v8 ignore next */
 void reportInterrupted()

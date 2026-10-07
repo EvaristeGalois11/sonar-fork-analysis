@@ -1,7 +1,7 @@
-import { jest } from '@jest/globals'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { retry } from '../src/retry.js'
 
-const sleep = jest.fn<(seconds: number) => Promise<void>>(async () => {})
+const sleep = vi.fn<(seconds: number) => Promise<void>>(async () => {})
 const policy = { attempts: 3, minSeconds: 10, maxSeconds: 20, sleep }
 
 afterEach(() => {
@@ -15,7 +15,7 @@ describe('retry', () => {
   })
 
   it('tries again after a failure, waiting 10 to 20 seconds', async () => {
-    const action = jest
+    const action = vi
       .fn<() => Promise<string>>()
       .mockRejectedValueOnce(new Error('network'))
       .mockResolvedValue('done')
@@ -28,7 +28,7 @@ describe('retry', () => {
   })
 
   it('gives up after three attempts with the last error', async () => {
-    const action = jest
+    const action = vi
       .fn<() => Promise<string>>()
       .mockImplementation(async () => {
         throw new Error(`attempt ${action.mock.calls.length}`)

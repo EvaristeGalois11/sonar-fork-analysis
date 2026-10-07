@@ -99,7 +99,7 @@ jobs:
         run: npm ci
 
       - name: 'Test'
-        run: npm test -- --coverage=false
+        run: npm test -- --coverage.enabled=false
 
   gradle-wrapper:
     name: 'Validate Gradle wrapper'
