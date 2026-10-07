@@ -1,6 +1,4 @@
 #!/bin/sh
-# Fixtures Sonar sets this while analysing on the fork path, where nothing may run the analysed build.
-if [ -n "$SONAR_FORK_ANALYSIS_TRAP" ]; then echo "$0 $*" >> "$SONAR_FORK_ANALYSIS_TRAP"; exit 1; fi
 # ----------------------------------------------------------------------------
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file

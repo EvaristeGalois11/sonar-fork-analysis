@@ -100,7 +100,12 @@ export default defineConfig(
       'jest/no-standalone-expect': [
         'error',
         {
-          additionalTestBlockFunctions: ['invalidUtf8It', 'linuxIt', 'posixIt']
+          additionalTestBlockFunctions: [
+            'invalidUtf8It',
+            'linuxIt',
+            'posixIt',
+            'posixIt.each'
+          ]
         }
       ]
     }

@@ -34,16 +34,21 @@ jobs:
           - fixture: pnpm
             name: Pnpm
     steps:
-      # The analysis must never run the analysed code, whatever the scanner or Sonar adds: build tools
-      # on the PATH and the fixtures' own wrappers record any run and fail it.
+      # The analysis must never run the analysed code, whatever the scanner or Sonar adds. Fake build
+      # tools on the PATH record any run and fail it. Fake Java, wget and curl do the same. The
+      # fixtures' wrappers need them.
       - name: 'Set traps'
         # The PATH entry is the directory created here, holding nothing but the stand-ins.
         run: | # zizmor: ignore[github-env]
           mkdir -p "$RUNNER_TEMP/traps"
-          for tool in mvn gradle npm npx yarn pnpm cargo go python python3 pip pip3 poetry uv sbt; do
+          for tool in mvn gradle npm npx yarn pnpm cargo go python python3 pip pip3 poetry uv sbt java javac wget curl; do
             printf "#!/bin/sh\necho \"\$0 \$*\" >> \"%s\"\nexit 1\n" "$RUNNER_TEMP/traps/sprung" > "$RUNNER_TEMP/traps/$tool"
             chmod +x "$RUNNER_TEMP/traps/$tool"
           done
+          # The fixtures' wrappers stay as Maven and Gradle generate them. They start Java through JAVA_HOME.
+          # The analysis step points JAVA_HOME here. Before that, mvnw downloads Maven with wget or curl.
+          mkdir -p "$RUNNER_TEMP/traps/jdk/bin"
+          cp "$RUNNER_TEMP/traps/java" "$RUNNER_TEMP/traps/javac" "$RUNNER_TEMP/traps/jdk/bin/"
           # SonarCloud's engine runs dotnet build -version for its analytics, in the working directory the
           # action gives the scanner; anywhere else, e.g. the checkout or the unpacked artifact, dotnet
           # would read the pull request's global.json.
@@ -57,6 +62,7 @@ jobs:
         uses: $/
         env:
           SONAR_FORK_ANALYSIS_TRAP: ${{ runner.temp }}/traps/sprung
+          JAVA_HOME: ${{ runner.temp }}/traps/jdk
         with:
           project-key:
             galois-groups_sonar-fork-analysis_${{ matrix.fixture }}_split

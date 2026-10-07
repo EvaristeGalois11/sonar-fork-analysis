@@ -164,8 +164,9 @@ builds the same modules and that the parts of the engine able to start a program
 haven't changed since they were last reviewed.
 
 The analysis of the test fixtures also sets traps. Fake build tools on the
-`PATH` fail the run if the analysis ever starts one, and so do booby-trapped
-wrappers and Gradle settings in the fixtures. The Node fixtures add
+`PATH` fail the run if the analysis ever starts one. The fixtures' Maven and
+Gradle wrappers need Java, `wget` and `curl`. Fakes of these fail the run too.
+So do booby-trapped Gradle settings in the fixtures. The Node fixtures add
 booby-trapped configuration files and packages, which fail the run if the
 JavaScript analyzer ever loads them.
 
