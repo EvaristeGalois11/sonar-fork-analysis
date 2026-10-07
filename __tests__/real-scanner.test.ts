@@ -2,10 +2,17 @@
 // and the engines SonarCloud and the latest SonarQube serve, which change without notice. They are
 // downloaded, so the checks only run when SCANNER_CHECKS is set, as the Scanner workflow does.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import fc from 'fast-check'
+import { posixIt } from '../__fixtures__/platform.js'
 import { formatProperties } from '../src/analyze.js'
 import { REREAD_PATH, moduleTree } from '../src/settings.js'
 import {
@@ -257,21 +264,39 @@ describeScanner.each([
   })
 })
 
-// The fixtures' build wrappers are traps on the fork path: Fixtures Sonar sets the variable while
-// analysing, where nothing may run the analysed code. A wrapper update that drops them fails here.
+// Dependabot regenerates the fixtures' wrappers, so Fixtures Sonar can't put traps in them. It traps
+// what they need instead: Java on the PATH and in JAVA_HOME, and the wget and curl that mvnw uses to
+// download Maven. If a wrapper update gets past these traps, this test fails.
 describe('the fixture build wrappers', () => {
-  it.each(['fixtures/maven/mvnw', 'fixtures/gradle/gradlew'])(
-    '%s springs the trap',
+  posixIt.each(['fixtures/maven/mvnw', 'fixtures/gradle/gradlew'])(
+    '%s springs the traps',
     (wrapper) => {
       const directory = mkdtempSync(join(tmpdir(), 'trap-'))
       try {
         const sprung = join(directory, 'sprung')
+        const jdk = join(directory, 'jdk', 'bin')
+        mkdirSync(jdk, { recursive: true })
+        for (const tool of ['java', 'javac', 'wget', 'curl']) {
+          for (const where of [directory, jdk]) {
+            writeFileSync(
+              join(where, tool),
+              `#!/bin/sh\necho "$0 $*" >> "${sprung}"\nexit 1\n`,
+              { mode: 0o755 }
+            )
+          }
+        }
         const run = spawnSync('sh', [wrapper, '--version'], {
-          env: { ...process.env, SONAR_FORK_ANALYSIS_TRAP: sprung },
+          env: {
+            ...process.env,
+            PATH: `${directory}${delimiter}${process.env.PATH ?? ''}`,
+            JAVA_HOME: join(directory, 'jdk'),
+            // Not a Maven the machine already downloaded.
+            MAVEN_USER_HOME: join(directory, 'm2')
+          },
           encoding: 'utf8'
         })
-        expect(run.status).toBe(1)
-        expect(readFileSync(sprung, 'utf8')).toContain(wrapper)
+        expect(run.status).not.toBe(0)
+        expect(readFileSync(sprung, 'utf8')).not.toBe('')
       } finally {
         rmSync(directory, { recursive: true, force: true })
       }
