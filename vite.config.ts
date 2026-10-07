@@ -18,6 +18,8 @@ export default defineConfig({
     include: ['__tests__/**/*.test.ts'],
     setupFiles: ['__fixtures__/environment.ts'],
     clearMocks: true,
+    // Tests that write thousands of files take tens of seconds on Windows.
+    testTimeout: 120_000,
     coverage: {
       enabled: true,
       include: ['src/**'],
