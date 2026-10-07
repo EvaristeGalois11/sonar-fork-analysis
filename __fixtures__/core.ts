@@ -1,13 +1,13 @@
+import { vi } from 'vitest'
 import type * as core from '@actions/core'
-import { jest } from '@jest/globals'
 
-export const getInput = jest.fn<typeof core.getInput>()
-export const getMultilineInput = jest.fn<typeof core.getMultilineInput>()
-export const setSecret = jest.fn<typeof core.setSecret>()
-export const setFailed = jest.fn<typeof core.setFailed>()
-export const info = jest.fn<typeof core.info>()
-export const debug = jest.fn<typeof core.debug>()
-export const warning = jest.fn<typeof core.warning>()
-export const notice = jest.fn<typeof core.notice>()
-export const saveState = jest.fn<typeof core.saveState>()
-export const getState = jest.fn<typeof core.getState>()
+export const getInput = vi.fn<typeof core.getInput>()
+export const getMultilineInput = vi.fn<typeof core.getMultilineInput>()
+export const setSecret = vi.fn<typeof core.setSecret>()
+export const setFailed = vi.fn<typeof core.setFailed>()
+export const info = vi.fn<typeof core.info>()
+export const debug = vi.fn<typeof core.debug>()
+export const warning = vi.fn<typeof core.warning>()
+export const notice = vi.fn<typeof core.notice>()
+export const saveState = vi.fn<typeof core.saveState>()
+export const getState = vi.fn<typeof core.getState>()

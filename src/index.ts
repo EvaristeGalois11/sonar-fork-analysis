@@ -1,4 +1,4 @@
 import { run } from './main.js'
 
-/* istanbul ignore next */
+/* v8 ignore next */
 void run()

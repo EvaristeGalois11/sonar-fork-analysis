@@ -1,5 +1,6 @@
 // What the analysis does with an artifact the fork wrote, tried on generated artifacts: whatever is
 // in it, the checkout and everything outside it end up only as the rules below allow.
+import { describe, it, expect, afterEach } from 'vitest'
 import {
   lstatSync,
   mkdirSync,

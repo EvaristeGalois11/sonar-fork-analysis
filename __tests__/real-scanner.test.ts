@@ -1,6 +1,7 @@
 // Checks what the analysis assumes about the scanner against the real one: the CLI the action pins,
 // and the engines SonarCloud and the latest SonarQube serve, which change without notice. They are
 // downloaded, so the checks only run when SCANNER_CHECKS is set, as the Scanner workflow does.
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import {
   mkdirSync,

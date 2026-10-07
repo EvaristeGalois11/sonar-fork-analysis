@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest'
 import { resolveMode as resolveModeOf } from '../src/mode.js'
 
 // After a push to this repository, unless a test says otherwise.

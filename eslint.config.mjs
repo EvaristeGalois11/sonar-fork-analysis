@@ -1,9 +1,9 @@
 import comments from '@eslint-community/eslint-plugin-eslint-comments/configs'
 import js from '@eslint/js'
+import vitest from '@vitest/eslint-plugin'
 import { defineConfig } from 'eslint/config'
 import { createTypeScriptImportResolver } from 'eslint-import-resolver-typescript'
 import importX from 'eslint-plugin-import-x'
-import jest from 'eslint-plugin-jest'
 import n from 'eslint-plugin-n'
 import prettier from 'eslint-plugin-prettier/recommended'
 import regexp from 'eslint-plugin-regexp'
@@ -20,7 +20,7 @@ export default defineConfig(
       globals: globals.node,
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['__fixtures__/*.ts', 'rollup.config.ts']
+          allowDefaultProject: ['__fixtures__/*.ts', 'vite.config.ts']
         },
         tsconfigRootDir: import.meta.dirname
       }
@@ -86,8 +86,7 @@ export default defineConfig(
   },
   {
     files: ['__tests__/**', '__fixtures__/**'],
-    extends: [jest.configs['flat/recommended']],
-    languageOptions: { globals: globals.jest },
+    extends: [vitest.configs.recommended],
     // Tests read JSON and mock arguments loosely, and write mocks of async functions as async: a value
     // of the wrong shape fails the assertion anyway, with the stack to show where.
     rules: {
@@ -97,7 +96,7 @@ export default defineConfig(
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/require-await': 'off',
-      'jest/no-standalone-expect': [
+      'vitest/no-standalone-expect': [
         'error',
         {
           additionalTestBlockFunctions: [

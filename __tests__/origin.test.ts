@@ -1,4 +1,4 @@
-import { jest } from '@jest/globals'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
   choosePullRequest,
   resolveOrigin,
@@ -39,12 +39,12 @@ function workflowRun(
 }
 
 afterEach(() => {
-  jest.restoreAllMocks()
+  vi.restoreAllMocks()
 })
 
 describe('resolveOrigin', () => {
   it('finds the pull request of a fork by its head', async () => {
-    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify([
           {
@@ -80,7 +80,7 @@ describe('resolveOrigin', () => {
   })
 
   it('skips a pull request that has moved on since the build', async () => {
-    jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('[]'))
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('[]'))
 
     const origin = await resolveOrigin({
       ...base,
@@ -91,7 +91,7 @@ describe('resolveOrigin', () => {
   })
 
   it('skips a run that names no branch to look the pull request up by', async () => {
-    const fetch = jest.spyOn(globalThis, 'fetch')
+    const fetch = vi.spyOn(globalThis, 'fetch')
 
     const origin = await resolveOrigin({
       ...base,
@@ -105,9 +105,9 @@ describe('resolveOrigin', () => {
   })
 
   it('fails when GitHub refuses the lookup', async () => {
-    jest
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response('', { status: 403 }))
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('', { status: 403 })
+    )
 
     await expect(
       resolveOrigin({ ...base, ...workflowRun('pull_request') })

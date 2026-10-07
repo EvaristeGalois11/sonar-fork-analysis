@@ -1,7 +1,15 @@
-import { jest } from '@jest/globals'
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  type MockInstance
+} from 'vitest'
 import * as core from '../__fixtures__/core.js'
 
-jest.unstable_mockModule('@actions/core', () => core)
+vi.doMock('@actions/core', () => core)
 
 const { reportInterrupted, statusReporter, trackedReporter } =
   await import('../src/status.js')
@@ -15,17 +23,17 @@ const target = {
   url: 'https://github.com/owner/repo/actions/runs/42'
 }
 
-let fetch: jest.SpiedFunction<typeof globalThis.fetch>
+let fetch: MockInstance<typeof globalThis.fetch>
 const saved = { ...process.env }
 
 beforeEach(() => {
-  fetch = jest.spyOn(globalThis, 'fetch')
+  fetch = vi.spyOn(globalThis, 'fetch')
 })
 
 afterEach(() => {
   process.env = { ...saved }
-  jest.restoreAllMocks()
-  jest.clearAllMocks()
+  vi.restoreAllMocks()
+  vi.clearAllMocks()
 })
 
 function sent(call = 0): Record<string, string> {

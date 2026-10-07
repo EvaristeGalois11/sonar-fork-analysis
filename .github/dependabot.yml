@@ -64,7 +64,7 @@ updates:
       # Types must match the runtime in action.yml (node24), not the newest Node.
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
-      # ts-jest and typescript-eslint do not support TypeScript 7 yet.
+      # typescript-eslint does not support TypeScript 7 yet.
       - dependency-name: 'typescript'
         versions: ['>=7.0.0']
 

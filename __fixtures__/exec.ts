@@ -1,5 +1,5 @@
+import { vi } from 'vitest'
 import type * as actionsExec from '@actions/exec'
-import { jest } from '@jest/globals'
 
-export const exec = jest.fn<typeof actionsExec.exec>()
-export const getExecOutput = jest.fn<typeof actionsExec.getExecOutput>()
+export const exec = vi.fn<typeof actionsExec.exec>()
+export const getExecOutput = vi.fn<typeof actionsExec.getExecOutput>()
