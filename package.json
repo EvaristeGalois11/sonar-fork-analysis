@@ -17,9 +17,6 @@
     "actions",
     "sonar"
   ],
-  "exports": {
-    ".": "./dist/index.js"
-  },
   "engines": {
     "node": ">=24.0.0"
   },
@@ -37,7 +34,7 @@
     "scanner:update": "node scripts/scanner-version.ts --update",
     "test": "vitest run",
     "test:scanner": "SCANNER_CHECKS=1 vitest run __tests__/real-scanner.test.ts --coverage.enabled=false",
-    "typecheck": "npx tsc --noEmit --project . && npx tsc --project __tests__ && npx tsc --project scripts",
+    "typecheck": "npx tsc --project . && npx tsc --project __tests__ && npx tsc --project scripts",
     "all": "npm run format:write && npm run lint && npm run lint:deps && npm run lint:workflows && npm run typecheck && npm run test && npm run package"
   },
   "license": "MIT",
