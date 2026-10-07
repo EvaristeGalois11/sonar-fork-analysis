@@ -8,6 +8,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { nonRootIt } from '../__fixtures__/platform.js'
 import { findNewReport, snapshotReports } from '../src/report.js'
 
 let directory: string
@@ -53,9 +54,7 @@ describe('findNewReport', () => {
     expect(findNewReport(directory, before)).toBeUndefined()
   })
 
-  it('skips a directory it cannot read', () => {
-    // Root reads anything, so the directory can't be locked against it.
-    if (process.getuid?.() === 0) return
+  nonRootIt('skips a directory it cannot read', () => {
     const before = snapshotReports(directory)
     mkdirSync(join(directory, 'data'))
     chmodSync(join(directory, 'data'), 0o000)

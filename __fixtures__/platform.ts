@@ -9,3 +9,6 @@ export const invalidUtf8It = process.platform === 'darwin' ? it.skip : it
 
 // For /proc.
 export const linuxIt = process.platform === 'linux' ? it : it.skip
+
+// Root reads anything, so a directory can't be locked against it.
+export const nonRootIt = process.getuid?.() === 0 ? it.skip : it

@@ -102,6 +102,7 @@ export default defineConfig(
           additionalTestBlockFunctions: [
             'invalidUtf8It',
             'linuxIt',
+            'nonRootIt',
             'posixIt',
             'posixIt.each'
           ]
