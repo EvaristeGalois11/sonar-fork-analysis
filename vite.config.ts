@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   build: {
     ssr: true,
     sourcemap: true,
@@ -14,8 +14,8 @@ export default defineConfig({
       output: { entryFileNames: '[name].js', chunkFileNames: 'shared.js' }
     }
   },
-  // Bundle everything. The runner never runs npm install for dist/.
-  ssr: { noExternal: true },
+  // Bundle everything. The runner never runs npm install for dist/. Tests keep Node's own loading.
+  ssr: command === 'build' ? { noExternal: true } : {},
   test: {
     include: ['__tests__/**/*.test.ts'],
     setupFiles: ['__fixtures__/environment.ts'],
@@ -28,4 +28,4 @@ export default defineConfig({
       reporter: ['text', 'lcov']
     }
   }
-})
+}))
