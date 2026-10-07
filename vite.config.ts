@@ -9,6 +9,8 @@ export default defineConfig({
     rolldownOptions: {
       // The action's main step and its post step. The post step runs even when the job is cancelled.
       input: { index: 'src/index.ts', post: 'src/post.ts' },
+      // debug's optional require would otherwise run any supports-color Node finds on the runner.
+      resolve: { alias: { 'supports-color': false } },
       output: { entryFileNames: '[name].js', chunkFileNames: 'shared.js' }
     }
   },
