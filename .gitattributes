@@ -1,6 +1,7 @@
 * text=auto eol=lf
-*.bat text eol=crlf
-*.cmd text eol=crlf
+# Kept as Maven, Gradle and Dependabot write them.
+*.bat -text
+*.cmd -text
 *.jar binary
 
 dist/** -diff linguist-generated=true
