@@ -6651,6 +6651,9 @@ var require_browser = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	};
 }));
 //#endregion
+//#region (ignored) node_modules/debug/src/supports-color
+var require_supports_color = /* @__PURE__ */ __commonJSMin((() => {}));
+//#endregion
 //#region node_modules/debug/src/node.js
 var require_node$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/**
@@ -6680,7 +6683,7 @@ var require_node$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 		1
 	];
 	try {
-		const supportsColor = __require("supports-color");
+		const supportsColor = require_supports_color();
 		if (supportsColor && (supportsColor.stderr || supportsColor).level >= 2) exports.colors = [
 			20,
 			21,
