@@ -11,7 +11,7 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default defineConfig(
-  { ignores: ['**/coverage', '**/dist', '**/node_modules', 'fixtures'] },
+  { ignores: ['coverage', 'dist', 'fixtures'] },
   js.configs.recommended,
   // The rules that use the compiler's types, the closest to Java's Error Prone.
   tseslint.configs.strictTypeChecked,

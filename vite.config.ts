@@ -2,10 +2,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   build: {
-    // Bundle everything. The runner never runs npm install for dist/.
     ssr: true,
-    target: 'node24',
-    outDir: 'dist',
     sourcemap: true,
     // The bundled packages' licences require their notices to travel with the code.
     license: { fileName: 'licenses.md' },
@@ -15,6 +12,7 @@ export default defineConfig({
       output: { entryFileNames: '[name].js', chunkFileNames: 'shared.js' }
     }
   },
+  // Bundle everything. The runner never runs npm install for dist/.
   ssr: { noExternal: true },
   test: {
     include: ['__tests__/**/*.test.ts'],
@@ -22,9 +20,8 @@ export default defineConfig({
     clearMocks: true,
     coverage: {
       enabled: true,
-      provider: 'v8',
       include: ['src/**'],
-      reporter: ['text', 'lcov', 'json-summary']
+      reporter: ['text', 'lcov']
     }
   }
 })
