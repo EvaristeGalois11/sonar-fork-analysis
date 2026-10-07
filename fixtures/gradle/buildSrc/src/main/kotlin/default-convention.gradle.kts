@@ -10,6 +10,10 @@ repositories {
     mavenCentral()
 }
 
+dependencyLocking {
+    lockAllConfigurations()
+}
+
 tasks.compileJava {
     options.release = 21
 }
