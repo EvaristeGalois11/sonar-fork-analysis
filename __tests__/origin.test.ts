@@ -203,7 +203,7 @@ describe('choosePullRequest', () => {
   })
 
   it.each([undefined, 99, '8', 8.5])(
-    'falls back to the first candidate, with a warning, for the hint %p',
+    'falls back to the first candidate, with a warning, for the hint %o',
     (hint) => {
       const choice = choosePullRequest([toMain, toRelease], hint)
       expect(choice.pullRequest).toBe(toMain)
