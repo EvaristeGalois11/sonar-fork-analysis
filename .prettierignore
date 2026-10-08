@@ -1,2 +1,4 @@
 dist/
 pnpm-lock.yaml
+# Helm templates are YAML only once Helm renders them.
+fixtures/gradle/composite/chart/templates/

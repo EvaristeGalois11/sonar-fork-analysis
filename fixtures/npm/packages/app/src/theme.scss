@@ -1,0 +1,9 @@
+// Deliberate issue for Sonar to find in a Sass stylesheet: an empty block.
+$accent: red;
+
+.theme {
+  color: $accent;
+}
+
+.empty {
+}

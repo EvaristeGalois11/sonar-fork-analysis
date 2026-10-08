@@ -11,6 +11,8 @@
 
     <artifactId>composite</artifactId>
 
+    <!-- TODO: a deliberate issue for Sonar to find. -->
+
     <dependencies>
         <dependency>
             <groupId>org.example.sonar-fork-analysis</groupId>

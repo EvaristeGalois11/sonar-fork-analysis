@@ -1,0 +1,13 @@
+# For Sonar's analysis of workflows. It never runs: GitHub only runs the repository's root workflows.
+name: "Check"
+
+on: push
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # Deliberate issue for Sonar to find: apt-get without -y waits for an answer.
+      - run: apt-get install curl

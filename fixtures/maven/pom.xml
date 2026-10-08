@@ -22,6 +22,7 @@
         <jacoco.version>0.8.15</jacoco.version>
         <!-- Not sonar.*: the Sonar plugin reads properties with that prefix as analysis settings. -->
         <sonar-maven-plugin.version>5.8.0.7211</sonar-maven-plugin.version>
+        <!-- sonar.maven.scanAll is in .mvn/maven.config: the plugin only reads it from the command line. -->
     </properties>
 
     <dependencyManagement>

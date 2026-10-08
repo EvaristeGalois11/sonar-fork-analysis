@@ -1,0 +1,22 @@
+# Deliberate issues for Sonar to find: a container without resource requests.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app
+  template:
+    metadata:
+      labels:
+        app: app
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: registry.example.org/app:1.0.0
+          resources:
+            limits:
+              memory: 64Mi

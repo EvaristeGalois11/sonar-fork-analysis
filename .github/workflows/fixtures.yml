@@ -210,7 +210,7 @@ jobs:
         # The PATH entry is the directory created here, holding nothing but the stand-ins.
         run: | # zizmor: ignore[github-env]
           mkdir -p "$RUNNER_TEMP/traps"
-          for tool in mvn gradle npm npx yarn pnpm cargo go python python3 pip pip3 poetry uv sbt java javac wget curl; do
+          for tool in mvn gradle npm npx yarn pnpm cargo go python python3 pip pip3 poetry uv sbt java javac wget curl docker podman kubectl helm; do
             printf "#!/bin/sh\necho \"\$0 \$*\" >> \"%s\"\nexit 1\n" "$RUNNER_TEMP/traps/sprung" > "$RUNNER_TEMP/traps/$tool"
             chmod +x "$RUNNER_TEMP/traps/$tool"
           done
