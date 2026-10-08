@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import * as os$1 from "os";
 import os, { EOL } from "os";
 import * as crypto from "crypto";
-import * as fs from "fs";
+import * as fs$1 from "fs";
 import { constants, promises } from "fs";
 import * as path from "path";
 import * as http from "http";
@@ -12,6 +12,7 @@ import { ok } from "assert";
 import { StringDecoder } from "string_decoder";
 import * as child from "child_process";
 import { setTimeout as setTimeout$1 } from "timers";
+import { readFileSync as readFileSync$1 } from "node:fs";
 //#region \0rolldown/runtime.js
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -157,8 +158,8 @@ function escapeProperty(s) {
 function issueFileCommand(command, message) {
 	const filePath = process.env[`GITHUB_${command}`];
 	if (!filePath) throw new Error(`Unable to find environment variable for file command ${command}`);
-	if (!fs.existsSync(filePath)) throw new Error(`Missing file at path: ${filePath}`);
-	fs.appendFileSync(filePath, `${toCommandValue(message)}${os$1.EOL}`, { encoding: "utf8" });
+	if (!fs$1.existsSync(filePath)) throw new Error(`Missing file at path: ${filePath}`);
+	fs$1.appendFileSync(filePath, `${toCommandValue(message)}${os$1.EOL}`, { encoding: "utf8" });
 }
 function prepareKeyValueMessage(key, value) {
 	const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
@@ -17094,9 +17095,9 @@ var __awaiter$5 = function(thisArg, _arguments, P, generator) {
 		step((generator = generator.apply(thisArg, _arguments || [])).next());
 	});
 };
-var { chmod, copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, symlink, unlink } = fs.promises;
+var { chmod, copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, symlink, unlink } = fs$1.promises;
 var IS_WINDOWS$1 = process.platform === "win32";
-fs.constants.O_RDONLY;
+fs$1.constants.O_RDONLY;
 function exists(fsPath) {
 	return __awaiter$5(this, void 0, void 0, function* () {
 		try {
@@ -17927,10 +17928,8 @@ function statusReporter(target) {
 var noReporter = () => Promise.resolve(false);
 var NOTE = "pending-status";
 var INTERRUPTED = "The analysis ended without reporting its result";
-function leaveNote(target, state, description) {
+function leaveNote(state, description) {
 	saveState(NOTE, JSON.stringify({
-		...target,
-		token: void 0,
 		state,
 		description
 	}));
@@ -17943,42 +17942,51 @@ function trackedReporter(target) {
 	let open = false;
 	return async (state, description) => {
 		if (state === "pending") {
-			leaveNote(target, "failure", INTERRUPTED);
+			leaveNote("failure", INTERRUPTED);
 			open = await report(state, description);
 			if (!open) clearNote();
 			return open;
 		}
-		if (open) leaveNote(target, state, description);
+		if (open) leaveNote(state, description);
 		const taken = await report(state, description);
 		if (taken) clearNote();
 		return taken;
 	};
 }
+function runStatusTarget() {
+	const eventPath = process.env.GITHUB_EVENT_PATH;
+	if (process.env.GITHUB_EVENT_NAME !== "workflow_run" || !eventPath) return void 0;
+	const repository = process.env.GITHUB_REPOSITORY ?? "";
+	const projectKey = getInput("project-key");
+	return {
+		apiUrl: process.env.GITHUB_API_URL ?? "https://api.github.com",
+		repository,
+		sha: JSON.parse(readFileSync$1(eventPath, "utf8")).workflow_run.head_sha,
+		token: getInput("github-token"),
+		name: projectKey ? `Sonar fork analysis (${projectKey})` : "Sonar fork analysis",
+		url: `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ""}`
+	};
+}
 async function reportInterrupted() {
 	const saved = getState(NOTE);
-	if (!saved) return;
+	const target = runStatusTarget();
+	if (!saved || !target) return;
 	const note = readNote(saved);
 	if (!note) {
 		warning("Not posting the final status: its note is damaged");
 		return;
 	}
-	const { state, description, ...target } = note;
-	await statusReporter({
-		...target,
-		apiUrl: process.env.GITHUB_API_URL ?? "https://api.github.com",
-		repository: process.env.GITHUB_REPOSITORY ?? "",
-		token: getInput("github-token")
-	})(state, description);
+	await statusReporter(target)(note.state, note.description);
 }
 function readNote(saved) {
 	try {
 		const note = JSON.parse(saved);
-		return /^[0-9a-f]{40}$/.test(note.sha) ? note : void 0;
+		return (note.state === "success" || note.state === "failure") && typeof note.description === "string" ? note : void 0;
 	} catch {
 		return;
 	}
 }
 //#endregion
-export { require_tunnel as C, __require as D, __exportAll as E, __toCommonJS as O, require_undici as S, __esmMin as T, rmRF as _, error as a, HttpClient as b, info as c, setFailed as d, setSecret as f, mkdirP as g, getExecOutput as h, debug as i, __toESM as k, isDebug as l, exec as m, reportInterrupted as n, getInput as o, warning as p, trackedReporter as r, getMultilineInput as s, noReporter as t, notice as u, which as v, __commonJSMin as w, HttpCodes as x, BearerCredentialHandler as y };
+export { __toESM as A, require_undici as C, __exportAll as D, __esmMin as E, __require as O, HttpCodes as S, __commonJSMin as T, mkdirP as _, debug as a, BearerCredentialHandler as b, getMultilineInput as c, notice as d, setFailed as f, getExecOutput as g, exec as h, trackedReporter as i, __toCommonJS as k, info as l, warning as m, reportInterrupted as n, error as o, setSecret as p, runStatusTarget as r, getInput as s, noReporter as t, isDebug as u, rmRF as v, require_tunnel as w, HttpClient as x, which as y };
 
 //# sourceMappingURL=shared.js.map

@@ -129,23 +129,26 @@ describe('run', () => {
     const after = async (
       runEvent: string,
       repository: string,
-      actor = 'User',
-      triggeringActor = 'User'
+      accounts: { actor?: unknown; triggering_actor?: unknown } = {},
+      branch = 'main'
     ) => {
       vi.clearAllMocks()
       writeFileSync(
         event,
         JSON.stringify({
+          repository: { default_branch: 'main' },
           workflow_run: {
             event: runEvent,
+            head_branch: branch,
             head_repository: { full_name: repository },
-            actor: { type: actor },
-            triggering_actor: { type: triggeringActor }
+            ...accounts
           }
         })
       )
       await run()
     }
+    const bot = { type: 'Bot' }
+    const person = { type: 'User' }
 
     try {
       // A pull request from this repository's own branch, as Dependabot opens them.
@@ -161,16 +164,24 @@ describe('run', () => {
       )
       expect(exec).not.toHaveBeenCalled()
 
-      // A bot's push to a branch here, such as Dependabot's, even when a maintainer re-runs it.
-      await after('push', 'owner/repo', 'Bot')
-      expect(core.setFailed).toHaveBeenCalledWith(
-        expect.stringContaining('Refusing to build on workflow_run')
-      )
-      await after('push', 'owner/repo', 'Bot', 'User')
-      expect(core.setFailed).toHaveBeenCalledWith(
-        expect.stringContaining('Refusing to build on workflow_run')
-      )
-      expect(exec).not.toHaveBeenCalled()
+      // A bot's push to a branch of its own, such as Dependabot's, whoever re-runs it.
+      for (const accounts of [
+        { actor: bot, triggering_actor: bot },
+        { actor: bot, triggering_actor: person },
+        { actor: person, triggering_actor: bot }
+      ]) {
+        await after('push', 'owner/repo', accounts, 'dependabot/npm/x')
+        expect(core.setFailed).toHaveBeenCalledWith(
+          expect.stringContaining('Refusing to build on workflow_run')
+        )
+        expect(exec).not.toHaveBeenCalled()
+      }
+
+      // A bot that merges into the default branch, and a run with no accounts named.
+      for (const accounts of [{ actor: bot, triggering_actor: bot }, {}]) {
+        await after('push', 'owner/repo', accounts)
+        expect(core.setFailed).not.toHaveBeenCalled()
+      }
 
       await after('push', 'Owner/Repo')
       expect(core.setFailed).not.toHaveBeenCalled()
@@ -769,8 +780,11 @@ describe('run in analyze mode', () => {
     })
     const fetch = vi.spyOn(globalThis, 'fetch')
     const scan = async (hint?: number): Promise<string | undefined> => {
-      fetch.mockResolvedValue(
-        new Response(JSON.stringify([pull(7, 'main'), pull(8, 'release')]))
+      // GitHub has never heard of any other pull request.
+      fetch.mockImplementation(async (url) =>
+        /\/pulls\/\d+$/.test(String(url))
+          ? new Response('{}', { status: 404 })
+          : new Response(JSON.stringify([pull(7, 'main'), pull(8, 'release')]))
       )
       exec.mockClear()
       prepared({}, hint)
@@ -783,7 +797,7 @@ describe('run in analyze mode', () => {
 
     expect(await scan(8)).toContain('sonar.pullrequest.key=8')
     // Another pull request, such as one of another fork's, is never analysed in its place.
-    expect(await scan(3)).toBeUndefined()
+    expect(await scan(3)).toContain('sonar.pullrequest.key=7')
     expect(await scan()).toContain('sonar.pullrequest.key=7')
     expect(core.warning).toHaveBeenCalledWith(
       expect.stringContaining('2 open pull requests')
@@ -893,9 +907,32 @@ describe('run in analyze mode', () => {
       expect(core.setFailed).toHaveBeenCalled()
     })
 
+    // GitHub's answers about single pull requests, on top of the list of open ones.
+    function knowing(pulls: Record<string, unknown>): void {
+      const list = fetch.getMockImplementation()!
+      fetch.mockImplementation(async (url, init) => {
+        const number = /\/pulls\/(\d+)$/.exec(String(url))?.[1]
+        if (number === undefined) return list(url, init)
+        const pull = pulls[number]
+        return pull
+          ? new Response(JSON.stringify(pull))
+          : new Response('{}', { status: 404 })
+      })
+    }
+
     it("skips when the build's pull request is gone, and closes its status", async () => {
       // Two pull requests had this head; #8 closed before this run, which built it.
       triggeredBy('pull_request', 'fork/repo')
+      knowing({
+        8: {
+          state: 'closed',
+          head: {
+            sha: 'head-sha',
+            ref: 'main',
+            repo: { full_name: 'fork/repo' }
+          }
+        }
+      })
       prepared({}, 8)
 
       await run()
@@ -909,6 +946,26 @@ describe('run in analyze mode', () => {
         'success: Skipped: the build was for #8'
       ])
       expect(core.setFailed).not.toHaveBeenCalled()
+    })
+
+    it('analyses its pull request when the build names one that never had this head', async () => {
+      triggeredBy('pull_request', 'fork/repo')
+      knowing({
+        1: {
+          state: 'closed',
+          head: {
+            sha: 'other-sha',
+            ref: 'other',
+            repo: { full_name: 'other/repo' }
+          }
+        }
+      })
+      prepared({}, 1)
+
+      await run()
+
+      expect(exec).toHaveBeenCalled()
+      expect(statuses()).toEqual(['pending: Analysing', 'success: Analysed'])
     })
 
     function built(...names: string[]): void {
