@@ -56,7 +56,7 @@ languages in less depth.
 | Yarn with `nodeLinker: node-modules`, Bun                    | Yes       | No     |
 | Yarn Plug'n'Play                                             | Yes¹      | No     |
 | Python, Go, PHP and others with a `sonar-project.properties` | Yes       | No     |
-| .NET, C and C++                                              | No²       | No     |
+| .NET, C, C++ and Objective-C                                 | No²       | No     |
 
 ¹ Rules that need types find less: there's no `node_modules` to take them from.
 `nodeLinker: node-modules` avoids it.
@@ -73,9 +73,12 @@ languages in less depth.
 
 <!-- prettier-ignore -->
 > [!NOTE]
-> Tested means it runs in this repository's checks on every change. There each
-> sample project is also analysed both directly and through the fork path, and
-> the two analyses must find the same issues, coverage and tests.
+> Tested means this repository's workflows test it on every change. Each sample
+> project in `fixtures/` is analysed twice: directly and through the fork path.
+> Both analyses must find the same issues, coverage and tests.
+>
+> Untested means we don't guarantee that the token stays safe on pull requests
+> from forks. Use it at your own risk.
 
 ## How it works
 
