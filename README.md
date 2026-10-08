@@ -66,19 +66,24 @@ languages in less depth.
 | Runner      | Build workflow | Sonar workflow |
 | ----------- | -------------- | -------------- |
 | Linux x64   | Tested         | Tested         |
-| Windows x64 | Tested         | Should work    |
-| macOS ARM64 | Tested         | Should work    |
-| Linux ARM64 | Should work    | Should work    |
-| macOS Intel | Should work    | Should work    |
+| Windows x64 | Tested³        | Untested       |
+| macOS ARM64 | Tested³        | Untested       |
+| Linux ARM64 | Untested       | Untested       |
+| macOS Intel | Untested       | Untested       |
+
+³ Only the build's preparation runs there: Maven, Gradle and npm on Windows, npm
+on macOS. Nothing analyses those artifacts.
 
 <!-- prettier-ignore -->
 > [!NOTE]
 > Tested means this repository's workflows test it on every change. Each sample
 > project in `fixtures/` is analysed twice: directly and through the fork path.
-> Both analyses must find the same issues, coverage and tests.
+> Both analyses must find the same issues, coverage and tests. The sample
+> projects hold Java, JavaScript and TypeScript code.
 >
 > Untested means we don't guarantee that the token stays safe on pull requests
-> from forks. Use it at your own risk.
+> from forks. Use it at your own risk. That includes other languages inside a
+> tested kind of project, such as Python files in a Maven project.
 
 ## How it works
 
@@ -222,7 +227,7 @@ steps:
     with:
       persist-credentials: false
       fetch-depth: 0
-  - uses: actions/setup-node@v6
+  - uses: actions/setup-node@v7
     with:
       node-version: 24
   - run: npm ci
@@ -257,6 +262,10 @@ This rarely matters. It only affects files that changed both in the pull request
 and on the base branch since the pull request branched off. Their binaries and
 coverage then come from slightly different code, and the only visible sign is
 usually a scanner warning such as _Cannot import coverage information for file_.
+It can also stop the analysis. When the base branch gains a module or a source
+directory, the build names a directory that the head doesn't have. The Sonar
+workflow then fails with _The artifact gives … no base directory in the
+checkout_ until the pull request is rebased.
 
 If you want the two to match exactly, check out the head in the build:
 
@@ -314,7 +323,7 @@ to the run. It stays pending while the analysis runs and then turns to success
 or failure. It's posted for pull requests that take the fork path. It's also
 posted as a failure when the Sonar workflow finds nothing to analyse, for
 example after a push the build didn't analyse. Pull requests from your own
-repository never get it. Requiring it would block them forever.
+repository normally don't get it. Requiring it would block them.
 
 ## Recipes
 
@@ -413,8 +422,9 @@ always takes the fork path:
 ```yaml
 - uses: galois-groups/sonar-fork-analysis@v2
   if: >
-    github.event.pull_request.head.repo.full_name != github.repository ||
-    github.actor == 'dependabot[bot]'
+    github.event_name == 'pull_request' &&
+    (github.event.pull_request.head.repo.full_name != github.repository ||
+    github.actor == 'dependabot[bot]')
   with:
     project-key: my-org_my-project
     sonar-organization: my-org
@@ -444,26 +454,44 @@ branch.
     # …
 ```
 
+Be careful with private submodules. Checking them out needs a token that can
+read your other repositories. A fork can change `.gitmodules` to point a
+submodule at any of them. The checkout then fetches that repository. Its code
+goes to Sonar with the analysis. If your Sonar project is public, anyone can
+read that code there.
+
 ### Caching the Sonar scanner
 
 The action downloads Sonar's scanner every time it runs it, in the Sonar
 workflow and in the build of [other projects](#other-projects). That's about 50
 MB. The action keeps the download in
 `${{ runner.tool_cache }}/sonar-fork-analysis` and checks it against the pinned
-checksum before each use. So caching that directory is safe:
+checksum before each use. So caching that directory is safe. In the build, add
+this before the action:
 
 ```yaml
-- uses: actions/cache@v4
+- uses: actions/cache@v6
   with:
     path: ${{ runner.tool_cache }}/sonar-fork-analysis
     key: sonar-scanner-${{ hashFiles('.github/workflows/*.yml') }}
 ```
 
-Add it before the action. The Sonar workflow can only restore what a build on
-your main branch saved. Only builds of other projects run the scanner, so Maven
-and Gradle projects gain nothing there. The key changes whenever your workflows
-do, so a new version of the action saves its own copy. Self-hosted runners keep
-the directory between jobs without this step.
+The key changes whenever your workflows do, so a new version of the action saves
+its own copy. In the Sonar workflow, the workspace is still empty before the
+action. That key can't be worked out there. Restore the newest copy instead:
+
+```yaml
+- uses: actions/cache/restore@v6
+  with:
+    path: ${{ runner.tool_cache }}/sonar-fork-analysis
+    key: sonar-scanner-
+    restore-keys: sonar-scanner-
+```
+
+The Sonar workflow can only restore what a build on your main branch saved. Only
+builds of other projects run the scanner, so Maven and Gradle projects gain
+nothing. Self-hosted runners keep the directory between jobs without these
+steps.
 
 ## Real-world examples
 
@@ -496,8 +524,8 @@ See its [build workflow](.github/workflows/ci.yml) and
   [what stays off](docs/security.md#what-stays-off-on-the-fork-path).
 - Some of the build's settings never reach the Sonar workflow: those about the
   server, the scanner or the branch, and those that would start a program. The
-  build warns when it drops one. The only silent ones are settings every build
-  passes to its own scanner, like the server's URL. The Sonar workflow sets
+  build warns about most of them. It drops settings about the server and the
+  scanner silently, such as the server's URL or a proxy. The Sonar workflow sets
   those itself. See
   [what the fork path carries](docs/security.md#what-the-fork-path-carries).
 - On self-hosted Windows runners whose workspace is on a RAM disk, the action
