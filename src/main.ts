@@ -429,7 +429,6 @@ async function analyzeCommit(
     await checkoutCommit(workspace, {
       serverUrl: process.env.GITHUB_SERVER_URL ?? 'https://github.com',
       repository: context.repository,
-      headRepository: origin.repository,
       sha: origin.headSha,
       token: inputs.githubToken
     })

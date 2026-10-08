@@ -19,7 +19,9 @@ request's files but never runs them.
 
 **The checkout.** The action checks out the pull request itself, without ever
 writing the GitHub token to disk. `origin` points at your repository, because
-that's where Sonar looks for the base branch. Then it removes two kinds of files
+that's where Sonar looks for the base branch. The pull request's commit comes
+from your repository too. GitHub keeps a copy of every pull request's head
+there. The action never contacts the fork. Then it removes two kinds of files
 the scanner would otherwise trust:
 
 - Links that lead outside the checkout. The scanner follows them, so a link to
