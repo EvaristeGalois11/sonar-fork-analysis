@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { jobEnvironment, toolEnvironment } from '../src/environment.js'
 
+const RUNNER_FILES = [
+  'GITHUB_ENV',
+  'GITHUB_OUTPUT',
+  'GITHUB_PATH',
+  'GITHUB_STATE',
+  'GITHUB_STEP_SUMMARY'
+]
+
 describe('environments', () => {
   const saved = { ...process.env }
 
@@ -8,7 +16,7 @@ describe('environments', () => {
     process.env['INPUT_SONAR-TOKEN'] = 'sonar'
     process.env['INPUT_GITHUB-TOKEN'] = 'github'
     process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'oidc'
-    process.env.GITHUB_STEP_SUMMARY = '/runner/summary'
+    for (const name of RUNNER_FILES) process.env[name] = `/runner/${name}`
     process.env.GITHUB_TOKEN = 'set by the workflow'
     process.env.JAVA_HOME = '/java'
   })
@@ -24,7 +32,7 @@ describe('environments', () => {
     ).toEqual([])
     expect(env).toMatchObject({
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'oidc',
-      GITHUB_STEP_SUMMARY: '/runner/summary',
+      GITHUB_STEP_SUMMARY: '/runner/GITHUB_STEP_SUMMARY',
       GITHUB_TOKEN: 'set by the workflow',
       JAVA_HOME: '/java'
     })
@@ -37,7 +45,7 @@ describe('environments', () => {
         (name) => name.startsWith('INPUT_') || name.startsWith('ACTIONS_')
       )
     ).toEqual([])
-    expect(env.GITHUB_STEP_SUMMARY).toBeUndefined()
+    for (const name of RUNNER_FILES) expect(env[name]).toBeUndefined()
     expect(env.GITHUB_TOKEN).toBeUndefined()
     expect(env.JAVA_HOME).toBe('/java')
   })

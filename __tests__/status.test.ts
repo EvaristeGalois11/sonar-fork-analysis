@@ -180,6 +180,8 @@ describe('trackedReporter', () => {
 })
 
 describe('the post step', () => {
+  const COMMIT = '0123456789abcdef0123456789abcdef01234567'
+
   it('posts what the note says, to GitHub, with the token from the inputs', async () => {
     fetch.mockResolvedValue(new Response('{}', { status: 201 }))
     process.env.GITHUB_API_URL = 'https://api.github.com'
@@ -187,6 +189,7 @@ describe('the post step', () => {
     core.getState.mockReturnValue(
       JSON.stringify({
         ...target,
+        sha: COMMIT,
         // Never where the token goes: that comes from the runner.
         apiUrl: 'https://attacker.example',
         repository: 'attacker/repo',
@@ -200,7 +203,7 @@ describe('the post step', () => {
     await reportInterrupted()
 
     expect(String(fetch.mock.calls[0][0])).toBe(
-      'https://api.github.com/repos/owner/repo/statuses/head-sha'
+      `https://api.github.com/repos/owner/repo/statuses/${COMMIT}`
     )
     expect(sent()).toMatchObject({
       state: 'success',
@@ -210,6 +213,20 @@ describe('the post step', () => {
     expect(fetch.mock.calls[0][1]!.headers).toMatchObject({
       Authorization: 'Bearer input-token'
     })
+  })
+
+  it.each([
+    JSON.stringify({ ...target, sha: '../../actions/runs/1/rerun' }),
+    '{ not json'
+  ])('posts nothing for a damaged note: %s', async (note) => {
+    core.getState.mockReturnValue(note)
+
+    await reportInterrupted()
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(core.warning).toHaveBeenCalledWith(
+      'Not posting the final status: its note is damaged'
+    )
   })
 
   it('does nothing without a note', async () => {

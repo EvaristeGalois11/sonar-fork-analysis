@@ -74293,7 +74293,7 @@ function insideAny(workspace, rel, roots) {
 	let directory = workspace;
 	const segments = dirname(rel).split(sep).filter((segment) => segment !== ".");
 	for (let i = 0;; i++) {
-		const id = identity(directory);
+		const id = identity(directory, i === 0);
 		if (id === void 0) return false;
 		if (roots.has(id)) return true;
 		const segment = segments[i];
@@ -74688,7 +74688,7 @@ var MODES = [
 	"analyze"
 ];
 var PRIVILEGED_EVENTS = /* @__PURE__ */ new Set(["pull_request_target", "issue_comment"]);
-function resolveMode(requested, eventName, token, unreviewedRun) {
+function resolveMode(requested, eventName, token, untrustedRun) {
 	if (!MODES.includes(requested)) throw new Error(`Unknown mode '${requested}', expected one of: ${MODES.join(", ")}`);
 	let mode;
 	if (requested === "auto") {
@@ -74696,9 +74696,9 @@ function resolveMode(requested, eventName, token, unreviewedRun) {
 		mode = token ? "direct" : "prepare";
 	} else mode = requested;
 	if (mode === "analyze") return { mode };
-	return checkBuild(mode, eventName, token, unreviewedRun);
+	return checkBuild(mode, eventName, token, untrustedRun);
 }
-function checkBuild(mode, eventName, token, unreviewedRun) {
+function checkBuild(mode, eventName, token, untrustedRun) {
 	if (PRIVILEGED_EVENTS.has(eventName) || mode === "prepare" && eventName === "workflow_run") throw new Error(`Refusing to build on ${eventName}, which runs with the repository's secrets; trigger the build on pull_request instead.`);
 	if (mode === "prepare") {
 		if (token) throw new Error("The sonar-token input is set, but mode prepare must build without the token: the build could read it from the job. Remove sonar-token or use mode auto.");
@@ -74706,7 +74706,7 @@ function checkBuild(mode, eventName, token, unreviewedRun) {
 	}
 	if (!token) throw new Error("No Sonar token available, set the sonar-token input. On pull requests from forks, use mode auto.");
 	if (eventName !== "workflow_run") return { mode };
-	if (unreviewedRun) throw new Error("Refusing to build a pull request's code on workflow_run: it would run with the repository's secrets. Use mode auto to analyse it.");
+	if (untrustedRun) throw new Error("Refusing to build on workflow_run after a run of a pull request, another repository or a bot: the build would run with the repository's secrets. Use mode auto to analyse it.");
 	return {
 		mode,
 		warning: "Direct analysis on workflow_run builds the checked-out code with the Sonar token; make sure it is not code from a fork."
@@ -74732,8 +74732,10 @@ async function findPullRequests(context, owner, branch, sha) {
 	}));
 }
 function choosePullRequest(candidates, hint) {
-	const hinted = typeof hint === "number" && Number.isSafeInteger(hint) ? candidates.find((pull) => pull.key === String(hint)) : void 0;
-	if (hinted) return { pullRequest: hinted };
+	if (typeof hint === "number" && Number.isSafeInteger(hint)) {
+		const hinted = candidates.find((pull) => pull.key === String(hint));
+		return hinted ? { pullRequest: hinted } : { gone: hint };
+	}
 	const [first] = candidates;
 	if (!first) throw new Error("There is no open pull request to analyse");
 	return candidates.length > 1 ? {
@@ -76765,7 +76767,12 @@ async function analyzeRun(inputs, context, workspace, report) {
 	}
 	if (!inputs.token) throw new Error("No Sonar token available, set the sonar-token input.");
 	await report("pending", "Analysing");
-	await analyzeCommit(inputs, context, origin, workspace, found);
+	const result = await analyzeCommit(inputs, context, origin, workspace, found);
+	if ("gone" in result) {
+		notice(`The build's pull request #${String(result.gone)} is closed or has newer commits: nothing to analyse.`);
+		await report("success", `Skipped: the build was for #${String(result.gone)}`);
+		return;
+	}
 	await report("success", "Analysed");
 }
 async function analyzeCommit(inputs, context, origin, workspace, found) {
@@ -76784,6 +76791,14 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
 	const artifact = await downloadArtifact(found, temp);
 	checkNoLinks(artifact);
 	const manifest = readManifest(readFileSync$1(join(artifact, "settings.json"), "utf8"), name);
+	let pullRequest;
+	let choiceWarning;
+	if (origin.pullRequests) {
+		const choice = choosePullRequest(origin.pullRequests, manifest.pullRequest);
+		if ("gone" in choice) return { gone: choice.gone };
+		pullRequest = choice.pullRequest;
+		choiceWarning = choice.warning;
+	}
 	const home = join(temp, "home");
 	const resolved = resolveSettings(manifest.settings, workspace, home);
 	removeProjectSettings(workspace);
@@ -76794,12 +76809,7 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
 		...recreateLinks(workspace, manifest.links)
 	];
 	if (existsSync$1(join(artifact, "home"))) cpSync(join(artifact, "home"), home, { recursive: true });
-	let pullRequest;
-	if (origin.pullRequests) {
-		const choice = choosePullRequest(origin.pullRequests, manifest.pullRequest);
-		pullRequest = choice.pullRequest;
-		if (choice.warning) warnings.push(choice.warning);
-	}
+	if (choiceWarning) warnings.push(choiceWarning);
 	for (const warning$2 of warnings) warning(warning$2);
 	const properties = resolved.properties;
 	if (!properties.has("sonar.projectBaseDir")) properties.set("sonar.projectBaseDir", workspace);
@@ -76831,16 +76841,17 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
 		info(`::${resume}::`);
 	}
 	if (exitCode !== 0) throw new Error(`The Sonar scanner failed with exit code ${exitCode}`);
+	return { analysed: true };
 }
-function followsUnreviewedRun(eventName) {
+function followsUntrustedRun(eventName) {
 	const eventPath = process.env.GITHUB_EVENT_PATH;
 	if (eventName !== "workflow_run" || !eventPath) return false;
 	const run = JSON.parse(readFileSync$1(eventPath, "utf8")).workflow_run;
-	return run.event.startsWith("pull_request") || run.head_repository.full_name.toLowerCase() !== (process.env.GITHUB_REPOSITORY ?? "").toLowerCase();
+	return run.event.startsWith("pull_request") || run.head_repository.full_name.toLowerCase() !== (process.env.GITHUB_REPOSITORY ?? "").toLowerCase() || [run.actor, run.triggering_actor].some((account) => account?.type === "Bot");
 }
 async function dispatch(inputs, report) {
 	const eventName = process.env.GITHUB_EVENT_NAME ?? "";
-	const resolution = resolveMode(inputs.mode, eventName, inputs.token, followsUnreviewedRun(eventName));
+	const resolution = resolveMode(inputs.mode, eventName, inputs.token, followsUntrustedRun(eventName));
 	if (resolution.warning) warning(resolution.warning);
 	info(`Mode: ${resolution.mode}`);
 	switch (resolution.mode) {

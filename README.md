@@ -311,10 +311,12 @@ blocked.
 The Sonar workflow also posts a status called _Sonar fork analysis (your project
 key)_ when it has `statuses: write`. It shows why a check is missing and links
 to the run. It stays pending while the analysis runs and then turns to success
-or failure. It's posted for pull requests that take the fork path. It's also
-posted as a failure when the Sonar workflow finds nothing to analyse, for
-example after a push the build didn't analyse. Pull requests from your own
-repository never get it. Requiring it would block them forever.
+or failure. It turns to success marked _Skipped_ when another pull request
+shares the commit and the one the build was for has closed. It's posted for pull
+requests that take the fork path. It's also posted as a failure when the Sonar
+workflow finds nothing to analyse, for example after a push the build didn't
+analyse. Pull requests from your own repository never get it. Requiring it would
+block them forever.
 
 ## Recipes
 

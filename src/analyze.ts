@@ -387,7 +387,8 @@ function insideAny(
     .split(sep)
     .filter((segment) => segment !== '.')
   for (let i = 0; ; i++) {
-    const id = identity(directory)
+    // The checkout itself may be reached through a link; nothing below it may.
+    const id = identity(directory, i === 0)
     if (id === undefined) return false
     if (roots.has(id)) return true
     const segment = segments[i]

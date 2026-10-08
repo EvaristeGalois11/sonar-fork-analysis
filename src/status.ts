@@ -117,11 +117,26 @@ export function trackedReporter(target: StatusTarget): Reporter {
 export async function reportInterrupted(): Promise<void> {
   const saved = core.getState(NOTE)
   if (!saved) return
-  const { state, description, ...target } = JSON.parse(saved) as Note
+  const note = readNote(saved)
+  if (!note) {
+    core.warning('Not posting the final status: its note is damaged')
+    return
+  }
+  const { state, description, ...target } = note
   await statusReporter({
     ...target,
     apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
     repository: process.env.GITHUB_REPOSITORY ?? '',
     token: core.getInput('github-token')
   })(state, description)
+}
+
+function readNote(saved: string): Note | undefined {
+  try {
+    const note = JSON.parse(saved) as Note
+    // The SHA goes into the address the token is sent to.
+    return /^[0-9a-f]{40}$/.test(note.sha) ? note : undefined
+  } catch {
+    return undefined
+  }
 }

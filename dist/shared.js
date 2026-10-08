@@ -17957,13 +17957,26 @@ function trackedReporter(target) {
 async function reportInterrupted() {
 	const saved = getState(NOTE);
 	if (!saved) return;
-	const { state, description, ...target } = JSON.parse(saved);
+	const note = readNote(saved);
+	if (!note) {
+		warning("Not posting the final status: its note is damaged");
+		return;
+	}
+	const { state, description, ...target } = note;
 	await statusReporter({
 		...target,
 		apiUrl: process.env.GITHUB_API_URL ?? "https://api.github.com",
 		repository: process.env.GITHUB_REPOSITORY ?? "",
 		token: getInput("github-token")
 	})(state, description);
+}
+function readNote(saved) {
+	try {
+		const note = JSON.parse(saved);
+		return /^[0-9a-f]{40}$/.test(note.sha) ? note : void 0;
+	} catch {
+		return;
+	}
 }
 //#endregion
 export { require_tunnel as C, __require as D, __exportAll as E, __toCommonJS as O, require_undici as S, __esmMin as T, rmRF as _, error as a, HttpClient as b, info as c, setFailed as d, setSecret as f, mkdirP as g, getExecOutput as h, debug as i, __toESM as k, isDebug as l, exec as m, reportInterrupted as n, getInput as o, warning as p, trackedReporter as r, getMultilineInput as s, noReporter as t, notice as u, which as v, __commonJSMin as w, HttpCodes as x, BearerCredentialHandler as y };

@@ -112,7 +112,7 @@ describe('run', () => {
     expect(options!.env!.GITHUB_STEP_SUMMARY).toBe('/runner/summary')
   })
 
-  it("refuses to build a pull request's or another repository's run on workflow_run, and only warns for a push here", async () => {
+  it("refuses to build a pull request's, another repository's or a bot's run on workflow_run, and only warns for a person's push here", async () => {
     inputs.mode = 'direct'
     process.env.GITHUB_EVENT_NAME = 'workflow_run'
     process.env.GITHUB_REPOSITORY = 'owner/repo'
@@ -126,14 +126,21 @@ describe('run', () => {
     const fetch = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(null, { status: 201 }))
-    const after = async (runEvent: string, repository: string) => {
+    const after = async (
+      runEvent: string,
+      repository: string,
+      actor = 'User',
+      triggeringActor = 'User'
+    ) => {
       vi.clearAllMocks()
       writeFileSync(
         event,
         JSON.stringify({
           workflow_run: {
             event: runEvent,
-            head_repository: { full_name: repository }
+            head_repository: { full_name: repository },
+            actor: { type: actor },
+            triggering_actor: { type: triggeringActor }
           }
         })
       )
@@ -144,13 +151,24 @@ describe('run', () => {
       // A pull request from this repository's own branch, as Dependabot opens them.
       await after('pull_request', 'owner/repo')
       expect(core.setFailed).toHaveBeenCalledWith(
-        expect.stringContaining("Refusing to build a pull request's code")
+        expect.stringContaining('Refusing to build on workflow_run')
       )
       expect(exec).not.toHaveBeenCalled()
 
       await after('push', 'fork/repo')
       expect(core.setFailed).toHaveBeenCalledWith(
-        expect.stringContaining("Refusing to build a pull request's code")
+        expect.stringContaining('Refusing to build on workflow_run')
+      )
+      expect(exec).not.toHaveBeenCalled()
+
+      // A bot's push to a branch here, such as Dependabot's, even when a maintainer re-runs it.
+      await after('push', 'owner/repo', 'Bot')
+      expect(core.setFailed).toHaveBeenCalledWith(
+        expect.stringContaining('Refusing to build on workflow_run')
+      )
+      await after('push', 'owner/repo', 'Bot', 'User')
+      expect(core.setFailed).toHaveBeenCalledWith(
+        expect.stringContaining('Refusing to build on workflow_run')
       )
       expect(exec).not.toHaveBeenCalled()
 
@@ -750,21 +768,23 @@ describe('run in analyze mode', () => {
       base: { ref: base }
     })
     const fetch = vi.spyOn(globalThis, 'fetch')
-    const scan = async (hint: number): Promise<string> => {
+    const scan = async (hint?: number): Promise<string | undefined> => {
       fetch.mockResolvedValue(
         new Response(JSON.stringify([pull(7, 'main'), pull(8, 'release')]))
       )
       exec.mockClear()
       prepared({}, hint)
       await run()
-      return readFileSync(
-        exec.mock.calls[0][1]![0].replace('-Dproject.settings=', ''),
-        'utf8'
-      )
+      const settings = exec.mock.calls[0]?.[1]?.[0]
+      return settings === undefined
+        ? undefined
+        : readFileSync(settings.replace('-Dproject.settings=', ''), 'utf8')
     }
 
     expect(await scan(8)).toContain('sonar.pullrequest.key=8')
-    expect(await scan(3)).toContain('sonar.pullrequest.key=7')
+    // Another pull request, such as one of another fork's, is never analysed in its place.
+    expect(await scan(3)).toBeUndefined()
+    expect(await scan()).toContain('sonar.pullrequest.key=7')
     expect(core.warning).toHaveBeenCalledWith(
       expect.stringContaining('2 open pull requests')
     )
@@ -871,6 +891,24 @@ describe('run in analyze mode', () => {
         'failure: The analysis failed, see the run'
       ])
       expect(core.setFailed).toHaveBeenCalled()
+    })
+
+    it("skips when the build's pull request is gone, and closes its status", async () => {
+      // Two pull requests had this head; #8 closed before this run, which built it.
+      triggeredBy('pull_request', 'fork/repo')
+      prepared({}, 8)
+
+      await run()
+
+      expect(exec).not.toHaveBeenCalled()
+      expect(core.notice).toHaveBeenCalledWith(
+        "The build's pull request #8 is closed or has newer commits: nothing to analyse."
+      )
+      expect(statuses()).toEqual([
+        'pending: Analysing',
+        'success: Skipped: the build was for #8'
+      ])
+      expect(core.setFailed).not.toHaveBeenCalled()
     })
 
     function built(...names: string[]): void {

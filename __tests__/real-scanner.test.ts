@@ -251,7 +251,9 @@ describeScanner.each([
     }).toMatchObject({ enough: true })
   })
 
-  it('starts processes only where it is known to', () => {
+  // A new process start inside a listed class goes unnoticed here; Fixtures Sonar's traps catch
+  // those at run time.
+  it('has no class that can start a process beyond the reviewed ones', () => {
     const listed = readFileSync(known, 'utf8')
       .split('\n')
       .map((line) => line.replace(/#.*/, '').trim())
