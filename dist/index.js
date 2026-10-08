@@ -74537,7 +74537,7 @@ async function required(workspace, args, env) {
 	if (exitCode !== 0) throw new Error(`git ${args[0] ?? ""} failed with exit code ${exitCode}: ${stderr.trim()}`);
 	return stdout.trim();
 }
-async function checkoutCommit(workspace, { serverUrl, repository, headRepository, sha, token }) {
+async function checkoutCommit(workspace, { serverUrl, repository, sha, token }) {
 	if (readdirSync(workspace).length > 0) throw new Error("The workspace is not empty: remove your checkout step, or set checkout to false to keep it");
 	const env = {};
 	if (token) {
@@ -74549,7 +74549,7 @@ async function checkoutCommit(workspace, { serverUrl, repository, headRepository
 			GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}`
 		});
 	}
-	info(`Checking out ${sha} of ${headRepository}`);
+	info(`Checking out ${sha}`);
 	await required(workspace, ["init", "--quiet"]);
 	await required(workspace, [
 		"remote",
@@ -74570,7 +74570,7 @@ async function checkoutCommit(workspace, { serverUrl, repository, headRepository
 	], env));
 	await retry(() => required(workspace, [
 		...fetch,
-		`${serverUrl}/${headRepository}`,
+		"origin",
 		sha
 	], env));
 	await required(workspace, [
@@ -76795,7 +76795,6 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
 	if (inputs.checkout) await checkoutCommit(workspace, {
 		serverUrl: process.env.GITHUB_SERVER_URL ?? "https://github.com",
 		repository: context.repository,
-		headRepository: origin.repository,
 		sha: origin.headSha,
 		token: inputs.githubToken
 	});

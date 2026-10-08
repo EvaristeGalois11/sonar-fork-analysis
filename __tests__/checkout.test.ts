@@ -56,11 +56,7 @@ afterEach(() => {
 })
 
 describe('checkoutCommit', () => {
-  const checkout = {
-    repository: 'owner/repo',
-    headRepository: 'owner/repo',
-    token: 'a-token'
-  }
+  const checkout = { repository: 'owner/repo', token: 'a-token' }
 
   it('checks out the exact commit with its history and no stored credentials', async () => {
     await checkoutCommit(workspace, {
@@ -74,16 +70,37 @@ describe('checkoutCommit', () => {
     await expect(verifyCheckout(workspace, first)).resolves.toBeUndefined()
   })
 
-  it("takes a fork's commit but this repository's branches", async () => {
+  it("takes a fork's commit from this repository, along with its branches", async () => {
+    // GitHub keeps a copy of every pull request's head in the base repository.
+    git(
+      root,
+      '--git-dir',
+      join(server, 'forker', 'repo'),
+      'push',
+      '--quiet',
+      join(server, 'owner', 'repo'),
+      `${forked}:refs/pull/1/head`
+    )
+    rmSync(join(server, 'forker'), { recursive: true })
+
     await checkoutCommit(workspace, {
       ...checkout,
       serverUrl: `file://${server}`,
-      headRepository: 'forker/repo',
       sha: forked
     })
 
     expect(git(workspace, 'rev-parse', 'HEAD')).toBe(forked)
     expect(git(workspace, 'rev-parse', 'refs/remotes/origin/main')).toBe(second)
+  })
+
+  it('never fetches from the fork', async () => {
+    await expect(
+      checkoutCommit(workspace, {
+        ...checkout,
+        serverUrl: `file://${server}`,
+        sha: forked
+      })
+    ).rejects.toThrow(/git fetch failed/)
   })
 
   it('refuses a workspace that already has a checkout', async () => {

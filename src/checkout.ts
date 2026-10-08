@@ -38,8 +38,6 @@ export type Checkout = {
   serverUrl: string
   // This repository, whose branches a pull request is compared with.
   repository: string
-  // Where the analysed commit lives: a fork, for a pull request from one.
-  headRepository: string
   sha: string
   token: string
 }
@@ -48,7 +46,7 @@ export type Checkout = {
 // blame, and credentials handed to git through its environment only, so none are written to disk.
 export async function checkoutCommit(
   workspace: string,
-  { serverUrl, repository, headRepository, sha, token }: Checkout
+  { serverUrl, repository, sha, token }: Checkout
 ): Promise<void> {
   if (readdirSync(workspace).length > 0) {
     throw new Error(
@@ -65,10 +63,10 @@ export async function checkoutCommit(
       GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}`
     })
   }
-  core.info(`Checking out ${sha} of ${headRepository}`)
+  core.info(`Checking out ${sha}`)
   await required(workspace, ['init', '--quiet'])
-  // Sonar finds a pull request's base branch as origin/<base>, so origin must be this repository even
-  // when the commit comes from a fork, whose copy of that branch could be anything.
+  // Sonar finds a pull request's base branch as origin/<base>. A fork's copy of that branch could be
+  // anything. So origin is this repository.
   await required(workspace, [
     'remote',
     'add',
@@ -84,9 +82,9 @@ export async function checkoutCommit(
       env
     )
   )
-  await retry(() =>
-    required(workspace, [...fetch, `${serverUrl}/${headRepository}`, sha], env)
-  )
+  // GitHub keeps every pull request's head here too, as refs/pull/<number>/head. It's there even when
+  // the fork is private or gone. Nothing the fork controls gets contacted.
+  await retry(() => required(workspace, [...fetch, 'origin', sha], env))
   await required(workspace, ['checkout', '--quiet', '--detach', sha])
 }
 
