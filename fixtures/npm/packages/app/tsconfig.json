@@ -5,6 +5,7 @@
     "strict": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
+    "jsx": "preserve",
     "types": ["node"],
     "plugins": [
       {

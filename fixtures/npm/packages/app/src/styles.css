@@ -1,0 +1,8 @@
+/* Deliberate issues for Sonar to find in a stylesheet. */
+.title {
+  color: red;
+  color: blue;
+}
+
+.empty {
+}

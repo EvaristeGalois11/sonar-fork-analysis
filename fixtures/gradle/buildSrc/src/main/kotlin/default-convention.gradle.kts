@@ -10,7 +10,7 @@ repositories {
     mavenCentral()
 }
 
-tasks.compileJava {
+tasks.withType<JavaCompile>().configureEach {
     options.release = 21
 }
 
