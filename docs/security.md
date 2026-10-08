@@ -3,7 +3,7 @@
 Code in a pull request from a fork hasn't been reviewed, so GitHub builds it
 without your secrets. This action keeps it that way. The build runs without the
 Sonar token. A build can read anything in its job, so the action refuses to
-prepare in a job that has the token. The Sonar workflow has the token but never
+prepare when you pass it the token. The Sonar workflow has the token but never
 runs anything from the pull request.
 
 Everything the Sonar workflow gets from the pull request could be hostile: the
@@ -31,14 +31,17 @@ the scanner would otherwise trust:
 
 **The artifact.** The action refuses an artifact with links, special files or
 file names that aren't valid UTF-8 in it. It unpacks the build output next to
-the sources, never over an existing file or through a link. It adds only two
-kinds of files to the source directories: report files that the settings name
-and type information in `node_modules` (declaration, `package.json` and
-`tsconfig` files). The analyzers read the type information to learn the types
-the code uses and by default never report on it as part of the project. The
-action also recreates the links a Node project had in `node_modules`. It only
-recreates links that sit in a `node_modules` directory and lead to a directory
-in the checkout, never into `.git`. A fork could commit links like these itself.
+the sources, never over an existing file or through a link. Into the source
+directories it only adds report files that the settings name and type
+information in `node_modules` (declaration, `package.json` and `tsconfig`
+files). Through a link or a report setting, a fork can still add files that
+Sonar analyses as part of its code. That only changes its own pull request's
+results, as committing those files would. The analyzers read the type
+information to learn the types the code uses and by default never report on it
+as part of the project. The action also recreates the links a Node project had
+in `node_modules`. It only recreates links that sit in a `node_modules`
+directory and lead to a directory in the checkout, never into `.git`. A fork
+could commit links like these itself.
 
 **The settings.** The build's settings go through the same
 [allowlist](#what-the-fork-path-carries) again, and every path in them must lead
@@ -55,20 +58,25 @@ Then the action sets the settings that matter for safety itself, whatever the
 artifact says: the project key, the analysed commit, the working directory and
 the [features that stay off](#what-stays-off-on-the-fork-path).
 
-**The analyzers.** For the tested project types, they only read files. For
-JavaScript and TypeScript, this was tested against Sonar's real analyzer with a
-project that tried every way to get its own code run. The analyzer used its own
-Node.js and TypeScript and ignored the project's configuration files (ESLint,
-Babel, TypeScript and others) and everything in its `node_modules`. Two Node
-test fixtures, one installed with npm and one with pnpm, keep checking this
-against SonarQube Cloud's analyzer, see
-[keeping up with the scanner](#keeping-up-with-the-scanner). Analyzers for other
-languages haven't been checked. Some might start other programs. So the action
-guarantees nothing for untested languages.
+**The analyzers.** For the languages in the tested sample projects (Java,
+JavaScript and TypeScript), they only read files. For JavaScript and TypeScript,
+this was tested against Sonar's real analyzer with a project that tried every
+way to get its own code run. The analyzer used its own Node.js and TypeScript.
+It ran none of the project's configuration files (ESLint, Babel, TypeScript and
+others) and loaded no code from its `node_modules`. It only read `tsconfig`
+files and type declarations as data. Two Node test fixtures, one installed with
+npm and one with pnpm, keep checking this against SonarQube Cloud's analyzer,
+see [keeping up with the scanner](#keeping-up-with-the-scanner). Analyzers for
+other languages haven't been checked. Some might start other programs. A fork's
+file names and report settings decide which analyzers run. So an untested
+language can turn up in any project. The action guarantees nothing for those
+languages.
 
 **The scanner.** It runs in an empty directory of its own. Its environment holds
-the Sonar token, but not the action's inputs, the runner's own tokens, or
-variables like `GITHUB_ENV` that would let it change later steps.
+the Sonar token, but not the action's inputs, the runner's own tokens or
+variables like `GITHUB_ENV`. That limits what a mistake can reach, but it isn't
+a security boundary: a program running there could still read the action's own
+environment.
 
 ## What the fork path carries
 
@@ -162,8 +170,8 @@ So this project tests against the real thing, on every pull request and once a
 week: the scanner CLI it pins, together with the engines that SonarQube Cloud
 and the latest SonarQube Community Build currently serve. The tests check that
 the scanner reads settings exactly as the action checked them, that the engine
-builds the same modules and that the parts of the engine able to start a program
-haven't changed since they were last reviewed.
+builds the same modules and that no part of the engine beyond the reviewed ones
+can start a program.
 
 The analysis of the test fixtures also sets traps. Fake build tools on the
 `PATH` fail the run if the analysis ever starts one. The fixtures' Maven and

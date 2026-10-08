@@ -15,8 +15,8 @@ function present(path: string): boolean {
   }
 }
 
-// Where a path lands once it exists: its deepest existing part resolved, the rest added, since
-// what is made later is made as plain directories. Undefined when that part is a link to nowhere.
+// Where a path lands once it exists: its deepest existing part resolved, the rest added. Undefined
+// when that part is a link to nowhere.
 export function realLocation(path: string): string | undefined {
   let existing = path
   while (!present(existing)) existing = dirname(existing)

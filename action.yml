@@ -55,10 +55,10 @@ inputs:
     default: 'true'
   github-token:
     description: >
-      Token to download the prepared artifact and find the pull request, needing
-      actions: read and pull-requests: read. With statuses: write, analyze mode
-      also reports the analysis on the analysed commit, where the pull request
-      shows it.
+      Token to download the prepared artifact, find the pull request and check
+      out its code, needing actions: read, contents: read and pull-requests:
+      read. With statuses: write, analyze mode also reports the analysis on the
+      analysed commit, where the pull request shows it.
     default: ${{ github.token }}
 branding:
   icon: shield
