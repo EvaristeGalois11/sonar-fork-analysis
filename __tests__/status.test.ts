@@ -7,6 +7,9 @@ import {
   vi,
   type MockInstance
 } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import * as core from '../__fixtures__/core.js'
 
 vi.doMock('@actions/core', () => core)
@@ -129,8 +132,7 @@ describe('trackedReporter', () => {
     const report = trackedReporter(target)
 
     await report('pending', 'Analysing')
-    expect(note()).toMatchObject({
-      sha: 'head-sha',
+    expect(note()).toEqual({
       state: 'failure',
       description: 'The analysis ended without reporting its result'
     })
@@ -180,35 +182,55 @@ describe('trackedReporter', () => {
 })
 
 describe('the post step', () => {
-  const COMMIT = '0123456789abcdef0123456789abcdef01234567'
+  let directory: string
 
-  it('posts what the note says, to GitHub, with the token from the inputs', async () => {
+  beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), 'post-'))
+    const event = join(directory, 'event.json')
+    writeFileSync(
+      event,
+      JSON.stringify({ workflow_run: { head_sha: 'head-sha' } })
+    )
+    Object.assign(process.env, {
+      GITHUB_EVENT_NAME: 'workflow_run',
+      GITHUB_EVENT_PATH: event,
+      GITHUB_API_URL: 'https://api.github.com',
+      GITHUB_SERVER_URL: 'https://github.com',
+      GITHUB_REPOSITORY: 'owner/repo',
+      GITHUB_RUN_ID: '42'
+    })
+    core.getInput.mockImplementation((name) =>
+      name === 'project-key' ? 'acme_app' : 'input-token'
+    )
+  })
+
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true })
+  })
+
+  it('posts the state the note says where the runner says, with the token from the inputs', async () => {
     fetch.mockResolvedValue(new Response('{}', { status: 201 }))
-    process.env.GITHUB_API_URL = 'https://api.github.com'
-    process.env.GITHUB_REPOSITORY = 'owner/repo'
     core.getState.mockReturnValue(
       JSON.stringify({
-        ...target,
-        sha: COMMIT,
-        // Never where the token goes: that comes from the runner.
-        apiUrl: 'https://attacker.example',
-        repository: 'attacker/repo',
-        token: undefined,
         state: 'success',
-        description: 'Analysed'
+        description: 'Analysed',
+        // Where to post never comes from the note.
+        sha: '../../actions/runs/1/rerun',
+        name: 'Faked',
+        url: 'https://attacker.example'
       })
     )
-    core.getInput.mockReturnValue('input-token')
 
     await reportInterrupted()
 
     expect(String(fetch.mock.calls[0][0])).toBe(
-      `https://api.github.com/repos/owner/repo/statuses/${COMMIT}`
+      'https://api.github.com/repos/owner/repo/statuses/head-sha'
     )
     expect(sent()).toMatchObject({
       state: 'success',
       description: 'Analysed',
-      context: 'Sonar fork analysis (acme_app)'
+      context: 'Sonar fork analysis (acme_app)',
+      target_url: 'https://github.com/owner/repo/actions/runs/42'
     })
     expect(fetch.mock.calls[0][1]!.headers).toMatchObject({
       Authorization: 'Bearer input-token'
@@ -216,7 +238,9 @@ describe('the post step', () => {
   })
 
   it.each([
-    JSON.stringify({ ...target, sha: '../../actions/runs/1/rerun' }),
+    JSON.stringify({ state: 'pending', description: 'Analysing' }),
+    JSON.stringify({ state: 'success' }),
+    'null',
     '{ not json'
   ])('posts nothing for a damaged note: %s', async (note) => {
     core.getState.mockReturnValue(note)

@@ -1,6 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
   choosePullRequest,
+  goneHint,
+  pullRequestGone,
   resolveOrigin,
   type Context
 } from '../src/origin.js'
@@ -182,25 +184,15 @@ describe('resolveOrigin', () => {
   })
 })
 
-describe('choosePullRequest', () => {
-  const toMain = { key: '7', branch: 'feature', base: 'main' }
-  const toRelease = { key: '8', branch: 'feature', base: 'release' }
+const toMain = { key: '7', branch: 'feature', base: 'main' }
+const toRelease = { key: '8', branch: 'feature', base: 'release' }
 
+describe('choosePullRequest', () => {
   it('takes the only candidate when the build names none', () => {
     expect(choosePullRequest([toMain], undefined)).toEqual({
       pullRequest: toMain
     })
   })
-
-  it.each([
-    [[toMain], 8],
-    [[toMain, toRelease], 99]
-  ])(
-    'finds the pull request the build was for gone among %o',
-    (candidates, hint) => {
-      expect(choosePullRequest(candidates, hint)).toEqual({ gone: hint })
-    }
-  )
 
   it('has nothing to choose without candidates', () => {
     expect(() => choosePullRequest([], undefined)).toThrow(
@@ -214,7 +206,7 @@ describe('choosePullRequest', () => {
     })
   })
 
-  it.each([undefined, '8', 8.5])(
+  it.each([undefined, '8', 8.5, 0, -8, 99])(
     'falls back to the first candidate, with a warning, for the hint %o',
     (hint) => {
       expect(choosePullRequest([toMain, toRelease], hint)).toEqual({
@@ -223,4 +215,74 @@ describe('choosePullRequest', () => {
       })
     }
   )
+})
+
+describe('goneHint', () => {
+  it.each([
+    [[toMain], 8],
+    [[toMain, toRelease], 99]
+  ])('gives a pull request number outside %o', (candidates, hint) => {
+    expect(goneHint(candidates, hint)).toBe(hint)
+  })
+
+  it.each([7, undefined, '8', 8.5, 0, -8])(
+    'gives nothing for the hint %o',
+    (hint) => {
+      expect(goneHint([toMain], hint)).toBeUndefined()
+    }
+  )
+})
+
+describe('pullRequestGone', () => {
+  const head = { repository: 'Forker/Repo', branch: 'feature', sha: 'head-sha' }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function answer(status: number, pull?: unknown) {
+    return vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify(pull ?? {}), { status }))
+  }
+
+  const pull = (
+    state: string,
+    sha = 'head-sha',
+    ref = 'feature',
+    repo: unknown = { full_name: 'forker/repo' }
+  ) => ({ state, head: { sha, ref, repo } })
+
+  it.each([
+    ['closed with this head', pull('closed')],
+    ['moved on to newer commits', pull('open', 'newer-sha')]
+  ])('believes a pull request %s', async (_, found) => {
+    const fetch = answer(200, found)
+    expect(await pullRequestGone(base, head, 8)).toBe(true)
+    expect(String(fetch.mock.calls[0][0])).toBe(
+      'https://api.github.com/repos/owner/repo/pulls/8'
+    )
+  })
+
+  it.each([
+    ['still open at this commit', 200, pull('open')],
+    ['from another branch', 200, pull('closed', 'head-sha', 'other')],
+    [
+      'from another repository',
+      200,
+      pull('closed', 'head-sha', 'feature', { full_name: 'other/repo' })
+    ],
+    ['from a deleted fork', 200, pull('closed', 'head-sha', 'feature', null)],
+    ['that never existed', 404, undefined]
+  ])('rejects a pull request %s', async (_, status, found) => {
+    answer(status, found)
+    expect(await pullRequestGone(base, head, 8)).toBe(false)
+  })
+
+  it('fails when GitHub can not say', async () => {
+    answer(502)
+    await expect(pullRequestGone(base, head, 8)).rejects.toThrow(
+      'GitHub answered 502'
+    )
+  })
 })

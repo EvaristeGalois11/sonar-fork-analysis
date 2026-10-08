@@ -1,4 +1,6 @@
 import * as core from '@actions/core'
+import { readFileSync } from 'node:fs'
+import type { WorkflowRunEvent } from './origin.js'
 
 type State = 'pending' | 'success' | 'failure'
 
@@ -71,22 +73,13 @@ export const noReporter: Reporter = () => Promise.resolve(false)
 
 const NOTE = 'pending-status'
 
-type Note = Omit<StatusTarget, 'token'> & { state: State; description: string }
+type Note = { state: State; description: string }
 const INTERRUPTED = 'The analysis ended without reporting its result'
 
 // The note is from the main step to the post step, which runs even when the job is cancelled or
-// times out: where the status is and what it should end as, until GitHub has taken the final one.
-// The token stays out of it; the post step reads it from the inputs again.
-function leaveNote(target: StatusTarget, state: State, description: string) {
-  core.saveState(
-    NOTE,
-    JSON.stringify({
-      ...target,
-      token: undefined,
-      state,
-      description
-    } satisfies Note & { token: undefined })
-  )
+// times out: what the status should end as, until GitHub has taken the final one.
+function leaveNote(state: State, description: string) {
+  core.saveState(NOTE, JSON.stringify({ state, description } satisfies Note))
 }
 
 function clearNote(): void {
@@ -100,42 +93,59 @@ export function trackedReporter(target: StatusTarget): Reporter {
   let open = false
   return async (state, description) => {
     if (state === 'pending') {
-      leaveNote(target, 'failure', INTERRUPTED)
+      leaveNote('failure', INTERRUPTED)
       open = await report(state, description)
       if (!open) clearNote()
       return open
     }
-    if (open) leaveNote(target, state, description)
+    if (open) leaveNote(state, description)
     const taken = await report(state, description)
     if (taken) clearNote()
     return taken
   }
 }
 
-// The post step: a note left means GitHub never took the final status. Where to send the token comes
-// from the runner, not from the note, which a compromised analysis could have rewritten.
+// Where a workflow_run analysis reports. It all comes from the runner and the inputs, never from
+// anything the analysis could rewrite.
+export function runStatusTarget(): StatusTarget | undefined {
+  const eventPath = process.env.GITHUB_EVENT_PATH
+  if (process.env.GITHUB_EVENT_NAME !== 'workflow_run' || !eventPath)
+    return undefined
+  const repository = process.env.GITHUB_REPOSITORY ?? ''
+  const projectKey = core.getInput('project-key')
+  return {
+    apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
+    repository,
+    sha: (JSON.parse(readFileSync(eventPath, 'utf8')) as WorkflowRunEvent)
+      .workflow_run.head_sha,
+    token: core.getInput('github-token'),
+    name: projectKey
+      ? `Sonar fork analysis (${projectKey})`
+      : 'Sonar fork analysis',
+    url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
+  }
+}
+
+// The post step: a note left means GitHub never took the final status.
 export async function reportInterrupted(): Promise<void> {
   const saved = core.getState(NOTE)
-  if (!saved) return
+  const target = runStatusTarget()
+  if (!saved || !target) return
   const note = readNote(saved)
   if (!note) {
     core.warning('Not posting the final status: its note is damaged')
     return
   }
-  const { state, description, ...target } = note
-  await statusReporter({
-    ...target,
-    apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
-    repository: process.env.GITHUB_REPOSITORY ?? '',
-    token: core.getInput('github-token')
-  })(state, description)
+  await statusReporter(target)(note.state, note.description)
 }
 
 function readNote(saved: string): Note | undefined {
   try {
     const note = JSON.parse(saved) as Note
-    // The SHA goes into the address the token is sent to.
-    return /^[0-9a-f]{40}$/.test(note.sha) ? note : undefined
+    return (note.state === 'success' || note.state === 'failure') &&
+      typeof note.description === 'string'
+      ? note
+      : undefined
   } catch {
     return undefined
   }

@@ -79,13 +79,9 @@ async function findPullRequests(
 export function choosePullRequest(
   candidates: PullRequest[],
   hint: unknown
-): { pullRequest: PullRequest; warning?: string } | { gone: number } {
-  if (typeof hint === 'number' && Number.isSafeInteger(hint)) {
-    const hinted = candidates.find((pull) => pull.key === String(hint))
-    // Closed, or moved on to newer commits: another candidate would get results built for a
-    // different base.
-    return hinted ? { pullRequest: hinted } : { gone: hint }
-  }
+): { pullRequest: PullRequest; warning?: string } {
+  const hinted = candidates.find((pull) => pull.key === usableHint(hint))
+  if (hinted) return { pullRequest: hinted }
   const [first] = candidates
   if (!first) throw new Error('There is no open pull request to analyse')
   return candidates.length > 1
@@ -94,6 +90,57 @@ export function choosePullRequest(
         warning: `${candidates.length} open pull requests have this head, analysing #${first.key}`
       }
     : { pullRequest: first }
+}
+
+function usableHint(hint: unknown): string | undefined {
+  return typeof hint === 'number' && Number.isSafeInteger(hint) && hint > 0
+    ? String(hint)
+    : undefined
+}
+
+// The pull request the build names, when it's none of the candidates: closed, or moved on to newer
+// commits. Another candidate would get results built for a different base.
+export function goneHint(
+  candidates: PullRequest[],
+  hint: unknown
+): number | undefined {
+  const key = usableHint(hint)
+  return key && !candidates.some((pull) => pull.key === key)
+    ? Number(key)
+    : undefined
+}
+
+// The hint comes from the fork. A green "skipped" status needs a pull request that really had this
+// head and has moved on.
+export async function pullRequestGone(
+  context: Context,
+  head: { repository: string; branch: string; sha: string },
+  number: number
+): Promise<boolean> {
+  const response = await fetch(
+    `${context.apiUrl}/repos/${context.repository}/pulls/${String(number)}`,
+    {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${context.token}`
+      }
+    }
+  )
+  if (response.status === 404) return false
+  if (!response.ok) {
+    throw new Error(
+      `Could not look up the pull request: GitHub answered ${response.status}`
+    )
+  }
+  const pull = (await response.json()) as {
+    state: string
+    head: { sha: string; ref: string; repo: { full_name: string } | null }
+  }
+  return (
+    pull.head.repo?.full_name.toLowerCase() === head.repository.toLowerCase() &&
+    pull.head.ref === head.branch &&
+    (pull.state === 'closed' || pull.head.sha !== head.sha)
+  )
 }
 
 export async function resolveOrigin(

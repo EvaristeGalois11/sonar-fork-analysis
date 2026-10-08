@@ -1,4 +1,4 @@
-import { C as require_tunnel, D as __require, E as __exportAll, O as __toCommonJS, S as require_undici, T as __esmMin, _ as rmRF, a as error, b as HttpClient, c as info, d as setFailed, f as setSecret, g as mkdirP, h as getExecOutput, i as debug, k as __toESM, l as isDebug, m as exec, o as getInput, p as warning, r as trackedReporter, s as getMultilineInput, t as noReporter, u as notice, v as which, w as __commonJSMin, x as HttpCodes, y as BearerCredentialHandler } from "./shared.js";
+import { A as __toESM, C as require_undici, D as __exportAll, E as __esmMin, O as __require, S as HttpCodes, T as __commonJSMin, _ as mkdirP, a as debug, b as BearerCredentialHandler, c as getMultilineInput, d as notice, f as setFailed, g as getExecOutput, h as exec, i as trackedReporter, k as __toCommonJS, l as info, m as warning, o as error, p as setSecret, r as runStatusTarget, s as getInput, t as noReporter, u as isDebug, v as rmRF, w as require_tunnel, x as HttpClient, y as which } from "./shared.js";
 import os, { EOL } from "os";
 import * as crypto from "crypto";
 import * as fs$7 from "fs";
@@ -74732,16 +74732,31 @@ async function findPullRequests(context, owner, branch, sha) {
 	}));
 }
 function choosePullRequest(candidates, hint) {
-	if (typeof hint === "number" && Number.isSafeInteger(hint)) {
-		const hinted = candidates.find((pull) => pull.key === String(hint));
-		return hinted ? { pullRequest: hinted } : { gone: hint };
-	}
+	const hinted = candidates.find((pull) => pull.key === usableHint(hint));
+	if (hinted) return { pullRequest: hinted };
 	const [first] = candidates;
 	if (!first) throw new Error("There is no open pull request to analyse");
 	return candidates.length > 1 ? {
 		pullRequest: first,
 		warning: `${candidates.length} open pull requests have this head, analysing #${first.key}`
 	} : { pullRequest: first };
+}
+function usableHint(hint) {
+	return typeof hint === "number" && Number.isSafeInteger(hint) && hint > 0 ? String(hint) : void 0;
+}
+function goneHint(candidates, hint) {
+	const key = usableHint(hint);
+	return key && !candidates.some((pull) => pull.key === key) ? Number(key) : void 0;
+}
+async function pullRequestGone(context, head, number) {
+	const response = await fetch(`${context.apiUrl}/repos/${context.repository}/pulls/${String(number)}`, { headers: {
+		Accept: "application/vnd.github+json",
+		Authorization: `Bearer ${context.token}`
+	} });
+	if (response.status === 404) return false;
+	if (!response.ok) throw new Error(`Could not look up the pull request: GitHub answered ${response.status}`);
+	const pull = await response.json();
+	return pull.head.repo?.full_name.toLowerCase() === head.repository.toLowerCase() && pull.head.ref === head.branch && (pull.state === "closed" || pull.head.sha !== head.sha);
 }
 async function resolveOrigin(context) {
 	const { eventName, event } = context;
@@ -76669,7 +76684,7 @@ async function prepare(inputs) {
 		workspace,
 		home: homedir()
 	}, staging, tool.name, pullRequestNumber(), types.files, types.links);
-	for (const warning$1 of staged.warnings) warning(warning$1);
+	for (const warning$2 of staged.warnings) warning(warning$2);
 	if (!process.env.ACTIONS_RUNTIME_TOKEN) {
 		warning(`Not running in GitHub Actions, so ${name} was not uploaded: ${staging}`);
 		return;
@@ -76794,8 +76809,15 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
 	let pullRequest;
 	let choiceWarning;
 	if (origin.pullRequests) {
-		const choice = choosePullRequest(origin.pullRequests, manifest.pullRequest);
-		if ("gone" in choice) return { gone: choice.gone };
+		const candidates = origin.pullRequests;
+		const gone = goneHint(candidates, manifest.pullRequest);
+		const head = {
+			repository: origin.repository,
+			branch: candidates[0]?.branch ?? "",
+			sha: origin.headSha
+		};
+		if (gone !== void 0 && await pullRequestGone(context, head, gone)) return { gone };
+		const choice = choosePullRequest(candidates, gone === void 0 ? manifest.pullRequest : void 0);
 		pullRequest = choice.pullRequest;
 		choiceWarning = choice.warning;
 	}
@@ -76810,7 +76832,7 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
 	];
 	if (existsSync$1(join(artifact, "home"))) cpSync(join(artifact, "home"), home, { recursive: true });
 	if (choiceWarning) warnings.push(choiceWarning);
-	for (const warning$2 of warnings) warning(warning$2);
+	for (const warning$1 of warnings) warning(warning$1);
 	const properties = resolved.properties;
 	if (!properties.has("sonar.projectBaseDir")) properties.set("sonar.projectBaseDir", workspace);
 	const trusted = trustedProperties(inputs, {
@@ -76846,8 +76868,8 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
 function followsUntrustedRun(eventName) {
 	const eventPath = process.env.GITHUB_EVENT_PATH;
 	if (eventName !== "workflow_run" || !eventPath) return false;
-	const run = JSON.parse(readFileSync$1(eventPath, "utf8")).workflow_run;
-	return run.event.startsWith("pull_request") || run.head_repository.full_name.toLowerCase() !== (process.env.GITHUB_REPOSITORY ?? "").toLowerCase() || [run.actor, run.triggering_actor].some((account) => account?.type === "Bot");
+	const { workflow_run: run, repository } = JSON.parse(readFileSync$1(eventPath, "utf8"));
+	return run.event.startsWith("pull_request") || run.head_repository.full_name.toLowerCase() !== (process.env.GITHUB_REPOSITORY ?? "").toLowerCase() || run.head_branch !== repository.default_branch && [run.actor, run.triggering_actor].some((account) => account?.type === "Bot");
 }
 async function dispatch(inputs, report) {
 	const eventName = process.env.GITHUB_EVENT_NAME ?? "";
@@ -76861,18 +76883,8 @@ async function dispatch(inputs, report) {
 	}
 }
 function workflowRunReporter() {
-	const eventPath = process.env.GITHUB_EVENT_PATH;
-	if (process.env.GITHUB_EVENT_NAME !== "workflow_run" || !eventPath) return noReporter;
-	const repository = process.env.GITHUB_REPOSITORY ?? "";
-	const projectKey = getInput("project-key");
-	return trackedReporter({
-		apiUrl: process.env.GITHUB_API_URL ?? "https://api.github.com",
-		repository,
-		sha: JSON.parse(readFileSync$1(eventPath, "utf8")).workflow_run.head_sha,
-		token: getInput("github-token"),
-		name: projectKey ? `Sonar fork analysis (${projectKey})` : "Sonar fork analysis",
-		url: `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ""}`
-	});
+	const target = runStatusTarget();
+	return target ? trackedReporter(target) : noReporter;
 }
 async function run() {
 	let report = noReporter;

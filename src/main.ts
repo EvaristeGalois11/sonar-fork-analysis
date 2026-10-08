@@ -38,6 +38,8 @@ import { readInputs, type Inputs } from './inputs.js'
 import { resolveMode } from './mode.js'
 import {
   choosePullRequest,
+  goneHint,
+  pullRequestGone,
   resolveOrigin,
   type Context,
   type Origin,
@@ -58,7 +60,12 @@ import {
 import { parseProperties } from './properties.js'
 import { findNewReport, snapshotReports } from './report.js'
 import { installScanner } from './scanner.js'
-import { noReporter, trackedReporter, type Reporter } from './status.js'
+import {
+  noReporter,
+  runStatusTarget,
+  trackedReporter,
+  type Reporter
+} from './status.js'
 import { filterSettings, moduleTree } from './settings.js'
 
 async function direct(inputs: Inputs): Promise<void> {
@@ -444,8 +451,19 @@ async function analyzeCommit(
   let pullRequest: PullRequest | undefined
   let choiceWarning: string | undefined
   if (origin.pullRequests) {
-    const choice = choosePullRequest(origin.pullRequests, manifest.pullRequest)
-    if ('gone' in choice) return { gone: choice.gone }
+    const candidates = origin.pullRequests
+    const gone = goneHint(candidates, manifest.pullRequest)
+    const head = {
+      repository: origin.repository,
+      branch: candidates[0]?.branch ?? '',
+      sha: origin.headSha
+    }
+    if (gone !== undefined && (await pullRequestGone(context, head, gone)))
+      return { gone }
+    const choice = choosePullRequest(
+      candidates,
+      gone === undefined ? manifest.pullRequest : undefined
+    )
     pullRequest = choice.pullRequest
     choiceWarning = choice.warning
   }
@@ -518,18 +536,23 @@ async function analyzeCommit(
 }
 
 // Whether the run a workflow_run follows built code that no one with write access put here: a pull
-// request's, another repository's, or a bot's, such as the branches Dependabot and Renovate push.
+// request's, another repository's, or a bot's own branch, such as Dependabot's.
 function followsUntrustedRun(eventName: string): boolean {
   const eventPath = process.env.GITHUB_EVENT_PATH
   if (eventName !== 'workflow_run' || !eventPath) return false
-  const run = (JSON.parse(readFileSync(eventPath, 'utf8')) as WorkflowRunEvent)
-    .workflow_run
+  const { workflow_run: run, repository } = JSON.parse(
+    readFileSync(eventPath, 'utf8')
+  ) as WorkflowRunEvent
   return (
     run.event.startsWith('pull_request') ||
     run.head_repository.full_name.toLowerCase() !==
       (process.env.GITHUB_REPOSITORY ?? '').toLowerCase() ||
-    // A maintainer who re-runs a bot's run becomes only its triggering actor.
-    [run.actor, run.triggering_actor].some((account) => account?.type === 'Bot')
+    // A bot that pushes to the default branch merges what people approved. A maintainer who re-runs
+    // a bot's run becomes only its triggering actor.
+    (run.head_branch !== repository.default_branch &&
+      [run.actor, run.triggering_actor].some(
+        (account) => account?.type === 'Bot'
+      ))
   )
 }
 
@@ -558,22 +581,8 @@ async function dispatch(inputs: Inputs, report: Reporter): Promise<void> {
 // GitHub names the commit the triggering run built, so the status has somewhere to go before anything
 // can fail, the reading of the inputs included.
 function workflowRunReporter(): Reporter {
-  const eventPath = process.env.GITHUB_EVENT_PATH
-  if (process.env.GITHUB_EVENT_NAME !== 'workflow_run' || !eventPath)
-    return noReporter
-  const repository = process.env.GITHUB_REPOSITORY ?? ''
-  const projectKey = core.getInput('project-key')
-  return trackedReporter({
-    apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
-    repository,
-    sha: (JSON.parse(readFileSync(eventPath, 'utf8')) as WorkflowRunEvent)
-      .workflow_run.head_sha,
-    token: core.getInput('github-token'),
-    name: projectKey
-      ? `Sonar fork analysis (${projectKey})`
-      : 'Sonar fork analysis',
-    url: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`
-  })
+  const target = runStatusTarget()
+  return target ? trackedReporter(target) : noReporter
 }
 
 export async function run(): Promise<void> {
