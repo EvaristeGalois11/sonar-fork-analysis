@@ -186,12 +186,24 @@ describe('choosePullRequest', () => {
   const toMain = { key: '7', branch: 'feature', base: 'main' }
   const toRelease = { key: '8', branch: 'feature', base: 'release' }
 
-  it('takes the only candidate whatever the hint says', () => {
-    expect(choosePullRequest([toMain], 1)).toEqual({ pullRequest: toMain })
+  it('takes the only candidate when the build names none', () => {
+    expect(choosePullRequest([toMain], undefined)).toEqual({
+      pullRequest: toMain
+    })
   })
 
+  it.each([
+    [[toMain], 8],
+    [[toMain, toRelease], 99]
+  ])(
+    'finds the pull request the build was for gone among %o',
+    (candidates, hint) => {
+      expect(choosePullRequest(candidates, hint)).toEqual({ gone: hint })
+    }
+  )
+
   it('has nothing to choose without candidates', () => {
-    expect(() => choosePullRequest([], 7)).toThrow(
+    expect(() => choosePullRequest([], undefined)).toThrow(
       'There is no open pull request to analyse'
     )
   })
@@ -202,12 +214,13 @@ describe('choosePullRequest', () => {
     })
   })
 
-  it.each([undefined, 99, '8', 8.5])(
+  it.each([undefined, '8', 8.5])(
     'falls back to the first candidate, with a warning, for the hint %o',
     (hint) => {
-      const choice = choosePullRequest([toMain, toRelease], hint)
-      expect(choice.pullRequest).toBe(toMain)
-      expect(choice.warning).toMatch(/2 open pull requests/)
+      expect(choosePullRequest([toMain, toRelease], hint)).toEqual({
+        pullRequest: toMain,
+        warning: expect.stringMatching(/2 open pull requests/)
+      })
     }
   )
 })

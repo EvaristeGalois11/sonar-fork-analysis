@@ -79,12 +79,13 @@ async function findPullRequests(
 export function choosePullRequest(
   candidates: PullRequest[],
   hint: unknown
-): { pullRequest: PullRequest; warning?: string } {
-  const hinted =
-    typeof hint === 'number' && Number.isSafeInteger(hint)
-      ? candidates.find((pull) => pull.key === String(hint))
-      : undefined
-  if (hinted) return { pullRequest: hinted }
+): { pullRequest: PullRequest; warning?: string } | { gone: number } {
+  if (typeof hint === 'number' && Number.isSafeInteger(hint)) {
+    const hinted = candidates.find((pull) => pull.key === String(hint))
+    // Closed, or moved on to newer commits: another candidate would get results built for a
+    // different base.
+    return hinted ? { pullRequest: hinted } : { gone: hint }
+  }
   const [first] = candidates
   if (!first) throw new Error('There is no open pull request to analyse')
   return candidates.length > 1

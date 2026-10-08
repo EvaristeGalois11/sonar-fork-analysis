@@ -6,8 +6,8 @@ const resolveMode = (
   requested: string,
   eventName: string,
   token: string,
-  unreviewedRun = false
-) => resolveModeOf(requested, eventName, token, unreviewedRun)
+  untrustedRun = false
+) => resolveModeOf(requested, eventName, token, untrustedRun)
 
 describe('resolveMode', () => {
   it('analyses directly when the token is available', () => {
@@ -83,7 +83,7 @@ describe('resolveMode', () => {
 
   it("refuses a forced direct analysis of a pull request's code on workflow_run", () => {
     expect(() => resolveMode('direct', 'workflow_run', 'token', true)).toThrow(
-      /Refusing to build a pull request's code on workflow_run/
+      /Refusing to build on workflow_run after a run of a pull request/
     )
     expect(resolveMode('auto', 'workflow_run', 'token', true)).toEqual({
       mode: 'analyze'

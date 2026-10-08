@@ -470,6 +470,15 @@ describe('unpackWorkspace', () => {
     ).toEqual([`Skipped ${join('src', 'Evil.ts')}: inside the sources`])
   })
 
+  it('protects the sources when the checkout itself is reached through a link', () => {
+    const linked = join(outside, 'checkout')
+    symlinkSync(workspace, linked, 'dir')
+    file(join(artifact, 'Evil.java'))
+    expect(unpackWorkspace(artifact, linked, [linked])).toEqual([
+      'Skipped Evil.java: inside the sources'
+    ])
+  })
+
   it('stays quiet about type information the checkout already has', () => {
     file(join(workspace, 'node_modules/fixture/index.d.ts'), 'committed')
     file(join(workspace, 'node_modules/fixture/index.js'), 'committed')

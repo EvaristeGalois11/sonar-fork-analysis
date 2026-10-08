@@ -8,13 +8,13 @@ const MODES = ['auto', 'direct', 'prepare', 'analyze']
 // there would hand those to its code, which is exactly what this action exists to avoid.
 const PRIVILEGED_EVENTS = new Set(['pull_request_target', 'issue_comment'])
 
-// unreviewedRun: on workflow_run, whether the run it follows built a pull request's code or another
-// repository's.
+// untrustedRun: on workflow_run, whether the run it follows built a pull request's code, another
+// repository's or a bot's.
 export function resolveMode(
   requested: string,
   eventName: string,
   token: string,
-  unreviewedRun: boolean
+  untrustedRun: boolean
 ): Resolution {
   if (!MODES.includes(requested)) {
     throw new Error(
@@ -31,7 +31,7 @@ export function resolveMode(
     mode = requested as Mode
   }
   if (mode === 'analyze') return { mode }
-  return checkBuild(mode, eventName, token, unreviewedRun)
+  return checkBuild(mode, eventName, token, untrustedRun)
 }
 
 // Whether a mode that builds may build on this event.
@@ -39,7 +39,7 @@ function checkBuild(
   mode: 'direct' | 'prepare',
   eventName: string,
   token: string,
-  unreviewedRun: boolean
+  untrustedRun: boolean
 ): Resolution {
   if (
     PRIVILEGED_EVENTS.has(eventName) ||
@@ -64,9 +64,9 @@ function checkBuild(
     )
   }
   if (eventName !== 'workflow_run') return { mode }
-  if (unreviewedRun)
+  if (untrustedRun)
     throw new Error(
-      "Refusing to build a pull request's code on workflow_run: it would run with the repository's secrets. Use mode auto to analyse it."
+      "Refusing to build on workflow_run after a run of a pull request, another repository or a bot: the build would run with the repository's secrets. Use mode auto to analyse it."
     )
   return {
     mode,

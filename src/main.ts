@@ -396,7 +396,17 @@ async function analyzeRun(
   }
 
   await report('pending', 'Analysing')
-  await analyzeCommit(inputs, context, origin, workspace, found)
+  const result = await analyzeCommit(inputs, context, origin, workspace, found)
+  if ('gone' in result) {
+    core.notice(
+      `The build's pull request #${String(result.gone)} is closed or has newer commits: nothing to analyse.`
+    )
+    await report(
+      'success',
+      `Skipped: the build was for #${String(result.gone)}`
+    )
+    return
+  }
   await report('success', 'Analysed')
 }
 
@@ -406,7 +416,7 @@ async function analyzeCommit(
   origin: Origin,
   workspace: string,
   found: Found
-): Promise<void> {
+): Promise<{ analysed: true } | { gone: number }> {
   const name = artifactName(inputs.projectKey)
   if (inputs.checkout) {
     await checkoutCommit(workspace, {
@@ -431,6 +441,14 @@ async function analyzeCommit(
     readFileSync(join(artifact, 'settings.json'), 'utf8'),
     name
   )
+  let pullRequest: PullRequest | undefined
+  let choiceWarning: string | undefined
+  if (origin.pullRequests) {
+    const choice = choosePullRequest(origin.pullRequests, manifest.pullRequest)
+    if ('gone' in choice) return { gone: choice.gone }
+    pullRequest = choice.pullRequest
+    choiceWarning = choice.warning
+  }
 
   // Sources are checked against the checkout before anything is unpacked into it.
   const home = join(temp, 'home')
@@ -449,12 +467,7 @@ async function analyzeCommit(
   ]
   if (existsSync(join(artifact, 'home')))
     cpSync(join(artifact, 'home'), home, { recursive: true })
-  let pullRequest: PullRequest | undefined
-  if (origin.pullRequests) {
-    const choice = choosePullRequest(origin.pullRequests, manifest.pullRequest)
-    pullRequest = choice.pullRequest
-    if (choice.warning) warnings.push(choice.warning)
-  }
+  if (choiceWarning) warnings.push(choiceWarning)
   // core.warning escapes its message, unlike core.info, so artifact content cannot inject commands.
   for (const warning of warnings) core.warning(warning)
 
@@ -501,11 +514,12 @@ async function analyzeCommit(
   }
   if (exitCode !== 0)
     throw new Error(`The Sonar scanner failed with exit code ${exitCode}`)
+  return { analysed: true }
 }
 
-// Whether the run a workflow_run follows built code no one here reviewed: a pull request's,
-// Dependabot's too, or another repository's.
-function followsUnreviewedRun(eventName: string): boolean {
+// Whether the run a workflow_run follows built code that no one with write access put here: a pull
+// request's, another repository's, or a bot's, such as the branches Dependabot and Renovate push.
+function followsUntrustedRun(eventName: string): boolean {
   const eventPath = process.env.GITHUB_EVENT_PATH
   if (eventName !== 'workflow_run' || !eventPath) return false
   const run = (JSON.parse(readFileSync(eventPath, 'utf8')) as WorkflowRunEvent)
@@ -513,7 +527,9 @@ function followsUnreviewedRun(eventName: string): boolean {
   return (
     run.event.startsWith('pull_request') ||
     run.head_repository.full_name.toLowerCase() !==
-      (process.env.GITHUB_REPOSITORY ?? '').toLowerCase()
+      (process.env.GITHUB_REPOSITORY ?? '').toLowerCase() ||
+    // A maintainer who re-runs a bot's run becomes only its triggering actor.
+    [run.actor, run.triggering_actor].some((account) => account?.type === 'Bot')
   )
 }
 
@@ -523,7 +539,7 @@ async function dispatch(inputs: Inputs, report: Reporter): Promise<void> {
     inputs.mode,
     eventName,
     inputs.token,
-    followsUnreviewedRun(eventName)
+    followsUntrustedRun(eventName)
   )
   if (resolution.warning) core.warning(resolution.warning)
   core.info(`Mode: ${resolution.mode}`)
