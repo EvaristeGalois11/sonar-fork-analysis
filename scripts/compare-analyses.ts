@@ -3,7 +3,10 @@
 //
 // Usage: node scripts/compare-analyses.ts <project key> <other project key>
 // Environment: SONAR_TOKEN, SONAR_HOST_URL (default SonarQube Cloud), PULL_REQUEST (compare that pull
-// request's analyses instead of the main branch's), COMMIT (wait until both analysed this commit).
+// request's analyses instead of the main branch's), COMMIT (wait until both analysed this commit),
+// DIRECT_ONLY (paths only the first project may hold: files the fork path must not analyse; on the
+// main branch each must have an issue there), LANGUAGES (the only languages the second project may
+// hold).
 //
 // Pull request analyses only keep issues on changed lines, list only changed files and have no blame,
 // so the comparison is complete on the main branch only.
@@ -41,10 +44,16 @@ const METRICS = [
 
 type Measure = { metric: string; value?: string }
 type Issue = { rule: string; component: string; line?: number; message: string }
-type File = { key: string; path: string; measures: Measure[] }
+type File = {
+  key: string
+  path: string
+  language?: string
+  measures: Measure[]
+}
 type Paging = { paging: { total: number } }
 type Analysed = { key?: string; isMain?: boolean; commit?: { sha: string } }
-type Results = Record<'measures' | 'issues' | 'files' | 'blame', string[]>
+type Entry = { path: string; line: string }
+type Results = Record<'measures' | 'issues' | 'files' | 'blame', Entry[]>
 
 const sleep = (seconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, seconds * 1000))
@@ -131,18 +140,37 @@ async function processed(project: string): Promise<void> {
   )
 }
 
-async function results(project: string): Promise<Results> {
-  const scope: Record<string, string> = pullRequest ? { pullRequest } : {}
-  const { component } = await api<{ component: { measures: Measure[] } }>(
-    '/api/measures/component',
+async function files(
+  project: string,
+  scope: Record<string, string>,
+  metrics: string[]
+): Promise<File[]> {
+  const tree = await api<{ components: File[] } & Paging>(
+    '/api/measures/component_tree',
     {
       component: project,
-      metricKeys: METRICS.join(','),
+      qualifiers: 'FIL,UTS',
+      metricKeys: metrics.join(','),
+      ps: '500',
       ...scope
     }
   )
-  const measures = component.measures.map(
-    (measure) => `${measure.metric} ${measure.value ?? '-'}`
+  return complete(tree.components, tree, 'files')
+}
+
+// Per file, so a file only one project may hold leaves the rest comparable.
+async function results(project: string): Promise<Results> {
+  const scope: Record<string, string> = pullRequest ? { pullRequest } : {}
+  // The server takes at most 15 metrics a request.
+  const [components, more] = await Promise.all([
+    files(project, scope, METRICS.slice(0, 15)),
+    files(project, scope, METRICS.slice(15))
+  ])
+  const measures = [...components, ...more].flatMap((file) =>
+    file.measures.map((measure) => ({
+      path: file.path,
+      line: `${file.path} ${measure.metric} ${measure.value ?? '-'}`
+    }))
   )
   const issueSearch = await api<{ issues: Issue[] } & Paging>(
     '/api/issues/search',
@@ -158,23 +186,10 @@ async function results(project: string): Promise<Results> {
   const path = (key: string): string =>
     key.startsWith(`${project}:`) ? key.slice(project.length + 1) : ''
   const issues = complete(issueSearch.issues, issueSearch, 'issues').map(
-    (issue) =>
-      `${issue.rule} ${path(issue.component)}:${issue.line ?? '-'} ${issue.message}`
-  )
-  const tree = await api<{ components: File[] } & Paging>(
-    '/api/measures/component_tree',
-    {
-      component: project,
-      qualifiers: 'FIL,UTS',
-      metricKeys: 'coverage',
-      ps: '500',
-      ...scope
-    }
-  )
-  const components = complete(tree.components, tree, 'files')
-  const files = components.map(
-    (file) =>
-      `${file.path} ${file.measures.find((m) => m.metric === 'coverage')?.value ?? '-'}`
+    (issue) => ({
+      path: path(issue.component),
+      line: `${issue.rule} ${path(issue.component)}:${issue.line ?? '-'} ${issue.message}`
+    })
   )
   // Without history, e.g. from a shallow checkout, the scanner only warns and everything above still
   // matches. Commit ids only: blame also carries author emails, which don't belong in a public log.
@@ -187,10 +202,21 @@ async function results(project: string): Promise<Results> {
         { key: file.key, ...scope }
       )
       const commits = [...new Set(scm.map((line) => line[3]))].sort(byCodeUnit)
-      return `${file.path} ${commits.join(',') || '-'}`
+      return {
+        path: file.path,
+        line: `${file.path} ${commits.join(',') || '-'}`
+      }
     })
   )
-  return { measures, issues, files, blame }
+  return {
+    measures,
+    issues,
+    files: components.map((file) => ({
+      path: file.path,
+      line: `${file.path} ${file.language ?? '-'}`
+    })),
+    blame
+  }
 }
 
 // Counts, not sets: two identical issues on one line against one is a difference.
@@ -204,15 +230,40 @@ function difference(from: string[], to: string[]): string[] {
   })
 }
 
+const list = (name: string): string[] =>
+  (process.env[name] ?? '').split(',').filter(Boolean)
+const directOnly = new Set(list('DIRECT_ONLY'))
+const languages = list('LANGUAGES')
+
 await Promise.all([processed(first), processed(second)])
 const [expected, actual] = await Promise.all([results(first), results(second)])
 
 let different = false
+// A pull request's analysis only holds the files it changes.
+for (const path of pullRequest ? [] : directOnly) {
+  if (!expected.issues.some((issue) => issue.path === path)) {
+    different = true
+    console.log(`${first} has no issue on ${path}, so it did not analyse it`)
+  }
+}
+const unexpected = actual.files.filter(
+  ({ line }) =>
+    languages.length > 0 && !languages.includes(line.split(' ').pop() ?? '')
+)
+if (unexpected.length > 0) {
+  different = true
+  console.log(`${second} holds languages beyond ${languages.join(', ')}:`)
+  for (const { line } of unexpected) console.log(`  ${line}`)
+}
 for (const kind of ['measures', 'issues', 'files', 'blame'] as const) {
-  const missing = difference(expected[kind], actual[kind]).sort(byCodeUnit)
-  const extra = difference(actual[kind], expected[kind]).sort(byCodeUnit)
+  const lines = (entries: Entry[]): string[] => entries.map(({ line }) => line)
+  const shared = lines(
+    expected[kind].filter(({ path }) => !directOnly.has(path))
+  )
+  const missing = difference(shared, lines(actual[kind])).sort(byCodeUnit)
+  const extra = difference(lines(actual[kind]), shared).sort(byCodeUnit)
   if (missing.length === 0 && extra.length === 0) {
-    console.log(`${kind}: ${expected[kind].length} identical`)
+    console.log(`${kind}: ${shared.length} identical`)
     continue
   }
   different = true

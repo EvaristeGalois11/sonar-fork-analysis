@@ -26,6 +26,7 @@ const settings = new Map([
   ['sonar.region', 'us'],
   ['sonar.gradle.scanAll', 'true'],
   ['org.acme:parent-tests.sonar.sca.enabled', 'true'],
+  ['org.acme:parent-tests.sonar.python.file.suffixes', '.java'],
   ['env.GITHUB_TOKEN', 'ghs_secret'],
   ['java.home', '/usr/lib/jvm']
 ])
@@ -177,11 +178,12 @@ describe('isAllowed', () => {
     'sonar.python.ruff.reportPaths',
     'sonar.cs.opencover.reportsPaths',
     'sonar.php.tests.reportPath',
-    'sonar.docker.file.patterns',
-    'sonar.python.file.suffixes',
+    'sonar.cloudformation.file.identifier',
     'sonar.terraform.activate',
     'sonar.go.exclusions',
-    'sonar.lang.patterns.docker',
+    'sonar.test.exclusions',
+    'sonar.inclusions',
+    'sonar.test.inclusions',
     'sonar.typescript.tsconfigPaths',
     'sonar.python.version',
     'sonar.android.minsdkversion.min'
@@ -199,6 +201,10 @@ describe('isAllowed', () => {
     'sonar.cfamily.compile-commands',
     'sonar.rust.cargo.manifestPaths',
     'sonar.javascript.node.maxspace',
+    // They decide each file's language. That decides which analyzers load.
+    'sonar.docker.file.patterns',
+    'sonar.python.file.suffixes',
+    'sonar.lang.patterns.java',
     'env.COVERAGE_REPORTPATHS'
   ])('refuses %s', (key) => {
     expect(isAllowed(key)).toBe(false)
@@ -228,7 +234,8 @@ describe('filterSettings', () => {
     expect(dropped).toEqual([
       'sonar.nodejs.executable',
       'sonar.region',
-      'org.acme:parent-tests.sonar.sca.enabled'
+      'org.acme:parent-tests.sonar.sca.enabled',
+      'org.acme:parent-tests.sonar.python.file.suffixes'
     ])
   })
 

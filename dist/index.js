@@ -73729,6 +73729,67 @@ If the error persists, please check whether Actions and API requests are operati
 };
 new DefaultArtifactClient();
 //#endregion
+//#region src/retry.ts
+var CHECKOUT_POLICY = {
+	attempts: 3,
+	minSeconds: 10,
+	maxSeconds: 20,
+	sleep: (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1e3))
+};
+async function retry(action, policy = CHECKOUT_POLICY) {
+	for (let attempt = 1; attempt < policy.attempts; attempt++) {
+		try {
+			return await action();
+		} catch (error) {
+			info(error instanceof Error ? error.message : String(error));
+		}
+		const seconds = randomInt(policy.minSeconds, policy.maxSeconds + 1);
+		info(`Waiting ${seconds} seconds before trying again`);
+		await policy.sleep(seconds);
+	}
+	return action();
+}
+//#endregion
+//#region src/languages.ts
+var TESTED_LANGUAGES = [
+	"java",
+	"kotlin",
+	"js",
+	"ts",
+	"css",
+	"web",
+	"xml",
+	"yaml",
+	"json",
+	"docker",
+	"kubernetes",
+	"githubactions",
+	"text",
+	"secrets"
+];
+var NO_FILE = "file:/dev/null/never";
+function languagesHost(hostUrl, buildArguments) {
+	const argument = (key) => buildArguments.findLast((arg) => arg.startsWith(`-D${key}=`))?.slice(`-D${key}=`.length);
+	let host = argument("sonar.host.url") || hostUrl || process.env.SONAR_HOST_URL || (argument("sonar.region") === "us" ? "https://sonarqube.us" : "https://sonarcloud.io");
+	while (host.endsWith("/")) host = host.slice(0, -1);
+	return host;
+}
+async function serverLanguages(host, token) {
+	const response = await retry(async () => {
+		const answer = await fetch(`${host}/api/languages/list?ps=0`, { headers: { Authorization: `Bearer ${token}` } });
+		if (answer.status >= 500) throw new Error(`${host} answered ${answer.status}`);
+		return answer;
+	});
+	if (!response.ok) throw new Error(`Could not get the server's languages: ${host} answered ${response.status}`);
+	const { languages } = await response.json();
+	const keys = (languages ?? []).map(({ key }) => key);
+	if (keys.length === 0 || !keys.every((key) => typeof key === "string" && /^\w+$/.test(key))) throw new Error(`Could not get the server's languages: ${host} listed none, or a name that is not a plain word`);
+	return keys;
+}
+function untestedLanguages(languages) {
+	return languages.filter((language) => !TESTED_LANGUAGES.includes(language));
+}
+//#endregion
 //#region src/real-path.ts
 var realPath = realpathSync.native;
 function present(path) {
@@ -73828,12 +73889,9 @@ var PLAIN_KEYS = /* @__PURE__ */ new Set([
 var PLAIN_PREFIXES = [
 	"sonar.issue.ignore.",
 	"sonar.issue.enforce.",
-	"sonar.links.",
-	"sonar.lang.patterns."
+	"sonar.links."
 ];
 var PLAIN_SUFFIXES = [
-	".file.suffixes",
-	".file.patterns",
 	".file.identifier",
 	".activate",
 	".exclusions",
@@ -74413,7 +74471,7 @@ function formatProperties(properties) {
 	for (const [key, value] of properties) if (PLACEHOLDER.test(value)) throw new Error(`${key} holds a placeholder the Sonar scanner would expand: ${value}`);
 	return [...properties].map(([key, value]) => `${escape(key, true)}=${escape(value, false)}`).join("\n").concat("\n");
 }
-function trustedProperties(target, analysed, workingDirectory) {
+function trustedProperties(target, analysed, workingDirectory, languages) {
 	const properties = /* @__PURE__ */ new Map([
 		["sonar.projectKey", target.projectKey],
 		["sonar.scm.revision", analysed.headSha],
@@ -74421,6 +74479,7 @@ function trustedProperties(target, analysed, workingDirectory) {
 		["sonar.sca.enabled", "false"],
 		["sonar.scanner.autoconfig.enabled", "false"]
 	]);
+	for (const language of untestedLanguages(languages)) properties.set(`sonar.lang.patterns.${language}`, NO_FILE);
 	if (target.organization) properties.set("sonar.organization", target.organization);
 	if (target.hostUrl) properties.set("sonar.host.url", target.hostUrl);
 	if (analysed.pullRequest) {
@@ -74492,27 +74551,6 @@ var RUNNER_FILES = /* @__PURE__ */ new Set([
 ]);
 function toolEnvironment() {
 	return Object.fromEntries(Object.entries(jobEnvironment()).filter(([name]) => !name.startsWith("ACTIONS_") && !RUNNER_FILES.has(name)));
-}
-//#endregion
-//#region src/retry.ts
-var CHECKOUT_POLICY = {
-	attempts: 3,
-	minSeconds: 10,
-	maxSeconds: 20,
-	sleep: (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1e3))
-};
-async function retry(action, policy = CHECKOUT_POLICY) {
-	for (let attempt = 1; attempt < policy.attempts; attempt++) {
-		try {
-			return await action();
-		} catch (error) {
-			info(error instanceof Error ? error.message : String(error));
-		}
-		const seconds = randomInt(policy.minSeconds, policy.maxSeconds + 1);
-		info(`Waiting ${seconds} seconds before trying again`);
-		await policy.sleep(seconds);
-	}
-	return action();
 }
 //#endregion
 //#region src/checkout.ts
@@ -76684,7 +76722,7 @@ async function prepare(inputs) {
 		workspace,
 		home: homedir()
 	}, staging, tool.name, pullRequestNumber(), types.files, types.links);
-	for (const warning$2 of staged.warnings) warning(warning$2);
+	for (const warning$1 of staged.warnings) warning(warning$1);
 	if (!process.env.ACTIONS_RUNTIME_TOKEN) {
 		warning(`Not running in GitHub Actions, so ${name} was not uploaded: ${staging}`);
 		return;
@@ -76831,17 +76869,19 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
 	];
 	if (existsSync$1(join(artifact, "home"))) cpSync(join(artifact, "home"), home, { recursive: true });
 	if (choiceWarning) warnings.push(choiceWarning);
-	for (const warning$1 of warnings) warning(warning$1);
+	for (const warning$2 of warnings) warning(warning$2);
 	const properties = resolved.properties;
 	if (!properties.has("sonar.projectBaseDir")) properties.set("sonar.projectBaseDir", workspace);
+	const languages = await serverLanguages(languagesHost(inputs.hostUrl, inputs.buildArguments), inputs.token);
 	const trusted = trustedProperties(inputs, {
 		headSha: origin.headSha,
 		pullRequest,
 		branch: origin.branch
-	}, join(temp, "scannerwork"));
+	}, join(temp, "scannerwork"), languages);
 	for (const [key, value] of trusted) properties.set(key, value);
 	const settingsFile = join(temp, "sonar-project.properties");
 	writeFileSync(settingsFile, formatProperties(properties));
+	logUntestedLanguages(untestedLanguages(languages), inputs.buildArguments);
 	const scanner = await installScanner();
 	info(`Analysing ${name}`);
 	const env = toolEnvironment();
@@ -76863,6 +76903,13 @@ async function analyzeCommit(inputs, context, origin, workspace, found) {
 	}
 	if (exitCode !== 0) throw new Error(`The Sonar scanner failed with exit code ${exitCode}`);
 	return { analysed: true };
+}
+function logUntestedLanguages(languages, buildArguments) {
+	info(`The analyzers of languages this action isn't tested with stay off: ${languages.join(", ")}. To turn one on, set sonar.lang.patterns.<language> in build-arguments.`);
+	for (const arg of buildArguments) {
+		const [, key] = /^-D(sonar\.lang\.patterns\.[^=]*)=/.exec(arg) ?? [];
+		if (key) info(`build-arguments set ${key}: that language's analyzer runs with the token.`);
+	}
 }
 function followsUntrustedRun(eventName) {
 	const eventPath = process.env.GITHUB_EVENT_PATH;

@@ -116,14 +116,13 @@ const PLAIN_KEYS = new Set([
 const PLAIN_PREFIXES = [
   'sonar.issue.ignore.',
   'sonar.issue.enforce.',
-  'sonar.links.',
-  'sonar.lang.patterns.'
+  'sonar.links.'
 ]
 
-// Settings every language has its own copy of, so new languages need no release.
+// Settings every language has its own copy of, so new languages need no release. File suffixes and
+// patterns stay out, like sonar.lang.patterns.*: they decide each file's language, and so which
+// analyzers load. The analysis blocks untested languages with sonar.lang.patterns.*.
 const PLAIN_SUFFIXES = [
-  '.file.suffixes',
-  '.file.patterns',
   '.file.identifier',
   '.activate',
   '.exclusions',

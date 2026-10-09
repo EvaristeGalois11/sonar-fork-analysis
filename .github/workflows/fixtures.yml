@@ -363,3 +363,7 @@ jobs:
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           # What SonarQube Cloud records for both paths: the pull request's head, or the pushed commit.
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          # The fork path only analyses the languages the action is tested with.
+          DIRECT_ONLY:
+            ${{ matrix.fixture == 'npm' && 'packages/app/src/decoy.py' || '' }}
+          LANGUAGES: java,kotlin,js,ts,css,web,xml,yaml,json,docker

@@ -172,7 +172,17 @@ describe('resolveSettings on any settings', () => {
       )
       .map(([prefix, text]) => prefix + text),
     settingText.map((text) => `sonar.${text}.exclusions`),
-    settingText.map((text) => `sonar.${text}.reportPaths`)
+    settingText.map((text) => `sonar.${text}.reportPaths`),
+    // What maps files to languages. That decides which analyzers load.
+    fc
+      .constantFrom('java', 'py', 'rust', '')
+      .chain((language) =>
+        fc.constantFrom(
+          `sonar.${language}.file.suffixes`,
+          `sonar.${language}.file.patterns`,
+          `sonar.lang.patterns.${language}`
+        )
+      )
   )
   const key = fc.oneof(
     bareKey,
@@ -220,7 +230,7 @@ describe('resolveSettings on any settings', () => {
     fc.dictionary(key, value).map((random) => ({ ...random, ...modules }))
   )
 
-  it('keeps no forbidden setting, no placeholder in values, no half character, and fails only by refusing', () => {
+  it('keeps no forbidden setting, no language mapping, no placeholder in values, no half character, and fails only by refusing', () => {
     freshDirectories()
     mkdirSync(join(workspace, 'src'))
     mkdirSync(join(workspace, 'lib'))
@@ -242,6 +252,10 @@ describe('resolveSettings on any settings', () => {
         for (const forbiddenKey of forbidden)
           for (const prefix of ['', 'm.', 'n.'])
             expect(properties.has(prefix + forbiddenKey)).toBe(false)
+        for (const key of properties.keys())
+          expect(key).not.toMatch(
+            /\.file\.(?:suffixes|patterns)$|(?:^|\.)sonar\.lang\.patterns\./
+          )
       }),
       { numRuns: 1000 }
     )
