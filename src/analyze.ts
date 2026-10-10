@@ -21,6 +21,7 @@ import {
   resolve,
   sep
 } from 'node:path'
+import { NO_FILE, untestedLanguages } from './languages.js'
 import type { PullRequest } from './origin.js'
 import { ARTIFACT_FORMAT } from './prepare.js'
 import { realLocation, realPath } from './real-path.js'
@@ -657,7 +658,8 @@ export type Analysed = {
 export function trustedProperties(
   target: Target,
   analysed: Analysed,
-  workingDirectory: string
+  workingDirectory: string,
+  languages: string[]
 ): Map<string, string> {
   const properties = new Map([
     ['sonar.projectKey', target.projectKey],
@@ -672,6 +674,9 @@ export function trustedProperties(
     // (SonarCloud engine 13.14, behind server-side feature flags).
     ['sonar.scanner.autoconfig.enabled', 'false']
   ])
+  // Files of untested languages get no language, so the engine never loads those analyzers.
+  for (const language of untestedLanguages(languages))
+    properties.set(`sonar.lang.patterns.${language}`, NO_FILE)
   if (target.organization)
     properties.set('sonar.organization', target.organization)
   if (target.hostUrl) properties.set('sonar.host.url', target.hostUrl)

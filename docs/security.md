@@ -57,22 +57,36 @@ out the same way the scanner's engine does it, and each one needs its own base
 directory inside the checkout.
 
 Then the action sets the settings that matter for safety itself, whatever the
-artifact says: the project key, the analysed commit, the working directory and
-the [features that stay off](#what-stays-off-on-the-fork-path).
+artifact says: the project key, the analysed commit, the working directory, the
+languages it analyses and the
+[features that stay off](#what-stays-off-on-the-fork-path).
 
-**The analyzers.** For the languages in the tested sample projects (Java,
-JavaScript and TypeScript), they only read files. For JavaScript and TypeScript,
-this was tested against Sonar's real analyzer with a project that tried every
-way to get its own code run. The analyzer used its own Node.js and TypeScript.
-It ran none of the project's configuration files (ESLint, Babel, TypeScript and
-others) and loaded no code from its `node_modules`. It only read `tsconfig`
-files and type declarations as data. Two Node test fixtures, one installed with
-npm and one with pnpm, keep checking this against SonarQube Cloud's analyzer,
-see [keeping up with the scanner](#keeping-up-with-the-scanner). Analyzers for
-other languages haven't been checked. Some might start other programs. A fork's
-file names and report settings decide which analyzers run. So an untested
-language can turn up in any project. The action guarantees nothing for those
-languages.
+**The analyzers.** On the fork path, only the analyzers of the
+[languages the sample projects test](../README.md#languages-on-pull-requests-from-forks)
+run. Sonar's engine loads a language's analyzer only once it finds a file of
+that language. So the action asks the server which languages it knows. For each
+of the others, it sets `sonar.lang.patterns.<language>` to a pattern no file can
+match. Files of those languages are still indexed, but with no language. Their
+analyzers never load in the job that has the token. If the server doesn't list
+its languages, the analysis stops. The tests check the engine habits this relies
+on. They run against SonarQube Cloud's engine and SonarQube's.
+
+The always-loaded `iac` plugin also sorts YAML and JSON files by their content.
+For example, it finds CloudFormation and Ansible files that way. Turning
+languages off doesn't stop that. Those sensors only read files.
+
+The analyzers of the tested languages only read files. For JavaScript and
+TypeScript, this was tested against Sonar's real analyzer with a project that
+tried every way to get its own code run. The analyzer used its own Node.js and
+TypeScript. It ran none of the project's configuration files (ESLint, Babel,
+TypeScript and others) and loaded no code from its `node_modules`. It only read
+`tsconfig` files and type declarations as data. Two Node test fixtures, one
+installed with npm and one with pnpm, keep checking this against SonarQube
+Cloud's analyzer, see
+[keeping up with the scanner](#keeping-up-with-the-scanner). Analyzers for other
+languages haven't been checked. Some might start other programs. If you turn
+their language on with `build-arguments`, the action guarantees nothing for
+them.
 
 **The scanner.** It runs in an empty directory of its own. Its environment holds
 the Sonar token, but not the action's inputs, the runner's own tokens or
@@ -84,10 +98,13 @@ environment.
 
 The build only passes on the settings an analysis needs, picked by name. These
 are the project's structure (modules, sources, tests, binaries, libraries),
-report paths for coverage, tests and external issues, per-language settings such
-as file suffixes, and exclusions. Everything else stays behind. That includes
-the server, the token and the project key, scanner and branch settings, and
-anything that would start a program, like a JDBC driver or Node.js.
+report paths for coverage, tests and external issues, per-language settings and
+exclusions. Everything else stays behind. That includes the server, the token
+and the project key, scanner and branch settings, and anything that would start
+a program, like a JDBC driver or Node.js. It also includes the settings that
+decide each file's language: file suffixes and patterns, and
+`sonar.lang.patterns.*`. The Sonar workflow sets its own. See
+[the analyzers](#what-the-sonar-workflow-does).
 
 Reports are recognised by their name (`…reportPaths` and similar), so a report
 from a tool Sonar adds later works without a new release of this action.
@@ -173,14 +190,18 @@ week: the scanner CLI it pins, together with the engines that SonarQube Cloud
 and the latest SonarQube Community Build currently serve. The tests check that
 the scanner reads settings exactly as the action checked them, that the engine
 builds the same modules and that no part of the engine beyond the reviewed ones
-can start a program.
+can start a program. They also check three habits of the engine. A language's
+`sonar.lang.patterns` setting replaces its own patterns. The pattern that turns
+a language off matches no file. The engine loads analyzers only for the
+languages it finds.
 
 The analysis of the test fixtures also sets traps. Fake build tools on the
 `PATH` fail the run if the analysis ever starts one. The fixtures' Maven and
 Gradle wrappers need Java, `wget` and `curl`. Fakes of these fail the run too.
 So do booby-trapped Gradle settings in the fixtures. The Node fixtures add
 booby-trapped configuration files and packages, which fail the run if the
-JavaScript analyzer ever loads them.
+JavaScript analyzer ever loads them. One fixture also holds a Python file. The
+direct analysis must report its issue. The fork path must not analyse it.
 
 Older SonarQube Server versions and commercial editions aren't tested.
 

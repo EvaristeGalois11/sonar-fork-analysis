@@ -24,6 +24,7 @@ import * as artifact from '../__fixtures__/artifact.js'
 import * as core from '../__fixtures__/core.js'
 import { linuxIt } from '../__fixtures__/platform.js'
 import { exec, getExecOutput } from '../__fixtures__/exec.js'
+import { NO_FILE } from '../src/languages.js'
 
 // Mocks must be declared before the module under test is imported.
 vi.doMock('@actions/core', () => core)
@@ -32,6 +33,12 @@ vi.doMock('../src/scanner.js', () => ({
   installScanner: async () => '/opt/sonar-scanner/bin/sonar-scanner'
 }))
 vi.doMock('@actions/artifact', () => artifact)
+// The server's languages, which the analysis asks for.
+const serverLanguages = vi.fn(async () => ['java', 'ts', 'py', 'rust'])
+vi.doMock('../src/languages.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/languages.js')>()),
+  serverLanguages
+}))
 
 const { run } = await import('../src/main.js')
 
@@ -447,6 +454,7 @@ describe('run in prepare mode', () => {
         'sonar.host.url=http\\://127.0.0.1\\:9',
         'sonar.nodejs.executable=/usr/bin/node',
         'app.sonar.nodejs.executable=/usr/bin/node',
+        'app.sonar.python.file.suffixes=.java',
         'env.SECRET=leaked'
       ].join('\n')
     )
@@ -457,7 +465,7 @@ describe('run in prepare mode', () => {
     expect(core.warning).toHaveBeenCalledTimes(1)
     expect(core.warning).toHaveBeenCalledWith(
       expect.stringContaining(
-        'leaves out these settings: sonar.nodejs.executable.'
+        'leaves out these settings: sonar.nodejs.executable, sonar.python.file.suffixes.'
       )
     )
     expect(core.info).toHaveBeenCalledWith(
@@ -751,6 +759,59 @@ describe('run in analyze mode', () => {
     expect(order(stop![0])).toBeLessThan(exec.mock.invocationCallOrder[0])
     expect(order(`::${resume}::`)).toBeGreaterThan(
       exec.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('turns off the analyzers of untested languages unless build-arguments turn one on', async () => {
+    prepared({
+      'sonar.inclusions': 'src/**',
+      'sonar.python.file.suffixes': '.java',
+      'sonar.lang.patterns.rust': '**/*.java'
+    })
+    inputs['build-arguments'] = '-Dsonar.lang.patterns.py=**/*.py'
+
+    await run()
+
+    const args = exec.mock.calls[0][1]!
+    const settings = readFileSync(
+      args[0].replace('-Dproject.settings=', ''),
+      'utf8'
+    )
+    expect(serverLanguages).toHaveBeenCalledWith('https://sonarcloud.io', TOKEN)
+    expect(settings).toContain('sonar.inclusions=src/**\n')
+    expect(settings).toContain(`sonar.lang.patterns.py=${NO_FILE}\n`)
+    expect(settings).toContain(`sonar.lang.patterns.rust=${NO_FILE}\n`)
+    expect(settings).not.toMatch(
+      /patterns\.(java|ts)=|file\.suffixes|\*\*\/\*\.java/
+    )
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^Dropped settings a build never ships: .*sonar\.python\.file\.suffixes.*sonar\.lang\.patterns\.rust/
+      )
+    )
+    // The scanner takes the last value it reads for a key.
+    expect(args.slice(1)).toEqual(['-Dsonar.lang.patterns.py=**/*.py'])
+    expect(core.info).toHaveBeenCalledWith(
+      "The analyzers of languages this action isn't tested with stay off: py, rust. To turn one on, set sonar.lang.patterns.<language> in build-arguments."
+    )
+    expect(core.info).toHaveBeenCalledWith(
+      "build-arguments set sonar.lang.patterns.py: that language's analyzer runs with the token."
+    )
+  })
+
+  it("analyses nothing without the server's languages", async () => {
+    prepared({})
+    serverLanguages.mockRejectedValueOnce(
+      new Error(
+        "Could not get the server's languages: https://sonarcloud.io answered 401"
+      )
+    )
+
+    await run()
+
+    expect(exec).not.toHaveBeenCalled()
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining("Could not get the server's languages")
     )
   })
 

@@ -205,9 +205,43 @@ export class Probe {
     )
   }
 
+  // For each pattern and file, how many patterns the engine makes of it and whether one matches the
+  // file, the way the engine detects languages.
+  matches(
+    cases: { pattern: string; absolute: string; relative: string }[]
+  ): { patterns: number; matched: boolean }[] {
+    return this.withInput(
+      cases.map(({ pattern, absolute, relative }) =>
+        [pattern, absolute, relative].map(hex).join(' ')
+      ),
+      (input) =>
+        this.run('matches', input).map(([, patterns, matched]) => ({
+          patterns: Number(patterns),
+          matched: matched === 'true'
+        }))
+    )
+  }
+
   // The classes of a jar that can start a process.
   processClasses(jar: string): string[] {
     return this.run('processes', jar).map(([, name]) => name)
+  }
+
+  // A method's bytecode, one instruction a line, from javap.
+  bytecode(jar: string, className: string, method: string): string[] {
+    const listing = execFileSync(
+      'javap',
+      ['-c', '-p', '-constants', '-classpath', jar, className],
+      { encoding: 'utf8', maxBuffer: 1 << 26 }
+    ).split('\n')
+    const start = listing.findIndex((line) =>
+      new RegExp(`\\s${method}\\(`).test(line)
+    )
+    if (start === -1) throw new Error(`${className} has no ${method}`)
+    const end = listing.findIndex(
+      (line, index) => index > start && !line.trim()
+    )
+    return listing.slice(start + 1, end)
   }
 
   private withInput<T>(lines: string[], use: (input: string) => T): T {
@@ -236,7 +270,7 @@ export class Probe {
     )
       .split('\n')
       .filter((line) =>
-        /^(?:file|entry|split|case|refused|module|key|class|resolved)(?: |$)/.test(
+        /^(?:file|entry|split|case|refused|module|key|class|resolved|matched)(?: |$)/.test(
           line
         )
       )

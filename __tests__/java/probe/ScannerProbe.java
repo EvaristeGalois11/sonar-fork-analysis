@@ -24,6 +24,8 @@ import java.util.jar.JarFile;
 //   csv <file>         each line, split the way the engine splits list settings
 //   modules <file>     each case, walked into modules the way the engine builds the project, with the
 //                      keys each module gets
+//   matches <file>     each line (pattern, absolute path, relative path): how many patterns the engine
+//                      makes of it, and whether one matches the file the way languages are detected
 //   processes <jar>    the engine classes that can start a process
 //   resolve <file>     each line, as a setting's value once the CLI resolves its placeholders, next to
 //                      a setting other=OTHER and an environment holding NAME=ENV
@@ -32,6 +34,7 @@ public class ScannerProbe {
         switch (args[0]) {
             case "cli" -> cli(new File(args[1]));
             case "csv" -> csv(Path.of(args[1]));
+            case "matches" -> matches(Path.of(args[1]));
             case "modules" -> modules(Path.of(args[1]));
             case "processes" -> processes(new File(args[1]));
             case "resolve" -> resolve(Path.of(args[1]));
@@ -50,6 +53,22 @@ public class ScannerProbe {
             for (String key : properties.stringPropertyNames()) {
                 System.out.println("entry " + hex(key) + " " + hex(properties.getProperty(key)));
             }
+        }
+    }
+
+    private static void matches(Path input) throws Exception {
+        Class<?> pathPattern = Class.forName("org.sonar.scanner.plugin.api.impl.fs.PathPattern");
+        Method create = pathPattern.getMethod("create", String[].class);
+        Method match = pathPattern.getMethod("match", Path.class, Path.class, boolean.class);
+        for (String line : Files.readAllLines(input, StandardCharsets.UTF_8)) {
+            String[] parts = line.split(" ");
+            Object[] patterns = (Object[]) create.invoke(null, (Object) new String[] {unhex(parts[0])});
+            boolean matched = false;
+            for (Object pattern : patterns) {
+                // Language detection ignores case.
+                matched |= (Boolean) match.invoke(pattern, Path.of(unhex(parts[1])), Path.of(unhex(parts[2])), false);
+            }
+            System.out.println("matched " + patterns.length + " " + matched);
         }
     }
 

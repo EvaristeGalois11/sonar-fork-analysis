@@ -50,12 +50,14 @@ export const trustedKeys = [
       headSha: 'abc',
       pullRequest: { key: '7', branch: 'feature', base: 'main' }
     },
-    '/tmp/scannerwork'
+    '/tmp/scannerwork',
+    ['java', 'py', 'rust']
   ).keys(),
   ...trustedProperties(
     { projectKey: 'key', organization: '', hostUrl: '' },
     { headSha: 'abc', branch: 'release' },
-    '/tmp/scannerwork'
+    '/tmp/scannerwork',
+    ['java', 'py', 'rust']
   ).keys()
 ]
 

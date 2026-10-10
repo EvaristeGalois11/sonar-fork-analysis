@@ -87,7 +87,8 @@
       "__fixtures__/**/*.ts"
     ],
     "ignoreBinaries": [
-      "java"
+      "java",
+      "javap"
     ],
     "ignore": [
       "dist/**"

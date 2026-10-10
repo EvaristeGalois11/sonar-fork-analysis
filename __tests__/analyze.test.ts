@@ -29,6 +29,7 @@ import {
   unpackWorkspace
 } from '../src/analyze.js'
 import { parseProperties } from '../src/properties.js'
+import { NO_FILE } from '../src/languages.js'
 import { settingText, settingsWithoutPlaceholders } from './arbitraries.js'
 
 let root: string
@@ -958,7 +959,8 @@ describe('trustedProperties', () => {
             headSha: 'abc',
             pullRequest: { key: '7', branch: 'feature', base: 'main' }
           },
-          '/tmp/scannerwork'
+          '/tmp/scannerwork',
+          ['java', 'py', 'rust']
         )
       )
     ).toEqual({
@@ -967,6 +969,8 @@ describe('trustedProperties', () => {
       'sonar.working.directory': '/tmp/scannerwork',
       'sonar.sca.enabled': 'false',
       'sonar.scanner.autoconfig.enabled': 'false',
+      'sonar.lang.patterns.py': NO_FILE,
+      'sonar.lang.patterns.rust': NO_FILE,
       'sonar.organization': 'org',
       'sonar.pullrequest.key': '7',
       'sonar.pullrequest.branch': 'feature',
@@ -978,10 +982,25 @@ describe('trustedProperties', () => {
     const properties = trustedProperties(
       target,
       { headSha: 'abc', branch: 'release' },
-      '/tmp/scannerwork'
+      '/tmp/scannerwork',
+      ['java']
     )
     expect(properties.get('sonar.sca.enabled')).toBe('false')
     expect(properties.get('sonar.scanner.autoconfig.enabled')).toBe('false')
+  })
+
+  it('blocks untested languages on branches too, and only those', () => {
+    const properties = trustedProperties(
+      target,
+      { headSha: 'abc', branch: 'release' },
+      '/tmp/scannerwork',
+      ['java', 'kotlin', 'py']
+    )
+    expect(
+      [...properties.keys()].filter((key) =>
+        key.startsWith('sonar.lang.patterns.')
+      )
+    ).toEqual(['sonar.lang.patterns.py'])
   })
 
   it('names branches other than the default one', () => {
@@ -989,7 +1008,8 @@ describe('trustedProperties', () => {
       trustedProperties(
         target,
         { headSha: 'abc', branch: 'release' },
-        '/tmp/scannerwork'
+        '/tmp/scannerwork',
+        ['java']
       ).get('sonar.branch.name')
     ).toBe('release')
   })

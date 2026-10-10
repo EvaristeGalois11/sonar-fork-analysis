@@ -55,23 +55,27 @@ languages in less depth.
 | npm, pnpm                                                    | Yes       | Yes    |
 | Yarn with `nodeLinker: node-modules`, Bun                    | Yes       | No     |
 | Yarn Plug'n'Play                                             | Yes¹      | No     |
-| Python, Go, PHP and others with a `sonar-project.properties` | Yes       | No     |
-| .NET, C, C++ and Objective-C                                 | No²       | No     |
+| Python, Go, PHP and others with a `sonar-project.properties` | Yes²      | No     |
+| .NET, C, C++ and Objective-C                                 | No³       | No     |
 
 ¹ Rules that need types find less: there's no `node_modules` to take them from.
 `nodeLinker: node-modules` avoids it.
 
-² They need Sonar's scanner for .NET or Sonar's build wrapper.
+² Pull requests from forks only get them analysed once you turn their language
+on. See
+[languages on pull requests from forks](#languages-on-pull-requests-from-forks).
+
+³ They need Sonar's scanner for .NET or Sonar's build wrapper.
 
 | Runner      | Build workflow | Sonar workflow |
 | ----------- | -------------- | -------------- |
 | Linux x64   | Tested         | Tested         |
-| Windows x64 | Tested³        | Untested       |
-| macOS ARM64 | Tested³        | Untested       |
+| Windows x64 | Tested⁴        | Untested       |
+| macOS ARM64 | Tested⁴        | Untested       |
 | Linux ARM64 | Untested       | Untested       |
 | macOS Intel | Untested       | Untested       |
 
-³ Only the build's preparation runs there: Maven, Gradle and npm on Windows, npm
+⁴ Only the build's preparation runs there: Maven, Gradle and npm on Windows, npm
 on macOS. Nothing analyses those artifacts.
 
 <!-- prettier-ignore -->
@@ -79,11 +83,40 @@ on macOS. Nothing analyses those artifacts.
 > Tested means this repository's workflows test it on every change. Each sample
 > project in `fixtures/` is analysed twice: directly and through the fork path.
 > Both analyses must find the same issues, coverage and tests. The sample
-> projects hold Java, JavaScript and TypeScript code.
+> projects hold every language the fork path analyses.
 >
 > Untested means we don't guarantee that the token stays safe on pull requests
-> from forks. Use it at your own risk. That includes other languages inside a
-> tested kind of project, such as Python files in a Maven project.
+> from forks. Use it at your own risk. That includes languages you turn on yourself.
+
+### Languages on pull requests from forks
+
+On pull requests from forks, the Sonar workflow only runs the analyzers of the
+languages the sample projects test:
+
+- Java and Kotlin;
+- JavaScript, TypeScript and Vue;
+- CSS, SCSS and HTML;
+- XML, YAML and JSON: Maven POMs, GitHub Actions workflows, Kubernetes
+  manifests, Helm charts and more;
+- Dockerfiles and Containerfiles.
+
+Sonar only loads a language's analyzer when it finds a file of that language.
+The action asks Sonar which languages it knows. It then tells Sonar that no file
+belongs to any of the others. Their files are still indexed, but with no
+language. So their analyzer never runs. A pull request from a fork may then show
+fewer issues than one of yours. It shows none for Python files in a Maven
+project.
+
+To turn a language on, set its file patterns in `build-arguments` in the Sonar
+workflow. The action logs the Sonar names of the languages it turns off. For
+Python:
+
+```yaml
+build-arguments: |
+  -Dsonar.lang.patterns.py=**/*.py
+```
+
+A language you turn on is untested: use it at your own risk.
 
 ## How it works
 
@@ -248,11 +281,13 @@ sonar.javascript.lcov.reportPaths=coverage/lcov.info
 ```
 
 Other languages have their own report settings, such as
-`sonar.python.coverage.reportPaths=coverage.xml` for Python. The Sonar workflow
-doesn't change. For a Node project, the action also passes the type declarations
-in your `node_modules` to the Sonar workflow, along with the links your package
-manager makes there. Rules that need types then work on pull requests from forks
-too, even across the packages of a monorepo.
+`sonar.python.coverage.reportPaths=coverage.xml` for Python. Pull requests from
+forks only get Python analysed once you turn it on. See
+[languages on pull requests from forks](#languages-on-pull-requests-from-forks).
+For a Node project, the action also passes the type declarations in your
+`node_modules` to the Sonar workflow, along with the links your package manager
+makes there. Rules that need types then work on pull requests from forks too,
+even across the packages of a monorepo.
 
 ### Which commit the build tests
 
@@ -519,6 +554,8 @@ See its [build workflow](.github/workflows/ci.yml) and
   build fails with a message that no analysis settings were written. This
   project's tests keep up with the latest plugins, so such a change should show
   up here first.
+- On fork pull requests, only the analyzers of tested languages run. See
+  [languages on pull requests from forks](#languages-on-pull-requests-from-forks).
 - Dependency analysis (SCA) and the engine's build-system autoconfiguration are
   off on fork pull requests, because both run the project's build tools. See
   [what stays off](docs/security.md#what-stays-off-on-the-fork-path).
