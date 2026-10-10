@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fizzbuzz, readText, size } from "../src/index.ts";
+import { fizzbuzz, readText, size } from "./index.ts";
 
 test("fizzbuzz", () => {
   assert.equal(fizzbuzz(15), "FizzBuzz");
